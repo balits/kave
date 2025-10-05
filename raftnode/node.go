@@ -1,0 +1,133 @@
+package raftnode
+
+import (
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/balits/thesis/config"
+	"github.com/balits/thesis/store"
+	"github.com/hashicorp/raft"
+)
+
+type Node struct {
+	raft   *raft.Raft
+	store  store.KVStore
+	fsm    *FSM
+	server *http.Server
+	logger *slog.Logger
+}
+
+func NewNode(nodeID string, logger *slog.Logger) (*Node, error) {
+	var (
+		addr  string = config.Config.RaftAddr
+		data  string = config.Config.DataDir
+		inmem bool   = config.Config.Inmem
+	)
+
+	logger.Debug("Raft config loaded", "nodeID", nodeID, "address", addr, "inmem", inmem, "dataDir", data)
+
+	cfg := loadRaftConfig(nodeID)
+
+	kvstore := store.NewInMemoryStore()
+	fsm := NewFSM(kvstore)
+
+	raft, err := setupRaft(cfg, fsm, addr, inmem, data)
+	if err != nil {
+		logger.Error("Failed to set up raft", "nodeID", nodeID, "address", addr, "error", err)
+		return nil, err
+	}
+
+	node := new(Node)
+	node.raft = raft
+	node.store = kvstore
+	node.fsm = fsm
+	node.logger = logger
+	node.server = &http.Server{
+		Addr:         config.Config.HttpAddr,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+		IdleTimeout:  5 * time.Second,
+		Handler:      newMux(node),
+	}
+
+	kvstore.SetRaftNode(raft)
+
+	node.logger.Debug("Node initialized", "nodeID", nodeID, "address", addr)
+
+	return node, nil
+}
+
+func setupRaft(config *raft.Config, fsm *FSM, raftAddr string, inmem bool, datadir string) (*raft.Raft, error) {
+	tcpAddr, err := net.ResolveTCPAddr("tcp", raftAddr)
+	if err != nil {
+		return nil, fmt.Errorf("couldnt resolve address: %v", err)
+	}
+
+	transport, err := raft.NewTCPTransport(tcpAddr.String(), tcpAddr, 3, 10*time.Second, os.Stderr)
+	if err != nil {
+		return nil, fmt.Errorf("couldnt build tcp transport: %v", err)
+	}
+
+	var (
+		boltStore     raft.LogStore
+		stableStore   raft.StableStore
+		snapshotStore raft.SnapshotStore
+	)
+
+	if inmem {
+		boltStore = raft.NewInmemStore()
+		stableStore = raft.NewInmemStore()
+		snapshotStore = raft.NewInmemSnapshotStore()
+	} else {
+		return nil, fmt.Errorf("only in-memory storage is supported")
+		// boltStore, err = raftboltdb.NewBoltStore(path.Join(datadir, "bolt"))
+		// if err != nil {
+		// 	return nil, fmt.Errorf("couldnt create raft  store: %v", err)
+		// }
+
+		// snapshotStore, err = raft.NewFileSnapshotStore(path.Join(datadir, "snapshot"), 10, os.Stderr)
+		// if err != nil {
+		// 	return nil, fmt.Errorf("couldnt create raft snapshot store: %v", err)
+		// }
+	}
+
+	dirpath := "data"
+	err = os.MkdirAll(dirpath, os.ModePerm)
+	if err != nil {
+		return nil, fmt.Errorf("couldnt create raft storage directory: %v", err)
+	}
+
+	raftNode, err := raft.NewRaft(config, fsm, boltStore, stableStore, snapshotStore, transport)
+	if err != nil {
+		return nil, fmt.Errorf("couldnt create raft instance: %v", err)
+	}
+
+	hasState, err := raft.HasExistingState(boltStore, stableStore, snapshotStore)
+	if err != nil {
+		return nil, fmt.Errorf("couldnt check existing state: %v", err)
+	}
+
+	if !hasState {
+		raftNode.BootstrapCluster(raft.Configuration{
+			Servers: []raft.Server{
+				{
+					ID:      config.LocalID,
+					Address: raft.ServerAddress(raftAddr),
+				},
+			},
+		})
+	}
+
+	return raftNode, nil
+}
+
+func loadRaftConfig(nodeID string) *raft.Config {
+	cfg := raft.DefaultConfig()
+	cfg.LocalID = raft.ServerID(nodeID)
+	cfg.HeartbeatTimeout = 1000 * time.Millisecond
+	return cfg
+}
