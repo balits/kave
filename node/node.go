@@ -1,4 +1,5 @@
-package raftnode
+// package implements a single raft node with an http server and a key-value store
+package node
 
 import (
 	"fmt"

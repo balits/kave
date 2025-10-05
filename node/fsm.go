@@ -1,4 +1,4 @@
-package raftnode
+package node
 
 import (
 	"bytes"

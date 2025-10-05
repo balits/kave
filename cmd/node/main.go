@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/balits/thesis/config"
-	"github.com/balits/thesis/raftnode"
+	"github.com/balits/thesis/node"
 )
 
 func main() {
@@ -19,7 +19,7 @@ func main() {
 		Level: slog.LevelDebug,
 	}))
 
-	node, _ := raftnode.NewNode(config.Config.NodeID, logger)
+	node, _ := node.NewNode(config.Config.NodeID, logger)
 
 	go node.StartServer()
 	logger.Info("HTTP Server started", "address", config.Config.HttpAddr)
