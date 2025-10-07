@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"time"
 
 	"github.com/balits/thesis/config"
 	"github.com/balits/thesis/store"
+	"github.com/balits/thesis/web"
 	"github.com/hashicorp/raft"
 )
 
@@ -18,15 +18,16 @@ type Node struct {
 	raft   *raft.Raft
 	store  store.KVStore
 	fsm    *FSM
-	server *http.Server
+	server *web.Server
 	logger *slog.Logger
 }
 
-func NewNode(nodeID string, logger *slog.Logger) (*Node, error) {
+func NewNode(confing *config.NodeConfig, logger *slog.Logger, server *web.Server) (*Node, error) {
 	var (
-		addr  string = config.Config.RaftAddr
-		data  string = config.Config.DataDir
-		inmem bool   = config.Config.Inmem
+		addr   string = config.Config.RaftAddr
+		data   string = config.Config.DataDir
+		inmem  bool   = config.Config.Inmem
+		nodeID string = config.Config.NodeID
 	)
 
 	logger.Debug("Raft config loaded", "nodeID", nodeID, "address", addr, "inmem", inmem, "dataDir", data)
@@ -47,13 +48,7 @@ func NewNode(nodeID string, logger *slog.Logger) (*Node, error) {
 	node.store = kvstore
 	node.fsm = fsm
 	node.logger = logger
-	node.server = &http.Server{
-		Addr:         config.Config.HttpAddr,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
-		IdleTimeout:  5 * time.Second,
-		Handler:      newMux(node),
-	}
+	node.server = server
 
 	kvstore.SetRaftNode(raft)
 
