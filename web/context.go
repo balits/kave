@@ -48,9 +48,9 @@ func (ctx *Context) ReadJSON(data any) error {
 }
 
 type ResponseData struct {
-	Data    any
-	Message string
-	Error   string
+	Data    any    `json:"data"`
+	Message string `json:"message"`
+	Error   string `json:"error"`
 }
 
 func NewResponseData(data any, message string, error string) *ResponseData {
