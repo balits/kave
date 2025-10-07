@@ -7,13 +7,14 @@ import (
 )
 
 type NodeConfig struct {
-	RaftAddr string
-	HttpAddr string
-	NodeID   string
-	Inmem    bool
-
+	RaftAddr    string
+	HttpAddr    string
+	NodeID      string
+	Inmem       bool
+	ClusterSize int
 	DataDir     string
 	RaftTimeout time.Duration
+	LogLevel    string
 }
 
 const (
@@ -21,33 +22,40 @@ const (
 	defaultRaftAddr string = "127.0.0.1:12000"
 )
 
-var (
-	Config NodeConfig
-	// defaultConfig = NodeConfig{
-	// 	RaftAddr:    defaultRaftAddr,
-	// 	HttpAddr:    defaultHTTPAddr,
-	// 	NodeID:      "",
-	// 	Inmem:       true,
-	// 	DataDir:     "data",
-	// 	RaftTimeout: 10 * time.Second,
-	// }
-)
+var defaultConfig NodeConfig
+var Config = &defaultConfig
 
 func init() {
-	flag.StringVar(&Config.HttpAddr, "httpaddr", defaultHTTPAddr, fmt.Sprintf("address of the http server (default: %s)", defaultHTTPAddr))
-	flag.StringVar(&Config.RaftAddr, "raftaddr", defaultRaftAddr, fmt.Sprintf("address of the raft node (default: %s)", defaultRaftAddr))
-	flag.StringVar(&Config.NodeID, "id", "", "id of the node (default is the value of --raftaddr)")
-	flag.BoolVar(&Config.Inmem, "inmem", true, "use of in-memory storage (false means the use of durable storage)")
-	flag.StringVar(&Config.DataDir, "data", "data", "a path where raft stores for logs and snapshots")
-	flag.DurationVar(&Config.RaftTimeout, "timeout", 10*time.Second, "raft timeout duration")
+	flag.StringVar(&defaultConfig.HttpAddr, "httpaddr", defaultHTTPAddr, "address of the http server")
+	flag.StringVar(&defaultConfig.RaftAddr, "raftaddr", defaultRaftAddr, "address of the raft node")
+	flag.StringVar(&defaultConfig.NodeID, "id", "", "id of the node (default is the value of --raftaddr)")
+	flag.BoolVar(&defaultConfig.Inmem, "inmem", true, "use of in-memory storage (false means the use of durable storage)")
+	flag.IntVar(&defaultConfig.ClusterSize, "size", 1, "the number of nodes in the raft cluster (1, 2 or 3)")
+	flag.StringVar(&defaultConfig.DataDir, "data", "data", "path to raft logs and snapshots storage")
+	flag.DurationVar(&defaultConfig.RaftTimeout, "timeout", 10*time.Second, "raft timeout duration")
+	flag.StringVar(&defaultConfig.LogLevel, "loglevel", "INFO", "log level (DEBUG, INFO, WARN, ERROR)")
 }
 
 // func DefaultConfig() *NodeConfig {
 // 	return &defaultConfig
 // }
 
-func (c *NodeConfig) Validate() {
+func (c *NodeConfig) Validate() error {
 	if c.NodeID == "" {
-		c.NodeID = c.RaftAddr
+		return fmt.Errorf("node ID is required")
 	}
+
+	switch c.ClusterSize {
+	case 1, 2, 3:
+	default:
+		return fmt.Errorf("invalid cluster size: %d", c.ClusterSize)
+	}
+
+	switch c.LogLevel {
+	case "DEBUG", "INFO", "WARN", "ERROR":
+	default:
+		return fmt.Errorf("invalid log level: %s", c.LogLevel)
+	}
+
+	return nil
 }
