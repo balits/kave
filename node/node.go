@@ -30,27 +30,22 @@ func NewNode(confing *config.NodeConfig, logger *slog.Logger, server *web.Server
 		nodeID string = config.Config.NodeID
 	)
 
-	logger.Debug("Raft config loaded", "nodeID", nodeID, "address", addr, "inmem", inmem, "dataDir", data)
-
 	cfg := loadRaftConfig(nodeID)
-
 	kvstore := store.NewInMemoryStore()
 	fsm := NewFSM(kvstore)
 
 	raft, err := setupRaft(cfg, fsm, addr, inmem, data)
 	if err != nil {
-		logger.Error("Failed to set up raft", "nodeID", nodeID, "address", addr, "error", err)
 		return nil, err
 	}
 
-	node := new(Node)
-	node.raft = raft
-	node.store = kvstore
-	node.fsm = fsm
-	node.logger = logger
-	node.server = server
-
-	kvstore.SetRaftNode(raft)
+	node := &Node{
+		raft:   raft,
+		store:  kvstore,
+		fsm:    fsm,
+		server: server,
+		logger: logger,
+	}
 
 	node.logger.Debug("Node initialized", "nodeID", nodeID, "address", addr)
 

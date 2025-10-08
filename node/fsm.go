@@ -75,35 +75,14 @@ func (fsm FSM) Apply(log *raft.Log) interface{} {
 // FSMSnapshot.Persist will never be called. Raft will always call
 // FSMSnapshot.Release however.
 func (fsm FSM) Snapshot() (raft.FSMSnapshot, error) {
-	// fsm.mu.RLock()
-	// defer fsm.mu.RUnlock()
-	// buffer := bytes.NewBuffer(make([]byte, 0))
-	// enc := gob.NewEncoder(buffer)
-	// if err := enc.Encode(fsm.hashmap); err != nil {
-	// 	return nil, err
-	// }
-	// snapshot := InMemorySnapshot{bytes: buffer.Bytes()}
-	// return snapshot, nil
-
-	return nil, nil
+	return fsm.store.Snapshot()
 }
 
 // Restore is used to restore an FSM from a snapshot. It is not called
 // concurrently with any other command. The FSM must discard all previous
 // state before restoring the snapshot.
 func (fsm FSM) Restore(snapshot io.ReadCloser) error {
-	// defer snapshot.Close()
-	// dec := gob.NewDecoder(snapshot)
-	// var hashmap map[string]string
-	// if err := dec.Decode(&hashmap); err != nil {
-	// 	return err
-	// }
-	// fsm.mu.Lock()
-	// fsm.hashmap = hashmap
-	// fsm.mu.Unlock()
-	// return nil
-
-	return nil
+	return fsm.store.Restore(snapshot)
 }
 
 // ApplyResponse is the concrete type returned by FSM.Apply overwriting the any typed return value in hc's raft, and is accessible by ApplyFuture().Response()
