@@ -48,7 +48,7 @@ func (node *Node) getHandler(ctx *web.Context) {
 	switch err {
 	case nil:
 		node.logger.Debug("HTTP /get request", "key", body.Key, "value", value)
-		response = web.NewResponseData(map[string]string{"value": value}, "", "")
+		response = web.NewResponseData(map[string][]byte{"value": value}, "", "")
 		ctx.Respond(response, http.StatusOK)
 	case store.ErrorKeyNotFound:
 		node.logger.Debug("HTTP /get request: key not found", "key", body.Key)
@@ -74,13 +74,13 @@ func (node *Node) setHandler(ctx *web.Context) {
 
 	var body struct {
 		Key   string `json:"key"`
-		Value string `json:"value"`
+		Value []byte `json:"value"`
 	}
 
 	err := ctx.ReadJSON(&body)
 	node.logger.Debug("HTTP /set body parsed", "body", body, "error", err)
 
-	if err != nil || body.Key == "" || body.Value == "" {
+	if err != nil || body.Key == "" || body.Value == nil {
 		response = web.NewResponseData(nil, "", errMissingOrInvalidFields)
 		ctx.Respond(response, http.StatusBadRequest)
 		return
@@ -157,7 +157,7 @@ func (node *Node) deleteHandler(ctx *web.Context) {
 		ctx.Respond(response, http.StatusInternalServerError)
 		return
 	}
-	data := map[string]string{"value": applyResponse.cmd.Value}
+	data := map[string][]byte{"value": applyResponse.cmd.Value}
 	response = web.NewResponseData(data, "", "")
 	ctx.Respond(response, http.StatusOK)
 }

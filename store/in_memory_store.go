@@ -1,6 +1,9 @@
 package store
 
 import (
+	"encoding/gob"
+	"io"
+	"maps"
 	"sync"
 
 	"github.com/hashicorp/raft"
@@ -8,9 +11,7 @@ import (
 
 type InMemoryStore struct {
 	mu      sync.RWMutex
-	hashmap map[string]string
-
-	raft *raft.Raft
+	hashmap map[string][]byte
 }
 
 // NewInMemoryStore creates a new, empty in-memory key-value store without a raft node instance.
@@ -18,51 +19,70 @@ type InMemoryStore struct {
 func NewInMemoryStore() *InMemoryStore {
 	return &InMemoryStore{
 		mu:      sync.RWMutex{},
-		hashmap: make(map[string]string),
-		raft:    nil,
+		hashmap: make(map[string][]byte),
 	}
 }
 
-func (s *InMemoryStore) SetRaftNode(raft *raft.Raft) {
-	s.raft = raft
-}
-
-func (s *InMemoryStore) GetStale(key string) (string, error) {
+func (s *InMemoryStore) GetStale(key string) (value []byte, err error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	value, ok := s.hashmap[key]
 	if !ok {
-		return "", ErrorKeyNotFound
+		err = ErrorKeyNotFound
 	}
-	return value, nil
+	return
 }
 
-func (s *InMemoryStore) Set(key, value string) error {
+func (s *InMemoryStore) Set(key string, value []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.hashmap[key] = value
 	return nil
 }
 
-func (s *InMemoryStore) Delete(key string) (string, error) {
+func (s *InMemoryStore) Delete(key string) (value []byte, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	value, ok := s.hashmap[key]
 	if !ok {
-		return "", nil
+		err = ErrorKeyNotFound // question: maybe move to noop on key not found
 	}
 	delete(s.hashmap, key)
-	return value, nil
+	return
 }
 
-// Snapshot for the key value store that implements raft's FSMSnapshot
-// It can save data from the store to persistent storage,
-type InMemorySnapshot []byte
+func (s *InMemoryStore) Snapshot() (raft.FSMSnapshot, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	data := maps.Clone(s.hashmap)
+	return InMemorySnapshot{data: data}, nil
+}
+
+// Restore restores the stores data from a snapshot that has been encoded by the stores corresponding snapshot implementation, namely the function FSMSnapshot.Persist()
+func (s *InMemoryStore) Restore(snapshot io.ReadCloser) error {
+	defer snapshot.Close()
+	var newmap map[string][]byte
+	err := gob.NewDecoder(snapshot).Decode(&newmap)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.hashmap = newmap
+	s.mu.Unlock()
+	return nil
+}
+
+// InMemorySnapshot is a snapshot of the data at a given time, used to support log compactoin and restore the FSM to a desired state.
+// It is returned FSM.Snapshot() which itself shouldn't do heavy IO work.
+// No mutex needed since snapshots are immutable
+type InMemorySnapshot struct {
+	data map[string][]byte
+}
 
 // Persist should dump all necessary state to the WriteCloser 'sink',
 // and call sink.Close() when finished or call sink.Cancel() on error.
 func (s InMemorySnapshot) Persist(sink raft.SnapshotSink) error {
-	_, err := sink.Write(s)
+	err := gob.NewEncoder(sink).Encode(s.data)
 	if err != nil {
 		return sink.Cancel()
 	}
@@ -70,4 +90,6 @@ func (s InMemorySnapshot) Persist(sink raft.SnapshotSink) error {
 }
 
 // Release is invoked when we are finished with the snapshot.
-func (s InMemorySnapshot) Release() {}
+func (s InMemorySnapshot) Release() {
+	//let gc clean it up later automatically
+}
