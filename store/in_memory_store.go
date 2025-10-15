@@ -14,8 +14,7 @@ type InMemoryStore struct {
 	hashmap map[string][]byte
 }
 
-// NewInMemoryStore creates a new, empty in-memory key-value store without a raft node instance.
-// The raft node instance must be set throguh two-phase initialization later using SetRaftNode.
+// NewInMemoryStore creates a new, empty in-memory key-value store
 func NewInMemoryStore() *InMemoryStore {
 	return &InMemoryStore{
 		mu:      sync.RWMutex{},
