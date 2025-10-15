@@ -1,0 +1,32 @@
+{
+    "inmem": false,
+    "log_level": "DEBUG",
+    "data_dir": "data",
+    "cluster_info": [
+        {
+            "id": "node1",
+            "raft_host": "node1",
+            "raft_port": "7000",
+            "http_host": "127.0.0.1",
+            "internal_http_port": "8000",
+            "external_http_port": "8001",
+            "need_bootstrap": true
+        },
+        {
+            "id": "node2",
+            "raft_host": "node2",
+            "raft_port": "7000",
+            "http_host": "127.0.0.1",
+            "internal_http_port": "8000",
+            "external_http_port": "8002"
+        },
+        {
+            "id": "node3",
+            "raft_host": "node3",
+            "raft_port": "7000",
+            "http_host": "127.0.0.1",
+            "internal_http_port": "8000",
+            "external_http_port": "8003"
+        }
+    ]
+}
