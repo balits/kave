@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"io"
 
@@ -29,7 +30,7 @@ func (fsm FSM) Apply(log *raft.Log) interface{} {
 
 	err := gob.NewDecoder(bytes.NewReader(log.Data)).Decode(&cmd)
 	if err != nil {
-		panic(err) // fixme: graceful error handling
+		return NewApplyResponse(cmd, err)
 	}
 
 	fmt.Println("fsm.Apply", cmd)
@@ -50,7 +51,7 @@ func (fsm FSM) Apply(log *raft.Log) interface{} {
 		// 	r.cmd.Value = value
 		// }
 		// return r
-		panic("Get throught raft.Apply not supported")
+		return NewApplyResponse(cmd, errors.New("get commands throught raft are not supported"))
 	}
 
 	return nil
