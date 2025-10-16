@@ -111,9 +111,6 @@ func (s *Service) Bootstrap() error {
 	// 	return nil, fmt.Errorf("couldn't bootstrap since cluster had existing state")
 	// }
 
-	// fixme: should we check for Leader, is it needed for bootstrapping?
-	// if raftNode.State() !=
-
 	var servers []raft.Server
 	for _, i := range s.Config.ClusterInfo {
 		servers = append(servers, raft.Server{
@@ -144,13 +141,9 @@ func (s *Service) JoinCluster() error {
 }
 
 // StartHTTP starts the http server on a new go routine, propagating an error through errCh if unsuccessful
-func (s *Service) StartHTTP(errCh chan error) {
-	s.Logger.Info("Starting server on ")
-	go func() {
-		if err := s.Server.Start(); err != nil {
-			errCh <- err
-		}
-	}()
+func (s *Service) StartHTTP(errCh chan error, readyCh chan struct{}) {
+	s.Logger.Info("Starting server")
+	s.Server.Start(errCh, readyCh)
 }
 
 // Shutdown terminates both the http server with the supplied timeout and the raft node
