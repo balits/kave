@@ -31,12 +31,10 @@ func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	srv.server.Handler.ServeHTTP(w, r)
 }
 
-func (srv *Server) Start() error {
-	err := srv.server.ListenAndServe()
-	if err != nil && err != http.ErrServerClosed {
-		return err
-	}
-	return nil
+func (srv *Server) Start() {
+	go func() {
+		_ = srv.server.ListenAndServe()
+	}()
 }
 
 // Shutdown terminates the http server with the supplied timeout

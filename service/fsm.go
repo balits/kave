@@ -88,7 +88,7 @@ func (fsm FSM) Restore(snapshot io.ReadCloser) error {
 
 // ApplyResponse is the concrete type returned by FSM.Apply overwriting the any typed return value in hc's raft, and is accessible by ApplyFuture().Response()
 type ApplyResponse struct {
-	cmd store.Cmd // fixme: do we even need a reference to the key-value at raft.Apply call site? we would already call it with the cmd
+	cmd store.Cmd // question: do we even need a reference to the key-value at raft.Apply call site? we would already call it with the cmd. answer: we use cmd in delete for to return the deleted value
 	err error
 }
 

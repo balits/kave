@@ -33,17 +33,7 @@ func main() {
 	defer svc.Shutdown(time.Second * 5)
 
 	svc.RegisterRoutes()
-	startErrorCh := make(chan error, 1)
-	svc.StartHTTP(startErrorCh)
-
-	select {
-	case err := <-startErrorCh:
-		logger.Error("Could not start web server", "error", err)
-		return
-	case <-time.After(5 * time.Second): // delay
-	}
-	logger.Info("Web server started")
-	//fixme: add an atomic bool "running" to web.Server to quickly check state
+	svc.StartHTTP()
 
 	raft, err := svc.NewRaft()
 	if err != nil {

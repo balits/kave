@@ -141,9 +141,9 @@ func (s *Service) JoinCluster() error {
 }
 
 // StartHTTP starts the http server on a new go routine, propagating an error through errCh if unsuccessful
-func (s *Service) StartHTTP(errCh chan error, readyCh chan struct{}) {
-	s.Logger.Info("Starting server")
-	s.Server.Start(errCh, readyCh)
+func (s *Service) StartHTTP() {
+	s.Logger.Info("Starting HTTP server")
+	s.Server.Start()
 }
 
 // Shutdown terminates both the http server with the supplied timeout and the raft node
