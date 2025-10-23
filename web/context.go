@@ -18,16 +18,22 @@ func NewContext(w http.ResponseWriter, r *http.Request) *Context {
 }
 
 func (ctx *Context) NotFound() {
-	data := NewResponseData(nil, "", "404 Resource not found")
-	ctx.Respond(data, http.StatusNotFound)
+	ctx.Error("404 Resource not found", http.StatusNotFound)
 }
 
 func (ctx *Context) MethodNotAllowed() {
-	data := NewResponseData(nil, "", "Method not allowed")
-	ctx.Respond(data, http.StatusMethodNotAllowed)
+	ctx.Error("Method not allowed", http.StatusMethodNotAllowed)
 }
 
-func (ctx *Context) Respond(data *ResponseData, statusCode int) {
+func (ctx *Context) Error(err string, statusCode int) {
+	ctx.Respond(NewResponseError(err), statusCode)
+}
+
+func (ctx *Context) Ok(data any) {
+	ctx.Respond(NewResponseData(data), http.StatusOK)
+}
+
+func (ctx *Context) Respond(data *ResponsePayload, statusCode int) {
 	h := ctx.W.Header()
 	h.Set("Content-Type", "application/json")
 	h.Set("X-Content-Type-Options", "nosniff")
@@ -35,7 +41,7 @@ func (ctx *Context) Respond(data *ResponseData, statusCode int) {
 	ctx.WriteJSON(data)
 }
 
-func (ctx *Context) WriteJSON(data *ResponseData) {
+func (ctx *Context) WriteJSON(data *ResponsePayload) {
 	if err := json.NewEncoder(ctx.W).Encode(data); err != nil {
 		http.Error(ctx.W, err.Error(), http.StatusInternalServerError)
 	}
@@ -47,16 +53,19 @@ func (ctx *Context) ReadJSON(data any) error {
 	return json.NewDecoder(body).Decode(&data)
 }
 
-type ResponseData struct {
-	Data    any    `json:"data"`
-	Message string `json:"message"`
-	Error   string `json:"error"`
+type ResponsePayload struct {
+	Data  any    `json:"data"`
+	Error string `json:"error"`
 }
 
-func NewResponseData(data any, message string, error string) *ResponseData {
-	return &ResponseData{
-		Data:    data,
-		Message: message,
-		Error:   error,
+func NewResponseData(data any) *ResponsePayload {
+	return &ResponsePayload{
+		Data: data,
+	}
+}
+
+func NewResponseError(err string) *ResponsePayload {
+	return &ResponsePayload{
+		Error: err,
 	}
 }

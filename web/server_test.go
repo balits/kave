@@ -24,7 +24,7 @@ func TestServerGET(t *testing.T) {
 			t.Errorf("Expected status code 200, got %d", recorder.Code)
 		}
 
-		var body web.ResponseData
+		var body web.ResponsePayload
 		if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
 			t.Errorf("Failed to decode response body: %v", err)
 		}
@@ -52,9 +52,13 @@ func TestServerPOST(t *testing.T) {
 			t.Errorf("Expected status code 200, got %d", recorder.Code)
 		}
 
-		var respData web.ResponseData
+		var respData web.ResponsePayload
 		if err := json.NewDecoder(recorder.Body).Decode(&respData); err != nil {
 			t.Errorf("Failed to decode response body: %v", err)
+		}
+
+		if respData.Error != "" {
+			t.Errorf("Unexpected error: %s", respData.Error)
 		}
 
 		if respData.Data != fmt.Sprintf("Hello, %s!", name) {
@@ -67,7 +71,7 @@ func newMockServer() web.Router {
 	router := web.NewRouter()
 
 	router.Register("GET", "/", func(ctx *web.Context) {
-		response := web.NewResponseData("Hello, World!", "", "")
+		response := web.NewResponseData("Hello, World!")
 		ctx.Respond(response, 200)
 	})
 
@@ -76,12 +80,12 @@ func newMockServer() web.Router {
 			Name string `json:"name"`
 		}
 		if err := ctx.ReadJSON(&reqBody); err != nil {
-			response := web.NewResponseData(nil, err.Error(), "Invalid JSON")
+			response := web.NewResponseError(err.Error())
 			ctx.Respond(response, 400)
 			return
 		}
 
-		response := web.NewResponseData(fmt.Sprintf("Hello, %s!", reqBody.Name), "", "")
+		response := web.NewResponseData(fmt.Sprintf("Hello, %s!", reqBody.Name))
 		ctx.Respond(response, 200)
 	})
 

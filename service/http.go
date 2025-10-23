@@ -15,7 +15,11 @@ import (
 	"github.com/hashicorp/raft"
 )
 
-const errMissingOrInvalidFields string = "missing or invalid fields"
+const (
+	errMissingOrInvalidFieldsOnRequestBody string = "Request body: missing or invalid fields"
+	errRaftInstanceNotSetup                string = "Raft instance is not yet set up"
+	errApplyResponseCastFailed             string = "Failed to cast raft's response to ApplyResponse"
+)
 
 func (s *Service) RegisterRoutes() {
 	s.Server.Router.Register("GET", "/get", s.getHandler)
@@ -25,21 +29,21 @@ func (s *Service) RegisterRoutes() {
 }
 
 func (s *Service) getHandler(ctx *web.Context) {
-	var response *web.ResponseData
 	var body struct {
 		Key string `json:"key"`
 	}
 
 	if s.Raft == nil {
-		response = web.NewResponseData(nil, "", "Raft instance is not yet set up")
-		ctx.Respond(response, http.StatusServiceUnavailable)
+		ctx.Error("Raft instance is not yet set up", http.StatusServiceUnavailable)
 		return
 	}
 
 	err := ctx.ReadJSON(&body)
 	if err != nil {
-		response = web.NewResponseData(nil, "", errMissingOrInvalidFields)
-		ctx.Respond(response, http.StatusBadRequest)
+		ctx.Error(err.Error(), http.StatusBadRequest)
+		return
+	} else if body.Key == "" {
+		ctx.Error(errMissingOrInvalidFieldsOnRequestBody, http.StatusBadRequest)
 		return
 	}
 
@@ -47,24 +51,19 @@ func (s *Service) getHandler(ctx *web.Context) {
 	switch err {
 	case nil:
 		s.Logger.Debug("HTTP /get request", "key", body.Key, "value", value)
-		response = web.NewResponseData(map[string][]byte{"value": value}, "", "")
-		ctx.Respond(response, http.StatusOK)
+		data := map[string][]byte{"value": value}
+		ctx.Ok(data)
 	case store.ErrorKeyNotFound:
 		s.Logger.Debug("HTTP /get request: key not found", "key", body.Key)
-		response = web.NewResponseData(nil, "", "Key not found")
-		ctx.Respond(response, http.StatusNotFound)
+		ctx.Error("Key not found", http.StatusNotFound)
 	default:
-		response = web.NewResponseData(nil, "", err.Error())
-		ctx.Respond(response, http.StatusInternalServerError)
+		ctx.Error(err.Error(), http.StatusInternalServerError)
 	}
 }
 
 func (s *Service) setHandler(ctx *web.Context) {
-	var response *web.ResponseData
-
 	if s.Raft == nil {
-		response = web.NewResponseData(nil, "", "Raft instance is not yet set up")
-		ctx.Respond(response, http.StatusServiceUnavailable)
+		ctx.Error(errRaftInstanceNotSetup, http.StatusServiceUnavailable)
 		return
 	}
 	// FIXME: move to reverse proxy + internal redirection
@@ -73,7 +72,7 @@ func (s *Service) setHandler(ctx *web.Context) {
 		leaderAddr, leaderID := s.Raft.LeaderWithID()
 		s.Logger.Debug("Leader", "leader address", leaderAddr, "leader id", leaderID)
 		if leaderAddr == "" || leaderID == "" {
-			ctx.Respond(web.NewResponseData(nil, "", "no current leader found"), http.StatusInternalServerError)
+			ctx.Error("no current leader found", http.StatusInternalServerError)
 			return
 		}
 		for _, server := range s.Config.ClusterInfo {
@@ -82,8 +81,7 @@ func (s *Service) setHandler(ctx *web.Context) {
 			}
 		}
 		if currentLeader == nil {
-			response = web.NewResponseData(nil, "", "http address of the leader was not found")
-			ctx.Respond(response, http.StatusInternalServerError)
+			ctx.Error("http address of the leader was not found", http.StatusInternalServerError)
 			return
 		}
 		s.Logger.Debug("Redirecting to leader", "leader", fmt.Sprintf("%+v", currentLeader))
@@ -100,9 +98,11 @@ func (s *Service) setHandler(ctx *web.Context) {
 	err := ctx.ReadJSON(&body)
 	s.Logger.Debug("HTTP /set body parsed", "body", body, "error", err)
 
-	if err != nil || body.Key == "" || body.Value == nil {
-		response = web.NewResponseData(nil, "", errMissingOrInvalidFields)
-		ctx.Respond(response, http.StatusBadRequest)
+	if err != nil {
+		ctx.Error(err.Error(), http.StatusBadRequest)
+		return
+	} else if body.Key == "" || body.Value == nil {
+		ctx.Error(errMissingOrInvalidFieldsOnRequestBody, http.StatusBadRequest)
 		return
 	}
 
@@ -114,46 +114,44 @@ func (s *Service) setHandler(ctx *web.Context) {
 	}
 	err = gob.NewEncoder(&buff).Encode(cmd)
 	if err != nil {
-		response = web.NewResponseData(nil, "", err.Error())
-		ctx.Respond(response, http.StatusInternalServerError)
+		ctx.Error(err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	future := s.Raft.Apply(buff.Bytes(), 10*time.Second)
+	future := s.Raft.Apply(buff.Bytes(), 5*time.Second)
 	err = future.Error()
 	if err != nil {
-		response = web.NewResponseData(nil, "", err.Error())
-		ctx.Respond(response, http.StatusInternalServerError)
+		ctx.Error(err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	applyResponse := future.Response().(ApplyResponse)
+	applyResponse, ok := future.Response().(ApplyResponse)
+	if !ok {
+		ctx.Error(errApplyResponseCastFailed, http.StatusInternalServerError)
+		return
+	}
 	if applyResponse.IsError() {
-		response = web.NewResponseData(nil, "", applyResponse.err.Error())
-		ctx.Respond(response, http.StatusInternalServerError)
+		ctx.Error(applyResponse.err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	response = web.NewResponseData(nil, "", "")
-	ctx.Respond(response, http.StatusOK)
 }
 
 func (s *Service) deleteHandler(ctx *web.Context) {
-	var response *web.ResponseData
+	if s.Raft == nil {
+		ctx.Error(errRaftInstanceNotSetup, http.StatusServiceUnavailable)
+		return
+	}
+
 	var body struct {
 		Key string `json:"key"`
 	}
 
-	if s.Raft == nil {
-		response = web.NewResponseData(nil, "", "Raft instance is not yet set up")
-		ctx.Respond(response, http.StatusServiceUnavailable)
-		return
-	}
-
 	err := ctx.ReadJSON(&body)
-	if err != nil || body.Key == "" {
-		response = web.NewResponseData(nil, "", errMissingOrInvalidFields)
-		ctx.Respond(response, http.StatusBadRequest)
+	if err != nil {
+		ctx.Error(err.Error(), http.StatusBadRequest)
+		return
+	} else if body.Key == "" {
+		ctx.Error(errMissingOrInvalidFieldsOnRequestBody, http.StatusBadRequest)
 		return
 	}
 
@@ -164,28 +162,24 @@ func (s *Service) deleteHandler(ctx *web.Context) {
 	}
 	err = gob.NewEncoder(&buff).Encode(cmd)
 	if err != nil {
-		response = web.NewResponseData(nil, "", err.Error())
-		ctx.Respond(response, http.StatusInternalServerError)
+		ctx.Error(err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	future := s.Raft.Apply(buff.Bytes(), time.Second*5)
 	err = future.Error()
 	if err != nil {
-		response = web.NewResponseData(nil, "", err.Error())
-		ctx.Respond(response, http.StatusInternalServerError)
+		ctx.Error(err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	applyResponse := future.Response().(ApplyResponse)
 	if applyResponse.IsError() {
-		response = web.NewResponseData(nil, "", applyResponse.err.Error())
-		ctx.Respond(response, http.StatusInternalServerError)
+		ctx.Error(applyResponse.err.Error(), http.StatusInternalServerError)
 		return
 	}
 	data := map[string][]byte{"value": applyResponse.cmd.Value}
-	response = web.NewResponseData(data, "", "")
-	ctx.Respond(response, http.StatusOK)
+	ctx.Ok(data)
 }
 
 type joinBody struct {
@@ -195,7 +189,7 @@ type joinBody struct {
 
 func (s *Service) joinHandler(ctx *web.Context) {
 	if s.Raft == nil {
-		http.Error(ctx.W, "Raft instance is not yet set up", http.StatusServiceUnavailable)
+		http.Error(ctx.W, errRaftInstanceNotSetup, http.StatusServiceUnavailable)
 		return
 	}
 
@@ -210,6 +204,9 @@ func (s *Service) joinHandler(ctx *web.Context) {
 	if err != nil {
 		http.Error(ctx.W, err.Error(), http.StatusBadRequest)
 		return
+	} else if body.Addr == "" || body.ID == "" {
+		http.Error(ctx.W, errMissingOrInvalidFieldsOnRequestBody, http.StatusBadRequest)
+		return
 	}
 
 	f := s.Raft.GetConfiguration()
@@ -217,6 +214,13 @@ func (s *Service) joinHandler(ctx *web.Context) {
 		http.Error(ctx.W, fmt.Sprintf("failed to read configuration: %v", err), http.StatusInternalServerError)
 		return
 	}
+	// TODO: what are we doing here?
+	// we check if the provided serverID is in the cluster configuration
+	// but if it is then we just return OK?
+	// i mean provided that only real nodes try to connect, they are gonne be in the cluster config
+	// bcs we assemble said config in service.Bootstrap() from the config file
+	// or mabye they only get added as real voters of the cluster once joinHandler succeeds,
+	// then no other join request should go to the line "s.Raft.AddVoter(...)" so we return early?
 	raftConfig := f.Configuration()
 	for _, node := range raftConfig.Servers {
 		if node.ID == raft.ServerID(body.ID) {
@@ -230,7 +234,7 @@ func (s *Service) joinHandler(ctx *web.Context) {
 		http.Error(ctx.W, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	ctx.W.WriteHeader(http.StatusNoContent)
+	ctx.W.WriteHeader(http.StatusOK)
 }
 
 func tryJoin(cfg *config.Config, timeout time.Duration) error {
@@ -281,8 +285,11 @@ func tryJoin(cfg *config.Config, timeout time.Duration) error {
 
 			// fmt.Printf("round %d, attempt %d: url=%s, status=%s, ", round, attempt, url, resp.Status)
 			switch resp.StatusCode {
-			case http.StatusNoContent: // ok
+			case http.StatusOK:
 				fmt.Println("joined succesfully")
+				return nil
+			case http.StatusNoContent:
+				fmt.Println("already joined succesfully")
 				return nil
 			case http.StatusConflict: // not leader
 				fmt.Println("node was not the leader")
