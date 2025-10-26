@@ -13,16 +13,16 @@ docker-build: ## Build Docker image
 	docker buildx build -f docker/Dockerfile -t kvraft .
 
 compose-up3: ## Run 3-node cluster
-	docker compose -f docker-compose3.yaml up --build --remove-orphans
+	docker compose -f  $(COMPOSE3) up --build --remove-orphans
 
 compose-up5: ## Run 5-node cluster
-	docker compose -f docker-compose5.yaml up --build --remove-orphans
+	docker compose -f $(COMPOSE5) up --build --remove-orphans
 
 compose-down3:
-	docker compose -f docker-compose3.yaml down
+	docker compose -f $(COMPOSE3) down
 
 compose-down5:
-	docker compose -f docker-compose3.yaml down
+	docker compose -f $(COMPOSE5) down
 
 clean: ## Cleal local builds
 	rm -rf bin
