@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"time"
 
 	"github.com/balits/thesis/pkg/config"
@@ -42,7 +43,7 @@ func NewService(store store.KVStore, fsm *FSM, server *web.Server, logger *slog.
 
 // NewRaft creates a Raft instance based on our service
 func (s *Service) NewRaft() (*raft.Raft, error) {
-	raftConfig := loadRaftConfig(s.Config.ThisService.RaftID)
+	raftConfig := loadRaftConfig(s.Config.ThisService.RaftID, s.Config.LogLevel)
 	tcpAddr, err := net.ResolveTCPAddr("tcp", s.Config.ThisService.GetRaftAddress())
 	if err != nil {
 		return nil, fmt.Errorf("couldn't resolve address: %w", err)
@@ -59,7 +60,8 @@ func (s *Service) NewRaft() (*raft.Raft, error) {
 		snapshotStore raft.SnapshotStore
 	)
 
-	if err = os.MkdirAll(s.Config.DataDir, os.ModePerm); err != nil {
+	nodeSpecificDataDir := filepath.Join(s.Config.DataDir, s.Config.ThisService.RaftID)
+	if err = os.MkdirAll(nodeSpecificDataDir, os.ModePerm); err != nil {
 		return nil, fmt.Errorf("couldn't create raft storage directory: %w", err)
 	}
 
@@ -68,7 +70,7 @@ func (s *Service) NewRaft() (*raft.Raft, error) {
 		stableStore = raft.NewInmemStore()
 		snapshotStore = raft.NewInmemSnapshotStore()
 	} else {
-		logStorePath := path.Join(s.Config.DataDir, "bolt")
+		logStorePath := path.Join(nodeSpecificDataDir, "bolt")
 		if _, err := os.Create(logStorePath); err != nil {
 			return nil, fmt.Errorf("couldn't create raft logstore file: %w", err)
 		}
@@ -76,7 +78,7 @@ func (s *Service) NewRaft() (*raft.Raft, error) {
 			return nil, fmt.Errorf("couldn't create raft log store: %w", err)
 		}
 
-		stableStorePath := path.Join(s.Config.DataDir, "stable")
+		stableStorePath := path.Join(nodeSpecificDataDir, "stable")
 		if _, err := os.Create(stableStorePath); err != nil {
 			return nil, fmt.Errorf("couldn't create raft stablestore file: %w", err)
 		}
@@ -84,7 +86,7 @@ func (s *Service) NewRaft() (*raft.Raft, error) {
 			return nil, fmt.Errorf("couldn't create raft stable store: %w", err)
 		}
 
-		if snapshotStore, err = raft.NewFileSnapshotStore(s.Config.DataDir, 10, os.Stderr); err != nil {
+		if snapshotStore, err = raft.NewFileSnapshotStore(nodeSpecificDataDir, 10, os.Stderr); err != nil {
 			return nil, fmt.Errorf("couldn't create raft snapshot store: %w", err)
 		}
 	}
@@ -179,11 +181,11 @@ func (s *Service) Shutdown(timeout time.Duration) {
 	}
 }
 
-func loadRaftConfig(nodeID string) *raft.Config {
+func loadRaftConfig(nodeID string, logLevel string) *raft.Config {
 	cfg := raft.DefaultConfig()
 	cfg.LocalID = raft.ServerID(nodeID)
 	// cfg.HeartbeatTimeout = 1 * time.Second
 	// cfg.ElectionTimeout = 2 * time.Second
-	cfg.LogLevel = "WARN"
+	cfg.LogLevel = logLevel
 	return cfg
 }
