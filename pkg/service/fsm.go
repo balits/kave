@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/gob"
 	"errors"
-	"fmt"
 	"io"
 
 	"github.com/balits/thesis/pkg/store"
@@ -32,8 +31,6 @@ func (fsm FSM) Apply(log *raft.Log) interface{} {
 	if err != nil {
 		return NewApplyResponse(cmd, err)
 	}
-
-	fmt.Println("fsm.Apply", cmd)
 
 	switch cmd.Kind {
 	case store.CmdKindSet:

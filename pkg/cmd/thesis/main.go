@@ -23,14 +23,12 @@ func main() {
 	doneCh := make(chan os.Signal, 1)
 	signal.Notify(doneCh, os.Interrupt)
 
-	logger := util.NewJSONLogger(config.LogLevel, os.Stdout).
-		With("node", config.ThisService.RaftID)
+	logger := util.NewJSONLogger(config.LogLevel, os.Stdout).With("nodeID", config.ThisService.RaftID)
 	httpAddr := config.ThisService.RaftHost + ":" + config.ThisService.InternalHttpPort
-	server := web.NewServer(httpAddr, web.NewRouter())
+	server := web.NewServerWithLogger(httpAddr, logger.With("component", "server"))
 	store := store.NewInMemoryStore()
 	fsm := service.NewFSM(store)
-
-	svc := service.NewService(store, fsm, server, logger, config)
+	svc := service.NewService(store, fsm, server, logger.With("component", "server"), config)
 	svc.RegisterRoutes()
 	defer svc.Shutdown(time.Second * 5)
 	go svc.StartHTTP()

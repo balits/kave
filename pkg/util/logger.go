@@ -5,6 +5,8 @@ import (
 	"log/slog"
 )
 
+//TODO: batch or disable logs in prod
+
 func NewJSONLogger(logLevel string, out io.Writer) *slog.Logger {
 	var level slog.Level
 	switch logLevel {
@@ -20,7 +22,7 @@ func NewJSONLogger(logLevel string, out io.Writer) *slog.Logger {
 		level = slog.LevelInfo
 	}
 
-	return slog.New(slog.NewTextHandler(out, &slog.HandlerOptions{
+	return slog.New(slog.NewJSONHandler(out, &slog.HandlerOptions{
 		Level: level,
 		// AddSource: true,
 	}))

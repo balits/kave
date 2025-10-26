@@ -57,7 +57,7 @@ func (s *Service) getHandler(ctx *web.Context) {
 		s.Logger.Debug("HTTP /get request: key not found", "key", body.Key)
 		ctx.Error("Key not found", http.StatusNotFound)
 	default:
-		ctx.Error(err.Error(), http.StatusInternalServerError)
+		ctx.Error(fmt.Sprintf("Error during store.Get: %v", err.Error()), http.StatusInternalServerError)
 	}
 }
 
@@ -96,8 +96,6 @@ func (s *Service) setHandler(ctx *web.Context) {
 	}
 
 	err := ctx.ReadJSON(&body)
-	s.Logger.Debug("HTTP /set body parsed", "body", body, "error", err)
-
 	if err != nil {
 		ctx.Error(err.Error(), http.StatusBadRequest)
 		return
@@ -114,14 +112,14 @@ func (s *Service) setHandler(ctx *web.Context) {
 	}
 	err = gob.NewEncoder(&buff).Encode(cmd)
 	if err != nil {
-		ctx.Error(err.Error(), http.StatusInternalServerError)
+		ctx.Error(fmt.Sprintf("Error during gob encoding: %v", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
 	future := s.Raft.Apply(buff.Bytes(), 5*time.Second)
 	err = future.Error()
 	if err != nil {
-		ctx.Error(err.Error(), http.StatusInternalServerError)
+		ctx.Error(fmt.Sprintf("Error during raft.Apply: %v", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
@@ -131,9 +129,10 @@ func (s *Service) setHandler(ctx *web.Context) {
 		return
 	}
 	if applyResponse.IsError() {
-		ctx.Error(applyResponse.err.Error(), http.StatusInternalServerError)
+		ctx.Error(fmt.Sprintf("Error during raft.Apply.Response: %v", applyResponse.err.Error()), http.StatusInternalServerError)
 		return
 	}
+	ctx.Ok(nil)
 }
 
 func (s *Service) deleteHandler(ctx *web.Context) {
@@ -148,7 +147,7 @@ func (s *Service) deleteHandler(ctx *web.Context) {
 
 	err := ctx.ReadJSON(&body)
 	if err != nil {
-		ctx.Error(err.Error(), http.StatusBadRequest)
+		ctx.Error(fmt.Sprintf("Request body: %v", err.Error()), http.StatusBadRequest)
 		return
 	} else if body.Key == "" {
 		ctx.Error(errMissingOrInvalidFieldsOnRequestBody, http.StatusBadRequest)
@@ -162,20 +161,20 @@ func (s *Service) deleteHandler(ctx *web.Context) {
 	}
 	err = gob.NewEncoder(&buff).Encode(cmd)
 	if err != nil {
-		ctx.Error(err.Error(), http.StatusInternalServerError)
+		ctx.Error(fmt.Sprintf("Error during gob encoding: %v", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
 	future := s.Raft.Apply(buff.Bytes(), time.Second*5)
 	err = future.Error()
 	if err != nil {
-		ctx.Error(err.Error(), http.StatusInternalServerError)
+		ctx.Error(fmt.Sprintf("Error during raft.Apply: %v", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
 	applyResponse := future.Response().(ApplyResponse)
 	if applyResponse.IsError() {
-		ctx.Error(applyResponse.err.Error(), http.StatusInternalServerError)
+		ctx.Error(fmt.Sprintf("Error during raft.Apply.Response: %v", applyResponse.err.Error()), http.StatusInternalServerError)
 		return
 	}
 	data := map[string][]byte{"value": applyResponse.cmd.Value}
@@ -188,7 +187,6 @@ type joinBody struct {
 }
 
 func (s *Service) joinHandler(ctx *web.Context) {
-	s.Logger.Info("New join request", "node", s.Config.ThisService.RaftID, "service", fmt.Sprintf("%+v", s))
 	if s.Raft == nil {
 		http.Error(ctx.W, errRaftInstanceNotSetup, http.StatusServiceUnavailable)
 		return
