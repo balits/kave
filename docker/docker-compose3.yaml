@@ -1,0 +1,54 @@
+services:
+  node1:
+    build: 
+      context: ..
+      dockerfile: docker/Dockerfile
+    command:
+      [
+        "--nodeid", "node1",
+        "--config", "/config/clusterConfig.json"
+      ]
+    ports:
+      - "8001:8000"
+    networks: ["raftnetwork"]
+    volumes:
+      - shared_data:/var/lib/thesis
+      - ../config/clusterConfig3.json:/config/clusterConfig.json
+
+  node2:
+    build: 
+      context: ..
+      dockerfile: docker/Dockerfile
+    command:
+      [
+        "--nodeid", "node2",
+        "--config", "/config/clusterConfig.json"
+      ]
+    ports:
+      - "8002:8000"
+    networks: ["raftnetwork"]
+    volumes:
+      - shared_data:/var/lib/thesis
+      - ../config/clusterConfig3.json:/config/clusterConfig.json
+
+  node3:
+    build: 
+      context: ..
+      dockerfile: docker/Dockerfile
+    command:
+      [
+        "--nodeid", "node3",
+        "--config", "/config/clusterConfig.json"
+      ]
+    ports:
+      - "8003:8000"
+    networks: ["raftnetwork"]
+    volumes:
+      - shared_data:/var/lib/thesis
+      - ../config/clusterConfig3.json:/config/clusterConfig.json
+
+networks:
+  raftnetwork:
+
+volumes:
+  shared_data:

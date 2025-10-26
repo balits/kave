@@ -1,0 +1,80 @@
+services:
+  node1:
+    build: .
+    command:
+      [
+        "--nodeid", "node1",
+        "--config", "/config/clusterConfig.json"
+      ]
+    ports:
+      - "8001:8000"
+    networks: ["raftnetwork"]
+    volumes:
+      - shared_data:/var/lib/thesis
+      - ./clusterConfig5.json:/config/clusterConfig.json
+    # environment:
+    #   THESIS_HTTP_HOST: "127.0.0.1"
+    #   THESIS_INTERNAL_HTTP_PORT: "8000"
+    #   THESIS_EXTERNAL_HTTP_PORT: "8000"
+
+  node2:
+    build: .
+    command:
+      [
+        "--nodeid", "node2",
+        "--config", "/config/clusterConfig.json"
+      ]
+    ports:
+      - "8002:8000"
+    networks: ["raftnetwork"]
+    volumes:
+      - shared_data:/var/lib/thesis
+      - ./clusterConfig5.json:/config/clusterConfig.json
+
+  node3:
+    build: .
+    command:
+      [
+        "--nodeid", "node3",
+        "--config", "/config/clusterConfig.json"
+      ]
+    ports:
+      - "8003:8000"
+    networks: ["raftnetwork"]
+    volumes:
+      - shared_data:/var/lib/thesis
+      - ./clusterConfig5.json:/config/clusterConfig.json
+
+  node4:
+    build: .
+    command:
+      [
+        "--nodeid", "node4",
+        "--config", "/config/clusterConfig.json"
+      ]
+    ports:
+      - "8004:8000"
+    networks: ["raftnetwork"]
+    volumes:
+      - shared_data:/var/lib/thesis
+      - ./clusterConfig5.json:/config/clusterConfig.json
+
+  node5:
+    build: .
+    command:
+      [
+        "--nodeid", "node5",
+        "--config", "/config/clusterConfig.json"
+      ]
+    ports:
+      - "8005:8000"
+    networks: ["raftnetwork"]
+    volumes:
+      - shared_data:/var/lib/thesis
+      - ./clusterConfig5.json:/config/clusterConfig.json
+
+networks:
+  raftnetwork:
+
+volumes:
+  shared_data:
