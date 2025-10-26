@@ -33,3 +33,5 @@ go.work.sum
 
 # Raft run-time directory for storage
 data/
+
+bin/
