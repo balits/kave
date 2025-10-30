@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/balits/thesis/internal/config"
@@ -14,10 +15,25 @@ import (
 )
 
 type Node struct {
-	Raft   *raft.Raft
-	Store  store.FSMStore
+	// Raft is the pointer to Raft instance
+	Raft *raft.Raft
+
+	// Store that implements raft.FSM and store.KVStore
+	Store store.FSMStore
+
+	// Logger provides structured logging
 	Logger *slog.Logger
+
+	// Config is the cluster wide configuration
 	Config *config.Config
+
+	// RaftStores is a reference to all the storage raft.Raft needs (logstore, stablestore, snapshot store)
+	// it is redundant to carry this in our struct, however it's vital for checking a clusters existing state through raft.HasState(...)
+	// and sadly but understandably raft.Raft does not expose these fields
+	RaftStores *RaftStores
+
+	// joinedState is a flag that signals if the node is part of the cluster or not
+	joinedState atomic.Bool
 }
 
 // NewNode creates a node without any raft functionality
@@ -30,10 +46,12 @@ func NewNode(config *config.Config, fsm store.FSMStore, stores *RaftStores, logg
 	}
 
 	node := &Node{
-		Raft:   r,
-		Store:  fsm,
-		Logger: logger,
-		Config: config,
+		Raft:        r,
+		Store:       fsm,
+		Logger:      logger,
+		Config:      config,
+		RaftStores:  stores,
+		joinedState: atomic.Bool{},
 	}
 
 	return node, nil
@@ -60,78 +78,19 @@ func SetupRaft(config *config.Config, store store.FSMStore, stores *RaftStores) 
 	return raftNode, nil
 }
 
-func (n *Node) BootstrapOrJoinCluster() error {
-	raftStores, err := LoadRaftStores(n.Config)
-	if err != nil {
-		return fmt.Errorf("failed loading raft stores: %v", err)
-	}
-	hasState, err := raft.HasExistingState(raftStores.LogStore, raftStores.StableStore, raftStores.SnapshotStore)
-	if err != nil {
-		return fmt.Errorf("failed reading raft state: %v", err)
-	}
-
-	if hasState {
-		n.Logger.Info("Exsisting Raft state found; resuming cluster participation")
-		// Raft will recover terms, logs etc
-		return nil
-	}
-
-	if n.Config.ThisService.NeedBootstrap {
-		if err := n.bootstrap(); err != nil {
-			return fmt.Errorf("failed to bootstrap cluster: %v", err)
-		}
-		n.Logger.Info("Bootstrapped cluster successfuly")
-	} else {
-		if err := n.joinCluster(); err != nil {
-			return fmt.Errorf("failed to join cluster: %v", err)
-		}
-		n.Logger.Info("Joined cluster successfuly")
-	}
-
-	return nil
-}
-
-// bootstrap tries to
-func (n *Node) bootstrap() error {
-	// with only this node in the configuration (no peers)
-	// bootstrapping the cluster will immediatly elect this node to leader,
-	// without wasting time with heartbeats to other nodes
-	clusterConfig := raft.Configuration{
-		Servers: []raft.Server{
-			{
-				ID:      raft.ServerID(n.Config.ThisService.RaftID),
-				Address: raft.ServerAddress(n.Config.ThisService.GetRaftAddress()),
-			},
-		},
-	}
-	return n.Raft.BootstrapCluster(clusterConfig).Error()
-}
-
-func (n *Node) joinCluster() error {
-	me := n.Config.ThisService
-	var urls []string
-	for _, i := range n.Config.ClusterInfo {
-		if i == *me {
-			continue
-		}
-		urls = append(urls, "http://"+i.RaftHost+":"+i.InternalHttpPort+"/join")
-	}
-	n.Logger.Debug("Attempting to join cluster", "peers", urls)
-	if err := Join(me, urls, 4); err != nil {
-		n.Logger.Error("Joining cluster failed", "error", err)
-		return err
-	}
-	return nil
-}
-
 // Shutdown terminates both the http server with the supplied timeout and the raft node
 func (n *Node) Shutdown(timeout time.Duration) {
 	if n.Raft != nil {
+		n.joinedState.Store(false)
 		if err := n.Raft.Shutdown().Error(); err != nil {
 			n.Logger.Info("Failed to shut down Raft node: %v", "error", err)
 		}
 		n.Logger.Info("Shut down Raft node successfuly")
 	}
+}
+
+func (n *Node) PartOfCluster() bool {
+	return n.joinedState.Load()
 }
 
 func loadRaftConfig(nodeID string, logLevel string) *raft.Config {

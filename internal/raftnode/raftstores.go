@@ -27,7 +27,7 @@ type RaftStores struct {
 func LoadRaftStores(config *config.Config) (*RaftStores, error) {
 	storesOnce.Do(func() {
 		var err error
-		stores, err = newRaftStores(config)
+		stores, err = NewRaftStores(config.DataDir, config.ThisService.RaftID, config.InMemory)
 		if err != nil {
 			storesErr = fmt.Errorf("failed to load raft stores: %v", err)
 		}
@@ -36,7 +36,8 @@ func LoadRaftStores(config *config.Config) (*RaftStores, error) {
 	return stores, storesErr
 }
 
-func newRaftStores(config *config.Config) (*RaftStores, error) {
+// NewRaftStores creates raft storage structs (log, stable, snapshot) either on disk or in memory
+func NewRaftStores(dir, raftId string, inMemory bool) (*RaftStores, error) {
 	var (
 		logStore      raft.LogStore
 		stableStore   raft.StableStore
@@ -44,12 +45,12 @@ func newRaftStores(config *config.Config) (*RaftStores, error) {
 		err           error
 	)
 
-	nodeSpecificDataDir := filepath.Join(config.DataDir, config.ThisService.RaftID)
+	nodeSpecificDataDir := filepath.Join(dir, raftId)
 	if err = os.MkdirAll(nodeSpecificDataDir, os.ModePerm); err != nil {
 		return nil, fmt.Errorf("couldn't create raft storage directory: %w", err)
 	}
 
-	if config.InMemory {
+	if inMemory {
 		logStore = raft.NewInmemStore()
 		stableStore = raft.NewInmemStore()
 		snapshotStore = raft.NewInmemSnapshotStore()

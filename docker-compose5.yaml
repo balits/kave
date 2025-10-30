@@ -1,0 +1,80 @@
+services:
+  node1:
+    build: .
+    command:
+      [
+        "--nodeid", "node1",
+        "--config", "/config/clusterConfig.json"
+      ]
+    ports:
+      - "8001:8000"
+    networks: ["raftnetwork"]
+    volumes:
+      - node1_data:/data
+      - ./clusterConfig5.json:/config/clusterConfig.json
+
+  node2:
+    build: .
+    command:
+      [
+        "--nodeid", "node2",
+        "--config", "/config/clusterConfig.json"
+      ]
+    ports:
+      - "8002:8000"
+    networks: ["raftnetwork"]
+    volumes:
+      - node2_data:/data
+      - ./clusterConfig5.json:/config/clusterConfig.json
+
+  node3:
+    build: .
+    command:
+      [
+        "--nodeid", "node3",
+        "--config", "/config/clusterConfig.json"
+      ]
+    ports:
+      - "8003:8000"
+    networks: ["raftnetwork"]
+    volumes:
+      - node3_data:/data
+      - ./clusterConfig5.json:/config/clusterConfig.json
+
+  node4:
+    build: .
+    command:
+      [
+        "--nodeid", "node4",
+        "--config", "/config/clusterConfig.json"
+      ]
+    ports:
+      - "8004:8000"
+    networks: ["raftnetwork"]
+    volumes:
+      - node4_data:/data
+      - ./clusterConfig5.json:/config/clusterConfig.json
+
+  node5:
+    build: .
+    command:
+      [
+        "--nodeid", "node5",
+        "--config", "/config/clusterConfig.json"
+      ]
+    ports:
+      - "8005:8000"
+    networks: ["raftnetwork"]
+    volumes:
+      - node5_data:/data
+      - ./clusterConfig5.json:/config/clusterConfig.json
+
+networks:
+  raftnetwork:
+
+volumes:
+  node1_data:
+  node2_data:
+  node3_data:
+  node4_data:
+  node5_data:

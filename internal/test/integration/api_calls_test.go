@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/balits/thesis/internal/config"
-	"github.com/balits/thesis/internal/test"
+	"github.com/balits/thesis/internal/test/testutil"
 	"github.com/balits/thesis/internal/web"
 )
 
@@ -21,13 +21,21 @@ import (
 // }
 
 func TestGetSetDelete_OnDurableClusterOfSize3(t *testing.T) {
-	baseCfg := test.NewMockConfig(3)
+	baseCfg := testutil.NewMockConfig(3)
 	baseCfg.InMemory = false
-	services, err := test.NewDurableCluster(t, baseCfg, test.NewMockLogger())
+	tempdir, cleanupTempdirs, err := testutil.Tempdir("discover_on_network_test")
+	if err != nil {
+		t.Errorf("Failed to create tempdirs: %v", err)
+		return
+	}
+	defer cleanupTempdirs()
+
+	services, err := testutil.NewDurableMockCluster(tempdir, baseCfg, testutil.NewMockLogger())
 	if err != nil {
 		t.Errorf("Failed to create mock cluster: %v", err)
 		return
 	}
+
 	defer func() {
 		for _, s := range services {
 			s.Shutdown(2 * time.Second)
@@ -35,15 +43,15 @@ func TestGetSetDelete_OnDurableClusterOfSize3(t *testing.T) {
 	}()
 
 	condition := func() bool {
-		return test.DiscoverCondition(t, services)
+		return testutil.DiscoverCondition(t, services)
 	}
 
-	test.AssertEventually(t, condition, 10*time.Second, 500*time.Millisecond)
+	testutil.AssertEventually(t, condition, 10*time.Second, 500*time.Millisecond)
 
 	client := http.Client{Timeout: 2 * time.Second}
 
 	doRequest := func(me config.ServiceInfo, op string, bodies []body) {
-		base := "http://" + me.RaftHost + ":" + me.ExternalHttpPort
+		base := "http://" + me.InternalHost + ":" + me.ExternalHttpPort
 
 		for _, body := range bodies {
 			rawBody, err := json.Marshal(body)

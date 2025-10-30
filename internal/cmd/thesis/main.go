@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -21,19 +22,21 @@ func main() {
 	logger := util.NewJSONLogger(config.LogLevel, os.Stdout)
 	fsmstore := store.NewInMemoryStore() // add if branch on config.InMemory | config.Persistence
 	raftStores, err := raftnode.LoadRaftStores(config)
-	check(err, nil)
+	check(err, logger)
 
 	node, err := raftnode.NewNode(config, fsmstore, raftStores, logger.With("component", "raftnode"))
 	check(err, node.Logger)
 
-	httpAddr := fmt.Sprintf("%s:%s", config.ThisService.RaftHost, config.ThisService.InternalHttpPort)
+	httpAddr := config.ThisService.GetInternalHttpAddress()
 	server := api.NewServer(httpAddr, node, logger.With("component", "httpserver"))
 	server.RegisterRoutes()
 	go server.Start()
 
 	defer func() {
 		node.Shutdown(5 * time.Second)
-		server.Shutdown(5 * time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		server.Shutdown(ctx)
 	}()
 
 	err = node.BootstrapOrJoinCluster()

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/balits/thesis/internal/test"
+	"github.com/balits/thesis/internal/test/testutil"
 )
 
 func TestClusterDiscoveryOnNetwork(t *testing.T) {
@@ -13,9 +13,16 @@ func TestClusterDiscoveryOnNetwork(t *testing.T) {
 }
 
 func discover_on_network(n int, t *testing.T) {
-	baseCfg := test.NewMockConfig(n)
+	baseCfg := testutil.NewMockConfig(n)
 	baseCfg.InMemory = false
-	services, err := test.NewDurableCluster(t, baseCfg, test.NewMockLogger())
+	tempdir, cleanupTempdirs, err := testutil.Tempdir("discover_on_network_test")
+	if err != nil {
+		t.Errorf("Failed to create tempdirs: %v", err)
+		return
+	}
+	defer cleanupTempdirs()
+
+	services, err := testutil.NewDurableMockCluster(tempdir, baseCfg, testutil.NewMockLogger())
 	if err != nil {
 		t.Errorf("Failed to create mock cluster: %v", err)
 		return
@@ -28,8 +35,8 @@ func discover_on_network(n int, t *testing.T) {
 	t.Log("Cluster created")
 
 	condition := func() bool {
-		return test.DiscoverCondition(t, services)
+		return testutil.DiscoverCondition(t, services)
 	}
 
-	test.AssertEventually(t, condition, 10*time.Second, 500*time.Millisecond)
+	testutil.AssertEventually(t, condition, 10*time.Second, 500*time.Millisecond)
 }

@@ -1,28 +1,33 @@
 APP_NAME = thesis
 DOCKERFILE = docker/Dockerfile
-COMPOSE3 = docker/docker-compose3.yaml
-COMPOSE5 = docker/docker-compose3.yaml
+COMPOSE3 = docker-compose3.yaml
+COMPOSE5 = docker-compose5.yaml
 
 .DEFAULT_GOAL := help
 
 build: ## Build Go binary
 	@echo "building ${APP_NAME}..."
-	go build -o bin/${APP_NAME} ./internal/cmd/thesis/main.go
+	go build -o bin/${APP_NAME} internal/cmd/thesis/main.go
 
 docker-build: ## Build Docker image
-	docker buildx build -f docker/Dockerfile -t kvraft .
+	docker build -t thesis_node_image .
 
-compose-up3: ## Run 3-node cluster
-	docker compose -f  $(COMPOSE3) up --build --remove-orphans
+up3build: docker-build up3
 
-compose-up5: ## Run 5-node cluster
-	docker compose -f $(COMPOSE5) up --build --remove-orphans
+up3: ## Run 3-node cluster
+	docker compose -f $(COMPOSE3) -p $(APP_NAME) up --remove-orphans
 
-compose-down3:
-	docker compose -f $(COMPOSE3) down
 
-compose-down5:
-	docker compose -f $(COMPOSE5) down
+up3: ## Run 3-node cluster
+	docker compose -f $(COMPOSE3) -p $(APP_NAME) up --remove-orphans
+
+down3:
+	docker compose -f $(COMPOSE3) -p $(APP_NAME) down --volumes
+
+# up5: ## Run 5-node cluster
+# 	docker compose -f $(COMPOSE5) -p $(APP_NAME) up  --remove-orphans
+# down5: 
+# 	docker compose -f $(COMPOSE5) -p $(APP_NAME) down --volumes
 
 clean: ## Cleal local builds
 	rm -rf bin

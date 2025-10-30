@@ -38,41 +38,41 @@ func (c Config) Validate() error {
 // Service describes an instance of a running service, including its raftID and its various addresses
 type ServiceInfo struct {
 	RaftID           string `json:"id"`                 // ID of the raft node
-	RaftHost         string `json:"raft_host"`          // host part of the address of the raft node, for inter-node communication (raft operations)
-	RaftPort         string `json:"raft_port"`          // port part of the address of the raft node, for inter-node communication (raft operations)
-	HttpHost         string `json:"http_host"`          // host part of the external http server exposed by the node
-	InternalHttpPort string `json:"internal_http_port"` // port part of the internal http server, for intern-node communication (joining cluster)
-	ExternalHttpPort string `json:"external_http_port"` // port part of the external http server, for the exposed http server (store endpoints like /get /set)
+	InternalHost     string `json:"internal_host"`      // internal host  of the node, for inter-node communication (raft operations)
+	RaftPort         string `json:"raft_port"`          // (internal) port of the address of the node, for inter-node communication (raft operations)
+	ExternalHost     string `json:"external_host"`      // external hos  of the node, exposed for its public http server
+	InternalHttpPort string `json:"internal_http_port"` // internal part of the node for its public http server
+	ExternalHttpPort string `json:"external_http_port"` // external (advertised) port of the node for its public http server
 	NeedBootstrap    bool   `json:"need_bootstrap"`     // flags that that this service should bootstrap the raft cluster
 }
 
-// GetInternalHttpAddress returns the internal http address of the service
-// func (s ServiceInfo) GetInternalHttpAddress() string {
-// 	return s.RaftHost + ":" + s.InternalHttpPort
-// }
-
-// // GetExternalHttpAddress returns the external http address of the service
-// func (s ServiceInfo) GetExternalHttpAddress() string {
-// 	return s.RaftHost + ":" + s.ExternalHttpPort
-// }
-
-// GetRaftAddress returns the address of the raft node, used by hc's raft librar
+// GetRaftAddress returns the (internal) address of the raft node, used by hc's raft librar
 func (s ServiceInfo) GetRaftAddress() string {
-	return s.RaftHost + ":" + s.RaftPort
+	return s.InternalHost + ":" + s.RaftPort
+}
+
+// GetInternalHttpAddress returns the (internal) address of the nodes public http server
+func (s ServiceInfo) GetInternalHttpAddress() string {
+	return s.InternalHost + ":" + s.InternalHttpPort
+}
+
+// GetExternalHttpAddress returns the (external, advertised) address of the nodes public http server
+func (s ServiceInfo) GetExternalHttpAddress() string {
+	return s.ExternalHost + ":" + s.ExternalHttpPort
 }
 
 func (s ServiceInfo) Validate() error {
 	if s.RaftID == "" {
 		return errors.New("raft id is required")
 	}
-	if s.RaftHost == "" {
-		return errors.New("raft host is required")
+	if s.InternalHost == "" {
+		return errors.New("internal host is required")
 	}
 	if s.RaftPort == "" {
 		return errors.New("raft port is required")
 	}
-	if s.HttpHost == "" {
-		return errors.New("http host is required")
+	if s.ExternalHost == "" {
+		return errors.New("external host is required")
 	}
 	if s.InternalHttpPort == "" {
 		return errors.New("internal http port is required")
