@@ -13,13 +13,16 @@ type Server struct {
 	Router Router
 }
 
-func NewServer(addr string, router Router) *Server {
+// NewServer creates a router from scratch and returns a new server with that router and the supplied Logger
+// Note that the logger will not be added any additional prefixes through this function, the caller should specify them
+func NewServer(addr string, logger *slog.Logger) *Server {
+	router := NewRouterWithLogger(logger)
 	s := &http.Server{
 		Addr:         addr,
 		ReadTimeout:  2 * time.Second,
 		WriteTimeout: 5 * time.Second,
 		IdleTimeout:  10 * time.Second,
-		Handler:      router,
+		Handler:      WithLogger(router, logger),
 	}
 	return &Server{
 		server: s,
@@ -33,7 +36,7 @@ func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // Start starts the http server, returning an error if any
 func (srv *Server) Start() error {
-	if err := srv.server.ListenAndServe(); err != nil {
+	if err := srv.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 	return nil
@@ -60,11 +63,19 @@ type route struct {
 
 type Router struct {
 	routes map[route]HandlerFunc
+	logger *slog.Logger
 }
 
 func NewRouter() Router {
 	return Router{
 		routes: make(map[route]HandlerFunc),
+	}
+}
+
+func NewRouterWithLogger(logger *slog.Logger) Router {
+	return Router{
+		routes: make(map[route]HandlerFunc),
+		logger: logger,
 	}
 }
 
@@ -89,6 +100,7 @@ func (r Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	h(ctx)
 }
 
+// WithLogger provides a logging middleware by wrapping a [http.Handler] with logging information about the request
 func WithLogger(next http.Handler, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -96,10 +108,6 @@ func WithLogger(next http.Handler, logger *slog.Logger) http.Handler {
 		duration := time.Since(start)
 		method := r.Method
 		path := r.URL.Path
-		status := w.Header().Get("Status")
-		if status == "" {
-			status = "200 OK"
-		}
-		logger.Info("New request", "method", method, "path", path, "status", status, "duration", duration.String())
+		logger.Info("New request", "method", method, "path", path, "duration", duration.String())
 	})
 }

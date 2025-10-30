@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/balits/thesis/pkg/web"
+	"github.com/balits/thesis/internal/web"
 )
 
 var (

@@ -1,4 +1,4 @@
-package service
+package unit
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/balits/thesis/pkg/store"
+	"github.com/balits/thesis/internal/store"
 	"github.com/hashicorp/raft"
 )
 
@@ -18,7 +18,7 @@ func TestFSM_ApplyInMemoryStore(t *testing.T) {
 
 func TestFSM_ApplyThroughRaft(t *testing.T) {
 	id := raft.ServerID("dummy")
-	fsm := NewFSM(store.NewInMemoryStore())
+	fsm := store.NewInMemoryStore()
 
 	conf := raft.DefaultConfig()
 	conf.LocalID = id
@@ -52,7 +52,7 @@ func TestFSM_ApplyThroughRaft(t *testing.T) {
 			Key:   "foo",
 			Value: []byte("bar"),
 		}
-		if err := doApply(node, cmd); err != nil {
+		if err = doRaftApply(node, cmd); err != nil {
 			t.Error(err)
 		}
 	})
@@ -63,14 +63,13 @@ func TestFSM_ApplyThroughRaft(t *testing.T) {
 			Key:   "foo",
 			Value: []byte(""),
 		}
-		if err := doApply(node, cmd); err != nil {
+		if err = doRaftApply(node, cmd); err != nil {
 			t.Error(err)
 		}
 	})
 }
 
-func testApply(s store.KVStore, t *testing.T) {
-	fsm := NewFSM(s)
+func testApply(fsm store.FSMStore, t *testing.T) {
 	t.Run("FSM Apply Set", func(t *testing.T) {
 		cmd := store.Cmd{
 			Kind:  store.CmdKindSet,
@@ -94,32 +93,40 @@ func testApply(s store.KVStore, t *testing.T) {
 	})
 }
 
-func doApply(applier any, cmd store.Cmd) error {
+func doApply(fsm store.FSMStore, cmd store.Cmd) error {
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(cmd); err != nil {
 		return fmt.Errorf("error during encoding: %w", err)
 	}
 
-	var response any
-	switch a := applier.(type) {
-	case *FSM:
-		response = a.Apply(newLog(buf.Bytes()))
-	case *raft.Raft:
-		future := a.Apply(buf.Bytes(), time.Second*5)
-		if err := future.Error(); err != nil {
-			return err
-		}
-		response = future.Response()
-	default:
-		return errors.New("applier was an unknown type")
-	}
+	response := fsm.Apply(newLog(buf.Bytes()))
 
-	applyResponse, ok := response.(ApplyResponse)
+	applyResponse, ok := response.(store.ApplyResponse)
 	if !ok {
 		return errors.New("could not cast Apply return type to ApplyResponse")
 	}
 	if applyResponse.IsError() {
-		return applyResponse.err
+		return applyResponse.GetError()
+	}
+	return nil
+}
+
+func doRaftApply(node *raft.Raft, cmd store.Cmd) error {
+	buf := bytes.NewBuffer(make([]byte, 0))
+	err := gob.NewEncoder(buf).Encode(&cmd)
+	if err != nil {
+		return err
+	}
+	fututre := node.Apply(buf.Bytes(), 2*time.Second)
+	if err = fututre.Error(); err != nil {
+		return err
+	}
+	response, ok := fututre.Response().(store.ApplyResponse)
+	if !ok {
+		return errors.New("Could not cat future.Response() as ApplyResponse")
+	}
+	if response.IsError() {
+		return response.GetError()
 	}
 	return nil
 }

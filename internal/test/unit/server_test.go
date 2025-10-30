@@ -1,4 +1,4 @@
-package web_test
+package unit
 
 import (
 	"bytes"
@@ -9,15 +9,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/balits/thesis/pkg/web"
+	"github.com/balits/thesis/internal/web"
 )
-
-var server web.Router = newMockServer()
 
 func TestServerGET(t *testing.T) {
 	request := httptest.NewRequest("GET", "/", nil)
 	recorder := httptest.NewRecorder()
-	server.ServeHTTP(recorder, request)
+	newMockRouter().ServeHTTP(recorder, request)
 
 	t.Run("GET /", func(t *testing.T) {
 		if recorder.Code != 200 {
@@ -45,7 +43,7 @@ func TestServerPOST(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	web.WithLogger(server, logger).ServeHTTP(recorder, request)
+	web.WithLogger(newMockRouter(), logger).ServeHTTP(recorder, request)
 
 	t.Run("POST /", func(t *testing.T) {
 		if recorder.Code != 200 {
@@ -67,8 +65,8 @@ func TestServerPOST(t *testing.T) {
 	})
 }
 
-func newMockServer() web.Router {
-	router := web.NewRouter()
+func newMockRouter() web.Router {
+	router := web.NewRouterWithLogger(nil)
 
 	router.Register("GET", "/", func(ctx *web.Context) {
 		response := web.NewResponseData("Hello, World!")

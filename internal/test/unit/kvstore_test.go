@@ -1,27 +1,29 @@
-package store
+package unit
 
 import (
 	"fmt"
 	"testing"
+
+	"github.com/balits/thesis/internal/store"
 )
 
 func TestInMemorySet(t *testing.T) {
-	testSet(NewInMemoryStore(), t)
+	testSet(store.NewInMemoryStore(), t)
 }
 
 func TestInMemoryGetStale(t *testing.T) {
-	testGetStale(NewInMemoryStore(), t)
+	testGetStale(store.NewInMemoryStore(), t)
 }
 
 func TestInMemoryDelete(t *testing.T) {
-	testDelete(NewInMemoryStore(), t)
+	testDelete(store.NewInMemoryStore(), t)
 }
 
 func errReturnedValueDidNotMatch(expected, got any) error {
 	return fmt.Errorf("returned value did not match (expected %s, got %s)", expected, got)
 }
 
-func testSet(s KVStore, t *testing.T) {
+func testSet(s store.KVStore, t *testing.T) {
 	t.Run("store.Set", func(t *testing.T) {
 		key := "foo"
 		value := "bar"
@@ -39,7 +41,7 @@ func testSet(s KVStore, t *testing.T) {
 	})
 }
 
-func testGetStale(s KVStore, t *testing.T) {
+func testGetStale(s store.KVStore, t *testing.T) {
 	t.Run("store.Set", func(t *testing.T) {
 		key := "foo"
 		value := "bar"
@@ -57,7 +59,7 @@ func testGetStale(s KVStore, t *testing.T) {
 	})
 }
 
-func testDelete(s KVStore, t *testing.T) {
+func testDelete(s store.KVStore, t *testing.T) {
 	t.Run("store.Set", func(t *testing.T) {
 		key := "foo"
 		value := "bar"

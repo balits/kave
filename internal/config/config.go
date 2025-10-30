@@ -97,7 +97,7 @@ func LoadConfig() (*Config, error) {
 	flag.Parse()
 
 	if configFlag == "" {
-		return nil, errors.New("no config file was provided")
+		return nil, errors.New("config error: no config file was provided")
 	}
 	cfg, err := parseConfigFile(configFlag)
 	if err != nil {
@@ -111,13 +111,13 @@ func LoadConfig() (*Config, error) {
 	switch cfg.LogLevel {
 	case "DEBUG", "INFO", "WARN", "ERROR":
 	default:
-		return nil, errors.New("invalid log level \"" + cfg.LogLevel + "\"")
+		return nil, errors.New("config error: invalid log level \"" + cfg.LogLevel + "\"")
 	}
 
 	switch len(cfg.ClusterInfo) {
 	case 1, 3, 5:
 	default:
-		return nil, errors.New("raft clusters size must be 1, 3 or 5")
+		return nil, errors.New("config error: raft clusters size must be 1, 3 or 5")
 	}
 
 	var hasBootstrapper bool
@@ -127,25 +127,29 @@ func LoadConfig() (*Config, error) {
 		}
 		if info.NeedBootstrap {
 			if hasBootstrapper {
-				return nil, errors.New("duplicate bootstrapper node found in cluster info")
+				return nil, errors.New("config error: duplicate bootstrapper node found in cluster info")
 			}
 			hasBootstrapper = true
 		}
 		if info.RaftID == nodeIDFlag {
 			if cfg.ThisService != nil {
-				return nil, errors.New("duplicate node ids found in cluster info")
+				return nil, errors.New("config error: duplicate node ids found in cluster info")
 			}
 			cfg.ThisService = &info
 		}
 	}
 
 	if cfg.ThisService == nil {
-		return nil, errors.New("node with with the supplied nodeid not found in cluster info")
+		return nil, errors.New("config error: node with with the supplied nodeid not found in cluster info")
 	}
 
 	if !hasBootstrapper {
-		return nil, errors.New("no node was given the role of bootstrapping the cluster")
+		return nil, errors.New("config error: no node was given the role of bootstrapping the cluster")
 	}
+
+	// TODO: REMOVE DATA DIR OPTION ENTIRELY OR USE ENV VARS / FLAGS FOR IT
+	// BUT IN COMPOSE WE SET EACH VOLUME TO /DATA SO IDKKK
+	cfg.DataDir = "data"
 
 	return &cfg, nil
 }

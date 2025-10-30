@@ -12,7 +12,7 @@ services:
       - "8001:8000"
     networks: ["raftnetwork"]
     volumes:
-      - shared_data:/var/lib/thesis
+      - node1data:/data
       - ../config/clusterConfig3.json:/config/clusterConfig.json
 
   node2:
@@ -28,7 +28,7 @@ services:
       - "8002:8000"
     networks: ["raftnetwork"]
     volumes:
-      - shared_data:/var/lib/thesis
+      - node2data:/data
       - ../config/clusterConfig3.json:/config/clusterConfig.json
 
   node3:
@@ -44,11 +44,13 @@ services:
       - "8003:8000"
     networks: ["raftnetwork"]
     volumes:
-      - shared_data:/var/lib/thesis
+      - node3data:/data
       - ../config/clusterConfig3.json:/config/clusterConfig.json
 
 networks:
   raftnetwork:
 
 volumes:
-  shared_data:
+  node1data:
+  node2data:
+  node3data:

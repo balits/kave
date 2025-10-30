@@ -1,4 +1,4 @@
-package service
+package api
 
 import (
 	"bytes"
@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/balits/thesis/pkg/config"
-	"github.com/balits/thesis/pkg/store"
-	"github.com/balits/thesis/pkg/web"
+	"github.com/balits/thesis/internal/config"
+	"github.com/balits/thesis/internal/store"
+	"github.com/balits/thesis/internal/web"
 	"github.com/hashicorp/raft"
 )
 
@@ -21,19 +21,12 @@ const (
 	errApplyResponseCastFailed             string = "Failed to cast raft's response to ApplyResponse"
 )
 
-func (s *Service) RegisterRoutes() {
-	s.Server.Router.Register("GET", "/get", s.getHandler)
-	s.Server.Router.Register("POST", "/set", s.setHandler)
-	s.Server.Router.Register("DELETE", "/delete", s.deleteHandler)
-	s.Server.Router.Register("POST", "/join", s.joinHandler)
-}
-
-func (s *Service) getHandler(ctx *web.Context) {
+func (s *Server) getHandler(ctx *web.Context) {
 	var body struct {
 		Key string `json:"key"`
 	}
 
-	if s.Raft == nil {
+	if s.node.Raft == nil {
 		ctx.Error("Raft instance is not yet set up", http.StatusServiceUnavailable)
 		return
 	}
@@ -47,7 +40,7 @@ func (s *Service) getHandler(ctx *web.Context) {
 		return
 	}
 
-	value, err := s.Store.GetStale(body.Key)
+	value, err := s.node.Store.GetStale(body.Key)
 	switch err {
 	case nil:
 		s.Logger.Debug("HTTP /get request", "key", body.Key, "value", value)
@@ -61,21 +54,21 @@ func (s *Service) getHandler(ctx *web.Context) {
 	}
 }
 
-func (s *Service) setHandler(ctx *web.Context) {
-	if s.Raft == nil {
+func (s *Server) setHandler(ctx *web.Context) {
+	if s.node.Raft == nil {
 		ctx.Error(errRaftInstanceNotSetup, http.StatusServiceUnavailable)
 		return
 	}
 	// FIXME: move to reverse proxy + internal redirection
-	if s.Raft.State() != raft.Leader {
+	if s.node.Raft.State() != raft.Leader {
 		var currentLeader *config.ServiceInfo
-		leaderAddr, leaderID := s.Raft.LeaderWithID()
+		leaderAddr, leaderID := s.node.Raft.LeaderWithID()
 		s.Logger.Debug("Leader", "leader address", leaderAddr, "leader id", leaderID)
 		if leaderAddr == "" || leaderID == "" {
 			ctx.Error("no current leader found", http.StatusInternalServerError)
 			return
 		}
-		for _, server := range s.Config.ClusterInfo {
+		for _, server := range s.node.Config.ClusterInfo {
 			if server.RaftID == string(leaderID) {
 				currentLeader = &server
 			}
@@ -116,27 +109,27 @@ func (s *Service) setHandler(ctx *web.Context) {
 		return
 	}
 
-	future := s.Raft.Apply(buff.Bytes(), 5*time.Second)
+	future := s.node.Raft.Apply(buff.Bytes(), 5*time.Second)
 	err = future.Error()
 	if err != nil {
 		ctx.Error(fmt.Sprintf("Error during raft.Apply: %v", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
-	applyResponse, ok := future.Response().(ApplyResponse)
+	applyResponse, ok := future.Response().(store.ApplyResponse)
 	if !ok {
 		ctx.Error(errApplyResponseCastFailed, http.StatusInternalServerError)
 		return
 	}
 	if applyResponse.IsError() {
-		ctx.Error(fmt.Sprintf("Error during raft.Apply.Response: %v", applyResponse.err.Error()), http.StatusInternalServerError)
+		ctx.Error(fmt.Sprintf("Error during raft.Apply.Response: %v", applyResponse.GetError()), http.StatusInternalServerError)
 		return
 	}
 	ctx.Ok(nil)
 }
 
-func (s *Service) deleteHandler(ctx *web.Context) {
-	if s.Raft == nil {
+func (s *Server) deleteHandler(ctx *web.Context) {
+	if s.node.Raft == nil {
 		ctx.Error(errRaftInstanceNotSetup, http.StatusServiceUnavailable)
 		return
 	}
@@ -165,19 +158,19 @@ func (s *Service) deleteHandler(ctx *web.Context) {
 		return
 	}
 
-	future := s.Raft.Apply(buff.Bytes(), time.Second*5)
+	future := s.node.Raft.Apply(buff.Bytes(), time.Second*5)
 	err = future.Error()
 	if err != nil {
 		ctx.Error(fmt.Sprintf("Error during raft.Apply: %v", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
-	applyResponse := future.Response().(ApplyResponse)
+	applyResponse := future.Response().(store.ApplyResponse)
 	if applyResponse.IsError() {
-		ctx.Error(fmt.Sprintf("Error during raft.Apply.Response: %v", applyResponse.err.Error()), http.StatusInternalServerError)
+		ctx.Error(fmt.Sprintf("Error during raft.Apply.Response: %v", applyResponse.GetError()), http.StatusInternalServerError)
 		return
 	}
-	data := map[string][]byte{"value": applyResponse.cmd.Value}
+	data := map[string][]byte{"value": applyResponse.Cmd().Value}
 	ctx.Ok(data)
 }
 
@@ -186,19 +179,13 @@ type joinBody struct {
 	Addr string `json:"addr"`
 }
 
-func (s *Service) joinHandler(ctx *web.Context) {
-	if s.Raft == nil {
-		http.Error(ctx.W, errRaftInstanceNotSetup, http.StatusServiceUnavailable)
-		return
-	}
-
-	if s.Raft.State() != raft.Leader {
-		http.Error(ctx.W, "not leader", http.StatusConflict) // signals retry
+func (s *Server) joinHandler(ctx *web.Context) {
+	if s.node.Raft.State() != raft.Leader {
+		http.Error(ctx.W, "not leader", http.StatusConflict)
 		return
 	}
 
 	var body joinBody
-
 	err := ctx.ReadJSON(&body)
 	if err != nil {
 		http.Error(ctx.W, err.Error(), http.StatusBadRequest)
@@ -208,7 +195,7 @@ func (s *Service) joinHandler(ctx *web.Context) {
 		return
 	}
 
-	f := s.Raft.GetConfiguration()
+	f := s.node.Raft.GetConfiguration()
 	if err := f.Error(); err != nil {
 		http.Error(ctx.W, fmt.Sprintf("failed to read configuration: %v", err), http.StatusInternalServerError)
 		return
@@ -228,7 +215,7 @@ func (s *Service) joinHandler(ctx *web.Context) {
 		}
 	}
 
-	future := s.Raft.AddVoter(raft.ServerID(body.ID), raft.ServerAddress(body.Addr), 0, 5*time.Second)
+	future := s.node.Raft.AddVoter(raft.ServerID(body.ID), raft.ServerAddress(body.Addr), 0, 5*time.Second)
 	if err = future.Error(); err != nil {
 		http.Error(ctx.W, err.Error(), http.StatusInternalServerError)
 		return

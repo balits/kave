@@ -7,7 +7,7 @@ COMPOSE5 = docker/docker-compose3.yaml
 
 build: ## Build Go binary
 	@echo "building ${APP_NAME}..."
-	go build -o bin/${APP_NAME} ./pkg/cmd/thesis/main.go
+	go build -o bin/${APP_NAME} ./internal/cmd/thesis/main.go
 
 docker-build: ## Build Docker image
 	docker buildx build -f docker/Dockerfile -t kvraft .
