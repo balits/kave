@@ -9,8 +9,7 @@
             "external_host": "127.0.0.1",
             "raft_port": "7000",
             "internal_http_port": "8000",
-            "external_http_port": "8001",
-            "need_bootstrap": true
+            "external_http_port": "8001"
         },
         {
             "id": "node2",
@@ -18,7 +17,8 @@
             "external_host": "127.0.0.1",
             "raft_port": "7000",
             "internal_http_port": "8000",
-            "external_http_port": "8002"
+            "external_http_port": "8002",
+            "need_bootstrap": true
         },
         {
             "id": "node3",

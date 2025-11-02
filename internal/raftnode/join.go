@@ -15,13 +15,7 @@ import (
 	"github.com/hashicorp/raft"
 )
 
-func (n *Node) BootstrapOrJoinCluster() error {
-	err := n.bootstrapOrJoinCluster()
-	n.joinedState.Store(err == nil)
-	return err
-}
-
-func (n *Node) bootstrapOrJoinCluster() error {
+func (n *Node) BootstrapOrJoinCluster(attempts int) error {
 	hasState, err := raft.HasExistingState(n.RaftStores.LogStore, n.RaftStores.StableStore, n.RaftStores.SnapshotStore)
 	if err != nil {
 		return fmt.Errorf("failed reading raft state: %v", err)
@@ -39,7 +33,7 @@ func (n *Node) bootstrapOrJoinCluster() error {
 		}
 		n.Logger.Info("Bootstrapped cluster successfuly")
 	} else {
-		if err := n.joinCluster(); err != nil {
+		if err := n.joinCluster(attempts); err != nil {
 			return fmt.Errorf("failed to join cluster: %v", err)
 		}
 		n.Logger.Info("Joined cluster successfuly")
@@ -48,7 +42,6 @@ func (n *Node) bootstrapOrJoinCluster() error {
 	return nil
 }
 
-// bootstrap tries to
 func (n *Node) bootstrap() error {
 	// with only this node in the configuration (no peers)
 	// bootstrapping the cluster will immediatly elect this node to leader,
@@ -56,28 +49,30 @@ func (n *Node) bootstrap() error {
 	clusterConfig := raft.Configuration{
 		Servers: []raft.Server{
 			{
-				ID:      raft.ServerID(n.Config.ThisService.RaftID),
-				Address: raft.ServerAddress(n.Config.ThisService.GetRaftAddress()),
+				ID:       raft.ServerID(n.Config.ThisService.RaftID),
+				Address:  raft.ServerAddress(n.Config.ThisService.GetRaftAddress()),
+				Suffrage: raft.Voter,
 			},
 		},
 	}
 	return n.Raft.BootstrapCluster(clusterConfig).Error()
 }
 
-func (n *Node) joinCluster() error {
+func (n *Node) joinCluster(attempts int) error {
 	me := n.Config.ThisService
 	var urls []string
 	for _, i := range n.Config.ClusterInfo {
 		if i == *me {
 			continue
 		}
-		urls = append(urls, "http://"+i.InternalHost+":"+i.InternalHttpPort+"/join")
+		urls = append(urls, "http://"+i.GetInternalHttpAddress()+"/join")
 	}
 	n.Logger.Debug("Attempting to join cluster", "peers", urls)
-	if err := joinWithBackoff(me, urls, 4, n.Logger); err != nil {
+	if err := joinWithBackoff(me, urls, attempts, n.Logger); err != nil {
 		n.Logger.Error("Joining cluster failed", "error", err)
 		return err
 	}
+	n.Logger.Info("Joining cluster successfully")
 	return nil
 }
 
@@ -97,8 +92,10 @@ func joinWithBackoff(me *config.ServiceInfo, urls []string, attempts int, logger
 			err := join(url, jsonBody)
 			logger.Debug("Attempting to join cluster", "url", url, "body", body, "attempt", a)
 			if err == nil {
+				logger.Debug("Attempt successfull", "url", url, "attempt", a)
 				return nil // ok
 			} else {
+				logger.Debug("Attempt failed", "url", url, "attempt", a, "error", err)
 				lastError = err
 			}
 		}
@@ -123,13 +120,17 @@ func join(url string, jsonBody []byte) error {
 	errMsg := sb.String()
 
 	switch res.StatusCode {
-	case 200, 204:
-		// succesful join, already joined
+	case 200, 204: // succesful join, already joined
 		return nil
-	case http.StatusConflict, http.StatusBadRequest:
-		// node wasnt the leader or bad request
-		return fmt.Errorf("status: %s, %s", res.Status, errMsg)
+	case http.StatusTemporaryRedirect: // redirection to leaders address
+		loc := res.Header.Get("Location")
+		if loc == "" {
+			return fmt.Errorf("redirected without location, status: %s", res.Status)
+		}
+		return join(loc, jsonBody)
+	case http.StatusConflict, http.StatusBadRequest: // node wasnt the leader or bad request
+		return fmt.Errorf("%s, status:  %s", errMsg, res.Status)
 	default:
-		return fmt.Errorf("status: %s, unexpected status code, error: %s", res.Status, errMsg)
+		return fmt.Errorf("unexpected status %s, error: %s", res.Status, errMsg)
 	}
 }

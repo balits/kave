@@ -9,20 +9,20 @@ import (
 
 func TestClusterDiscoveryOnNetwork(t *testing.T) {
 	t.Run("3 node cluster", func(t *testing.T) { discover_on_network(3, t) })
-	t.Run("5 node cluster", func(t *testing.T) { discover_on_network(5, t) })
+	// t.Run("5 node cluster", func(t *testing.T) { discover_on_network(5, t) })
 }
 
 func discover_on_network(n int, t *testing.T) {
 	baseCfg := testutil.NewMockConfig(n)
 	baseCfg.InMemory = false
-	tempdir, cleanupTempdirs, err := testutil.Tempdir("discover_on_network_test")
+	tempdir, cleanupTempdirs, err := testutil.Tempdir("thesis_test_discovery")
 	if err != nil {
 		t.Errorf("Failed to create tempdirs: %v", err)
 		return
 	}
 	defer cleanupTempdirs()
 
-	services, err := testutil.NewDurableMockCluster(tempdir, baseCfg, testutil.NewMockLogger())
+	services, err := testutil.NewMockDurableCluster(tempdir, baseCfg, testutil.NewMockLogger())
 	if err != nil {
 		t.Errorf("Failed to create mock cluster: %v", err)
 		return

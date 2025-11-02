@@ -10,8 +10,18 @@ import (
 )
 
 func (s *Server) joinHandler(ctx *web.Context) {
-	if s.node.Raft.State() != raft.Leader {
-		http.Error(ctx.W, "not leader", http.StatusConflict)
+	if err := s.node.Raft.VerifyLeader().Error(); err != nil {
+		leaderAddress, leaderID := s.node.Raft.LeaderWithID()
+		leaderInfo, ok := s.node.Config.GetServiceInfo(string(leaderID))
+		if !ok || leaderAddress == "" {
+			msg := fmt.Sprintf("No valid leader found, current node was %s", s.node.Raft.State())
+			http.Error(ctx.W, msg, http.StatusInternalServerError)
+			return
+		}
+
+		redirectUrl := fmt.Sprintf("http://%s/join", leaderInfo.GetInternalHttpAddress())
+		ctx.W.Header().Set("Location", redirectUrl)
+		ctx.W.WriteHeader(http.StatusTemporaryRedirect)
 		return
 	}
 
@@ -40,6 +50,8 @@ func (s *Server) joinHandler(ctx *web.Context) {
 	raftConfig := f.Configuration()
 	for _, node := range raftConfig.Servers {
 		if node.ID == raft.ServerID(body.ID) {
+			fmt.Fprintln(ctx.W, "node already in the cluster configuration")
+			ctx.W.WriteHeader(http.StatusNoContent)
 			return
 		}
 	}
@@ -49,5 +61,6 @@ func (s *Server) joinHandler(ctx *web.Context) {
 		http.Error(ctx.W, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	ctx.W.WriteHeader(http.StatusOK)
 }

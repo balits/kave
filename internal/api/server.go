@@ -1,14 +1,17 @@
 package api
 
 import (
-	"fmt"
+	"context"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/balits/thesis/internal/raftnode"
 	"github.com/balits/thesis/internal/web"
 )
+
+var registerOnce sync.Once
 
 type Server struct {
 	// http.Server is embedded into api.Server
@@ -53,23 +56,30 @@ func (s *Server) Register(pattern string, handler func(*web.Context)) {
 }
 
 func (s *Server) RegisterRoutes() {
-	if s.mux != nil {
-		return
-	}
-	s.mux = http.DefaultServeMux
-	s.Register("GET /get", s.getHandler)
-	s.Register("POST /set", s.setHandler)
-	s.Register("DELETE /delete", s.deleteHandler)
-	s.Register("POST /join", s.joinHandler)
-	s.Register("GET /health", s.healthHandler)
+	registerOnce.Do(func() {
+		if s.mux != nil {
+			return
+		}
+		s.mux = http.DefaultServeMux
+		s.Register("GET /get", s.getHandler)
+		s.Register("POST /set", s.setHandler)
+		s.Register("DELETE /delete", s.deleteHandler)
+		s.Register("POST /join", s.joinHandler)
+		// s.Register("GET /health", s.healthHandler)
+	})
 }
 
-// Start starts the http server, returning an error if any
-func (s *Server) Start() error {
-	s.Logger.Info(fmt.Sprintf("Started HTTP server on %s", s.Addr))
+// Run starts the http server and handles its shutdown
+func (s *Server) Run() {
+	s.Logger.Info("Started HTTP servers", "address", s.Addr)
 	if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		s.Logger.Error("Failed to start HTTP server", "error", err)
-		return err
 	}
-	return nil
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.Shutdown(ctx); err != nil {
+		s.Logger.Error("Failed to shutdown HTTP server", "error", err)
+	}
+	s.Logger.Info("Shutdown HTTP server")
 }

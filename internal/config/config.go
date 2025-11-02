@@ -35,6 +35,17 @@ func (c Config) Validate() error {
 
 }
 
+func (c *Config) GetServiceInfo(nodeID string) (info *ServiceInfo, ok bool) {
+	for _, i := range c.ClusterInfo {
+		if i.RaftID == nodeID {
+			info = &i
+			ok = true
+			break
+		}
+	}
+	return
+}
+
 // Service describes an instance of a running service, including its raftID and its various addresses
 type ServiceInfo struct {
 	RaftID           string `json:"id"`                 // ID of the raft node

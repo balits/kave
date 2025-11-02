@@ -1,12 +1,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
-	"time"
 
 	"github.com/balits/thesis/internal/api"
 	"github.com/balits/thesis/internal/config"
@@ -24,22 +22,15 @@ func main() {
 	raftStores, err := raftnode.LoadRaftStores(config)
 	check(err, logger)
 
-	node, err := raftnode.NewNode(config, fsmstore, raftStores, logger.With("component", "raftnode"))
+	node, err := raftnode.NewNode(config, fsmstore, raftStores, logger)
 	check(err, node.Logger)
 
 	httpAddr := config.ThisService.GetInternalHttpAddress()
 	server := api.NewServer(httpAddr, node, logger.With("component", "httpserver"))
 	server.RegisterRoutes()
-	go server.Start()
+	go server.Run()
 
-	defer func() {
-		node.Shutdown(5 * time.Second)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		server.Shutdown(ctx)
-	}()
-
-	err = node.BootstrapOrJoinCluster()
+	err = node.BootstrapOrJoinCluster(5)
 	check(err, node.Logger)
 
 	done := make(chan os.Signal, 1)

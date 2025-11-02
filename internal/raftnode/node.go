@@ -6,11 +6,11 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"sync/atomic"
 	"time"
 
 	"github.com/balits/thesis/internal/config"
 	"github.com/balits/thesis/internal/store"
+	"github.com/balits/thesis/internal/util"
 	"github.com/hashicorp/raft"
 )
 
@@ -31,35 +31,34 @@ type Node struct {
 	// it is redundant to carry this in our struct, however it's vital for checking a clusters existing state through raft.HasState(...)
 	// and sadly but understandably raft.Raft does not expose these fields
 	RaftStores *RaftStores
-
-	// joinedState is a flag that signals if the node is part of the cluster or not
-	joinedState atomic.Bool
 }
 
 // NewNode creates a node without any raft functionality
 // This is part one of the two phase initialization
 func NewNode(config *config.Config, fsm store.FSMStore, stores *RaftStores, logger *slog.Logger) (*Node, error) {
-	r, err := SetupRaft(config, fsm, stores)
+	nodeLogger := logger.With("component", "node")
+	raftLogger := logger.With("component", "raftlib")
+
+	raftConfig := loadRaftConfig(config.ThisService.RaftID, config.LogLevel, raftLogger)
+	r, err := SetupRaft(config, raftConfig, fsm, stores)
 	if err != nil {
-		logger.Error("Failed to setup raft", "error", err)
+		nodeLogger.Error("Failed to setup raft", "error", err)
 		return nil, err
 	}
 
 	node := &Node{
-		Raft:        r,
-		Store:       fsm,
-		Logger:      logger,
-		Config:      config,
-		RaftStores:  stores,
-		joinedState: atomic.Bool{},
+		Raft:       r,
+		Store:      fsm,
+		Logger:     nodeLogger,
+		Config:     config,
+		RaftStores: stores,
 	}
 
 	return node, nil
 }
 
 // SetupRaft creates a Raft instance based on a config
-func SetupRaft(config *config.Config, store store.FSMStore, stores *RaftStores) (*raft.Raft, error) {
-	raftConfig := loadRaftConfig(config.ThisService.RaftID, config.LogLevel)
+func SetupRaft(config *config.Config, raftConfig *raft.Config, store store.FSMStore, stores *RaftStores) (*raft.Raft, error) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", config.ThisService.GetRaftAddress())
 	if err != nil {
 		return nil, fmt.Errorf("couldn't resolve address: %w", err)
@@ -81,7 +80,6 @@ func SetupRaft(config *config.Config, store store.FSMStore, stores *RaftStores) 
 // Shutdown terminates both the http server with the supplied timeout and the raft node
 func (n *Node) Shutdown(timeout time.Duration) {
 	if n.Raft != nil {
-		n.joinedState.Store(false)
 		if err := n.Raft.Shutdown().Error(); err != nil {
 			n.Logger.Info("Failed to shut down Raft node: %v", "error", err)
 		}
@@ -89,13 +87,10 @@ func (n *Node) Shutdown(timeout time.Duration) {
 	}
 }
 
-func (n *Node) PartOfCluster() bool {
-	return n.joinedState.Load()
-}
-
-func loadRaftConfig(nodeID string, logLevel string) *raft.Config {
+func loadRaftConfig(nodeID string, logLevel string, logger *slog.Logger) *raft.Config {
 	cfg := raft.DefaultConfig()
 	cfg.LocalID = raft.ServerID(nodeID)
 	cfg.LogLevel = logLevel
+	cfg.Logger = util.NewHcLogAdapter(logger, util.StringToSlogLevel(logLevel))
 	return cfg
 }

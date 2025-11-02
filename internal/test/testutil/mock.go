@@ -1,16 +1,10 @@
 package testutil
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
-	"sync"
-	"testing"
-	"time"
 
-	"github.com/balits/thesis/internal/api"
 	"github.com/balits/thesis/internal/config"
 	"github.com/balits/thesis/internal/raftnode"
 	"github.com/balits/thesis/internal/store"
@@ -26,25 +20,6 @@ func NewMockInmemRaft(node *raftnode.Node, trans *raft.InmemTransport) (*raft.Ra
 	snaps := raft.NewInmemSnapshotStore()
 	return raft.NewRaft(raftCfg, node.Store, logs, stable, snaps, trans)
 }
-
-// func NewMockDurableRaft(svc *raftnode.Node, tempdir string) (*raft.Raft, error) {
-// 	raftCfg := raft.DefaultConfig()
-// 	raftCfg.LocalID = raft.ServerID(svc.Config.ThisService.RaftID)
-// 	raftCfg.LogLevel = "INFO"
-// 	logs, err := raftboltdb.NewBoltStore(path.Join(tempdir, "raft-log.bolt"))
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	snaps, err := raft.NewFileSnapshotStore(tempdir, 1, os.Stdout)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	transport, err := raft.NewTCPTransport(svc.Config.ThisService.GetRaftAddress(), nil, 3, 2*time.Second, os.Stdout)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return raft.NewRaft(raftCfg, svc.Store, logs, logs, snaps, transport)
-// }
 
 func NewMockConfig(nNodes int) *config.Config {
 	clusterInfo := make([]config.ServiceInfo, nNodes)
@@ -179,87 +154,4 @@ func NewInmemCluster(baseCfg *config.Config) ([]*raftnode.Node, error) {
 	// 	return nil, errors.New("cluster creation timed out: no errors got from nodes, but no leader was electer either")
 	// }
 	return nil, nil
-}
-
-func NewDurableMockCluster(tempdir string, baseCfg *config.Config, logger *slog.Logger) ([]*raftnode.Node, error) {
-	var (
-		wg       sync.WaitGroup
-		errorCh  = make(chan error, len(baseCfg.ClusterInfo))
-		services = make([]*raftnode.Node, len(baseCfg.ClusterInfo))
-	)
-
-	for i, info := range baseCfg.ClusterInfo {
-		nodeIndex := i
-		nodeInfo := info
-		wg.Add(1)
-
-		go func(nodeInfo config.ServiceInfo, nodeIndex int, tempdir string) {
-			defer func() {
-				fmt.Println("stopped go routine for", nodeInfo.RaftID)
-				wg.Done()
-			}()
-
-			uniqeConfig := NewConfigForNode(baseCfg, nodeInfo)
-			raftStores, err := raftnode.NewRaftStores(tempdir, nodeInfo.RaftID, uniqeConfig.InMemory)
-			if err != nil {
-				errorCh <- fmt.Errorf("error creating tempdir: %w", err)
-				return
-
-			}
-
-			node, err := raftnode.NewNode(uniqeConfig, NewMockInmemFSM(), raftStores, logger.With("component", "mock_node"))
-			if err != nil {
-				errorCh <- fmt.Errorf("error creating raft instance: %w", err)
-				return
-			}
-
-			services[nodeIndex] = node
-			server := api.NewServer(nodeInfo.GetExternalHttpAddress(), node, logger.With("component", "mock_server"))
-
-			go func(server *api.Server) {
-				if err := server.Start(); err != nil {
-					errorCh <- err
-				}
-			}(server)
-
-			node.Logger.Info("Service created", "node", node.Config.ThisService.RaftID, "service", fmt.Sprintf("%+v", services[nodeIndex]))
-
-			if err := node.BootstrapOrJoinCluster(); err != nil {
-				errorCh <- fmt.Errorf("error creating raft instance: %w", err)
-				return
-			}
-		}(nodeInfo, nodeIndex, filepath.Join(tempdir, nodeInfo.RaftID))
-	}
-
-	wg.Wait() // every node is joining or had boostrapped
-	if services[0].Raft == nil {
-		select {
-		case err := <-errorCh:
-			return nil, fmt.Errorf("leaders raft instance was nil: %v", err)
-		default:
-			return nil, fmt.Errorf("leaders raft instance was nil")
-		}
-
-	}
-	select {
-	case <-services[0].Raft.LeaderCh(): // first leader elected
-		return services, nil
-	case err := <-errorCh:
-		return nil, err // return on first error
-	case <-time.After(time.Duration(25 * time.Second)):
-		return nil, errors.New("cluster creation timed out: no errors got from nodes, but no leader was electer either")
-	}
-}
-
-func DiscoverCondition(t *testing.T, services []*raftnode.Node) bool {
-	for _, svc := range services {
-		addr, ID := svc.Raft.LeaderWithID()
-		// t.Logf("node: %s checking for current leader: %s, %s", svc.Config.ThisService.RaftID, addr, ID)
-		if string(addr) == "" || string(ID) == "" {
-			// t.Errorf("Service %s did not join cluster: leader not found", svc.Config.ThisService.RaftID)
-			return false
-		}
-	}
-	return true
-
 }

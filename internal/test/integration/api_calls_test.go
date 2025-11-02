@@ -30,7 +30,7 @@ func TestGetSetDelete_OnDurableClusterOfSize3(t *testing.T) {
 	}
 	defer cleanupTempdirs()
 
-	services, err := testutil.NewDurableMockCluster(tempdir, baseCfg, testutil.NewMockLogger())
+	services, err := testutil.NewMockDurableCluster(tempdir, baseCfg, testutil.NewMockLogger())
 	if err != nil {
 		t.Errorf("Failed to create mock cluster: %v", err)
 		return
