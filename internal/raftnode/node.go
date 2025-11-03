@@ -78,13 +78,17 @@ func SetupRaft(config *config.Config, raftConfig *raft.Config, store store.FSMSt
 }
 
 // Shutdown terminates both the http server with the supplied timeout and the raft node
-func (n *Node) Shutdown(timeout time.Duration) {
-	if n.Raft != nil {
-		if err := n.Raft.Shutdown().Error(); err != nil {
-			n.Logger.Info("Failed to shut down Raft node: %v", "error", err)
-		}
-		n.Logger.Info("Shut down Raft node successfuly")
+func (n *Node) Shutdown(timeout time.Duration) error {
+	if n.Raft == nil {
+		return nil
 	}
+
+	if err := n.Raft.Shutdown().Error(); err != nil {
+		n.Logger.Info("Failed to shut down Raft node: %v", "error", err)
+		return err
+	}
+	n.Logger.Info("Shut down Raft node successfuly")
+	return nil
 }
 
 func loadRaftConfig(nodeID string, logLevel string, logger *slog.Logger) *raft.Config {

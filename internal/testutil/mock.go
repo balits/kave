@@ -73,8 +73,8 @@ func NewMockLogger() *slog.Logger {
 	}))
 }
 
-// NewMockInmemFSM returns an inmemory store serving as an FSM
-func NewMockInmemFSM() store.FSMStore {
+// NewMockFSM returns an inmemory store serving as an FSM
+func NewMockFSM() store.FSMStore {
 	return store.NewInMemoryStore()
 }
 
