@@ -2,79 +2,63 @@
 package raftnode
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"log/slog"
-	"net"
-	"os"
 	"time"
 
-	"github.com/balits/thesis/internal/config"
-	"github.com/balits/thesis/internal/store"
-	"github.com/balits/thesis/internal/util"
 	"github.com/hashicorp/raft"
 )
 
 type Node struct {
+	// NodeEnv provides us with important dependencies like stores, fsm or logger
+	NodeEnv
+
 	// Raft is the pointer to Raft instance
 	Raft *raft.Raft
-
-	// Store that implements raft.FSM and store.KVStore
-	Store store.FSMStore
-
-	// Logger provides structured logging
-	Logger *slog.Logger
-
-	// Config is the cluster wide configuration
-	Config *config.Config
-
-	// RaftStores is a reference to all the storage raft.Raft needs (logstore, stablestore, snapshot store)
-	// it is redundant to carry this in our struct, however it's vital for checking a clusters existing state through raft.HasState(...)
-	// and sadly but understandably raft.Raft does not expose these fields
-	RaftStores *RaftStores
 }
 
-// NewNode creates a node without any raft functionality
-// This is part one of the two phase initialization
-func NewNode(config *config.Config, fsm store.FSMStore, stores *RaftStores, logger *slog.Logger) (*Node, error) {
-	nodeLogger := logger.With("component", "node")
-	raftLogger := logger.With("component", "raftlib")
-
-	raftConfig := loadRaftConfig(config.ThisService.RaftID, config.LogLevel, raftLogger)
-	r, err := SetupRaft(config, raftConfig, fsm, stores)
-	if err != nil {
-		nodeLogger.Error("Failed to setup raft", "error", err)
-		return nil, err
+func CreateNode(env *NodeEnv) *Node {
+	return &Node{
+		Raft:    nil,
+		NodeEnv: *env,
 	}
-
-	node := &Node{
-		Raft:       r,
-		Store:      fsm,
-		Logger:     nodeLogger,
-		Config:     config,
-		RaftStores: stores,
-	}
-
-	return node, nil
 }
 
-// SetupRaft creates a Raft instance based on a config
-func SetupRaft(config *config.Config, raftConfig *raft.Config, store store.FSMStore, stores *RaftStores) (*raft.Raft, error) {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", config.ThisService.GetRaftAddress())
-	if err != nil {
-		return nil, fmt.Errorf("couldn't resolve address: %w", err)
+func (n *Node) SetupRaft() error {
+	if n.Raft != nil {
+		return fmt.Errorf("attemted to setup raft twice")
 	}
-
-	transport, err := raft.NewTCPTransport(tcpAddr.String(), tcpAddr, len(config.ClusterInfo), 10*time.Second, os.Stderr)
+	r, err := raft.NewRaft(n.RaftConfig, n.fsm.(raft.FSM), n.Logs, n.Stable, n.Snapshots, n.Transport)
 	if err != nil {
-		return nil, fmt.Errorf("couldn't build tcp transport: %w", err)
+		return fmt.Errorf("failed to setup raft: %v", err)
 	}
+	n.Raft = r
+	return nil
+}
 
-	raftNode, err := raft.NewRaft(raftConfig, store, stores.LogStore, stores.StableStore, stores.SnapshotStore, transport)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't create raft instance: %w", err)
+func (n *Node) Run(ctx context.Context) error {
+	done := make(chan struct{}, 1)
+	errorCh := make(chan error, 1)
+	go func() {
+		if err := n.SetupRaft(); err != nil {
+			errorCh <- err
+		}
+		if err := n.Start(); err != nil {
+			errorCh <- err
+		}
+		<-done
+	}()
+
+	select {
+	case <-ctx.Done():
+		close(done)
+		return n.Shutdown(10 * time.Second)
+	case err := <-errorCh:
+		close(done)
+		n.Logger.Error("Error during startup, shutting down node", "error", err)
+		return errors.Join(err, n.Shutdown(10*time.Second))
 	}
-
-	return raftNode, nil
 }
 
 // Shutdown terminates both the http server with the supplied timeout and the raft node
@@ -82,19 +66,28 @@ func (n *Node) Shutdown(timeout time.Duration) error {
 	if n.Raft == nil {
 		return nil
 	}
+	errorCh := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	go func() {
+		n.Logger.Info("Shuting down node")
+		if err := n.Raft.Shutdown().Error(); err != nil {
+			errorCh <- err
+		}
+		errorCh <- nil
+	}()
 
-	if err := n.Raft.Shutdown().Error(); err != nil {
-		n.Logger.Info("Failed to shut down Raft node: %v", "error", err)
+	select {
+	case <-ctx.Done():
+		return errors.New("node shutdown timed out")
+	case err := <-errorCh:
 		return err
 	}
-	n.Logger.Info("Shut down Raft node successfuly")
-	return nil
 }
 
-func loadRaftConfig(nodeID string, logLevel string, logger *slog.Logger) *raft.Config {
-	cfg := raft.DefaultConfig()
-	cfg.LocalID = raft.ServerID(nodeID)
-	cfg.LogLevel = logLevel
-	cfg.Logger = util.NewHcLogAdapter(logger, util.StringToSlogLevel(logLevel))
-	return cfg
+func (n *Node) ToString() string {
+	raftId := n.Config.NodeID
+	raftAddr := n.Config.GetRaftAddress()
+	httpInt := n.Config.GetInternalHttpAddress()
+	return fmt.Sprintf("%s(%s, %s)", raftId, raftAddr, httpInt)
 }

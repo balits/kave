@@ -12,23 +12,20 @@ import (
 )
 
 type InMemoryStore struct {
-	mu      sync.RWMutex
+	sync.RWMutex
 	hashmap map[string][]byte
 }
 
 // NewInMemoryStore creates a new, empty in-memory key-value store
 func NewInMemoryStore() *InMemoryStore {
-	return &InMemoryStore{
-		mu:      sync.RWMutex{},
-		hashmap: make(map[string][]byte),
-	}
+	return &InMemoryStore{sync.RWMutex{}, make(map[string][]byte)}
 }
 
 // ========= store.KVStore impl =========
 
 func (s *InMemoryStore) GetStale(key string) (value []byte, err error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.RLock()
+	defer s.RUnlock()
 	value, ok := s.hashmap[key]
 	if !ok {
 		err = ErrorKeyNotFound
@@ -37,15 +34,15 @@ func (s *InMemoryStore) GetStale(key string) (value []byte, err error) {
 }
 
 func (s *InMemoryStore) Set(key string, value []byte) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.Lock()
+	defer s.Unlock()
 	s.hashmap[key] = value
 	return nil
 }
 
 func (s *InMemoryStore) Delete(key string) (value []byte, err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.Lock()
+	defer s.Unlock()
 	value, ok := s.hashmap[key]
 	if !ok {
 		err = ErrorKeyNotFound // question: maybe move to noop on key not found
@@ -111,8 +108,8 @@ func (s *InMemoryStore) Apply(log *raft.Log) interface{} {
 // FSMSnapshot.Persist will never be called. Raft will always call
 // FSMSnapshot.Release however.
 func (s *InMemoryStore) Snapshot() (raft.FSMSnapshot, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.RLock()
+	defer s.RUnlock()
 	data := maps.Clone(s.hashmap)
 	return InMemorySnapshot{data: data}, nil
 }
@@ -127,9 +124,9 @@ func (s *InMemoryStore) Restore(snapshot io.ReadCloser) error {
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
+	s.Lock()
 	s.hashmap = newmap
-	s.mu.Unlock()
+	s.Unlock()
 	return nil
 }
 
@@ -145,7 +142,11 @@ type InMemorySnapshot struct {
 func (s InMemorySnapshot) Persist(sink raft.SnapshotSink) error {
 	err := gob.NewEncoder(sink).Encode(s.data)
 	if err != nil {
-		return sink.Cancel()
+		err2 := sink.Cancel()
+		if err != nil {
+			return errors.Join(err, err2)
+		}
+		return err
 	}
 	return sink.Close()
 }

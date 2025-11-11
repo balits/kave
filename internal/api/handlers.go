@@ -20,13 +20,12 @@ const (
 )
 
 func (s *Server) getHandler(ctx *web.Context) {
-	var body web.GetBody
-
 	if s.node.Raft == nil {
 		ctx.Error("Raft instance is not yet set up", http.StatusServiceUnavailable)
 		return
 	}
 
+	var body web.GetBody
 	err := ctx.ReadJSON(&body)
 	if err != nil {
 		ctx.Error(err.Error(), http.StatusBadRequest)
@@ -36,7 +35,7 @@ func (s *Server) getHandler(ctx *web.Context) {
 		return
 	}
 
-	value, err := s.node.Store.GetStale(body.Key)
+	value, err := s.node.GetStore().GetStale(body.Key)
 	switch err {
 	case nil:
 		s.Logger.Debug("HTTP /get request", "key", body.Key, "value", value)
@@ -57,15 +56,15 @@ func (s *Server) setHandler(ctx *web.Context) {
 	}
 	// FIXME: move to reverse proxy + internal redirection
 	if s.node.Raft.State() != raft.Leader {
-		var currentLeader *config.ServiceInfo
+		var currentLeader *config.Peer
 		leaderAddr, leaderID := s.node.Raft.LeaderWithID()
 		s.Logger.Debug("Leader", "leader address", leaderAddr, "leader id", leaderID)
 		if leaderAddr == "" || leaderID == "" {
 			ctx.Error("no current leader found", http.StatusInternalServerError)
 			return
 		}
-		for _, server := range s.node.Config.ClusterInfo {
-			if server.RaftID == string(leaderID) {
+		for _, server := range s.node.Config.Peers {
+			if server.GetRaftAddress() == leaderAddr {
 				currentLeader = &server
 			}
 		}
@@ -74,7 +73,7 @@ func (s *Server) setHandler(ctx *web.Context) {
 			return
 		}
 		s.Logger.Debug("Redirecting to leader", "leader", fmt.Sprintf("%+v", currentLeader))
-		url := "http://" + currentLeader.ExternalHost + ":" + currentLeader.ExternalHttpPort + "/set"
+		url := "http://" + currentLeader.GetInternalHttpAddress() + "/set"
 		http.Redirect(ctx.W, ctx.R, url, http.StatusTemporaryRedirect)
 		return
 	}
@@ -160,6 +159,6 @@ func (s *Server) deleteHandler(ctx *web.Context) {
 		ctx.Error(fmt.Sprintf("Error during raft.Apply.Response: %v", applyResponse.GetError()), http.StatusInternalServerError)
 		return
 	}
-	data := map[string][]byte{"value": applyResponse.Cmd().Value}
+	data := map[string][]byte{"value": applyResponse.Cmd.Value}
 	ctx.Ok(data)
 }

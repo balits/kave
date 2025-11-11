@@ -6,8 +6,9 @@ import (
 )
 
 type Context struct {
-	W http.ResponseWriter
-	R *http.Request
+	W      http.ResponseWriter
+	R      *http.Request
+	Status int
 }
 
 func NewContext(w http.ResponseWriter, r *http.Request) *Context {
@@ -37,6 +38,7 @@ func (ctx *Context) Respond(data *ResponsePayload, statusCode int) {
 	h := ctx.W.Header()
 	h.Set("Content-Type", "application/json")
 	h.Set("X-Content-Type-Options", "nosniff")
+	ctx.Status = statusCode
 	ctx.W.WriteHeader(statusCode)
 	ctx.WriteJSON(data)
 }

@@ -1,45 +1,46 @@
 services:
   node1:
     image: thesis_node_image:latest
-    command:
-      [
-        "--nodeid", "node1",
-        "--config", "/config/clusterConfig.json"
-      ]
+    command: "--config=/config/clusterConfig.json"
     ports:
       - "8001:8000"
     networks: ["raftnetwork"]
     volumes:
       - node1_volume:/data
       - ./config/clusterConfig3.json:/config/clusterConfig.json
+    environment:
+      - NODE_ID=node1
+      - RAFT_PORT=7000
+      - HTTP_PORT=8000
+      - BOOTSTRAP=TRUE
 
   node2:
     image: thesis_node_image:latest
-    command:
-      [
-        "--nodeid", "node2",
-        "--config", "/config/clusterConfig.json"
-      ]
+    command: "--config=/config/clusterConfig.json"
     ports:
       - "8002:8000"
     networks: ["raftnetwork"]
     volumes:
       - node2_volume:/data
       - ./config/clusterConfig3.json:/config/clusterConfig.json
+    environment:
+      - NODE_ID=node2
+      - RAFT_PORT=7000
+      - HTTP_PORT=8000
 
   node3:
     image: thesis_node_image:latest
-    command:
-      [
-        "--nodeid", "node3",
-        "--config", "/config/clusterConfig.json"
-      ]
+    command: "--config=/config/clusterConfig.json"
     ports:
       - "8003:8000"
     networks: ["raftnetwork"]
     volumes:
       - node3_volume:/data
       - ./config/clusterConfig3.json:/config/clusterConfig.json
+    environment:
+      - NODE_ID=node3
+      - RAFT_PORT=7000
+      - HTTP_PORT=8000
 
 networks:
   raftnetwork:

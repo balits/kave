@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -9,36 +10,47 @@ import (
 	"github.com/balits/thesis/internal/api"
 	"github.com/balits/thesis/internal/config"
 	"github.com/balits/thesis/internal/raftnode"
-	"github.com/balits/thesis/internal/store"
 	"github.com/balits/thesis/internal/util"
 )
 
 func main() {
+	doneCh := make(chan os.Signal, 1)
+	errorCh := make(chan error)
+	signal.Notify(doneCh, os.Interrupt)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	config, err := config.LoadConfig()
-	check(err, nil)
+	fatal(err, nil)
 
-	logger := util.NewJSONLogger(config.LogLevel, os.Stdout)
-	fsmstore := store.NewInMemoryStore() // add if branch on config.InMemory | config.Persistence
-	raftStores, err := raftnode.LoadRaftStores(config)
-	check(err, logger)
+	logger := util.NewLoggerWithKind(config.LogLevel, os.Stdout, util.TextLoggerKind)
+	logger.Debug(fmt.Sprintf("config loaded: %+v", config))
 
-	node, err := raftnode.NewNode(config, fsmstore, raftStores, logger)
-	check(err, node.Logger)
+	nodeEnv, err := raftnode.NewEnv(config, logger)
+	fatal(err, logger)
 
-	httpAddr := config.ThisService.GetInternalHttpAddress()
-	server := api.NewServer(httpAddr, node, logger.With("component", "httpserver"))
-	server.RegisterRoutes()
-	go server.Run()
+	node := raftnode.CreateNode(nodeEnv)
+	fatal(err, node.Logger)
 
-	err = node.BootstrapOrJoinCluster(5)
-	check(err, node.Logger)
+	go func() {
+		httpAddr := config.GetInternalHttpAddress()
+		server := api.NewServer(httpAddr, node, logger)
+		errorCh <- server.Run(ctx)
+	}()
 
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, os.Interrupt)
-	<-done
+	go func() {
+		errorCh <- node.Run(ctx)
+	}()
+
+	select {
+	case sig := <-doneCh:
+		logger.Error("Process terminated", "signal", sig)
+	case err := <-errorCh:
+		logger.Error("An error occured, terminating process", "error", err)
+	}
 }
 
-func check(err error, logger *slog.Logger) {
+func fatal(err error, logger *slog.Logger) {
 	if err != nil {
 		if logger != nil {
 			logger.Error("Fatal error occured", "error", err)

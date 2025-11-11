@@ -14,10 +14,30 @@ import (
 
 //TODO: batch or disable logs in prod???
 
-func NewJSONLogger(level string, out io.Writer) *slog.Logger {
-	return slog.New(slog.NewJSONHandler(out, &slog.HandlerOptions{
-		Level: StringToSlogLevel(level),
-	}))
+type LoggerKind string
+
+const (
+	JsonLoggerKind    LoggerKind = "json"
+	TextLoggerKind    LoggerKind = "text"
+	DiscardLoggerKind LoggerKind = "discard"
+)
+
+func NewLoggerWithKind(level slog.Level, out io.Writer, loggerType LoggerKind) *slog.Logger {
+	var handler slog.Handler
+	opts := &slog.HandlerOptions{
+		Level: level,
+	}
+
+	switch loggerType {
+	case JsonLoggerKind:
+		handler = slog.NewJSONHandler(out, opts)
+	case TextLoggerKind:
+		handler = slog.NewTextHandler(out, opts)
+	case DiscardLoggerKind:
+		//TODO: instead of Writer discarding things, create a handler that discards things
+		handler = slog.NewTextHandler(NullWriter{}, opts)
+	}
+	return slog.New(handler)
 }
 
 type NullWriter struct{}
