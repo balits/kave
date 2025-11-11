@@ -18,11 +18,11 @@ jobs:
           go-version: ${{ matrix.go-version }}
       
       - name: Install dependencies
-        run: go get .
+        run: go mod tidy
       
       - name: Build
         run: go build -v ./...
       
       - name: Test
-        run: go test ./...
+        run: go test ./test/... -v
         
