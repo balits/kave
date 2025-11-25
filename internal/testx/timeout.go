@@ -2,8 +2,6 @@ package testx
 
 import (
 	"fmt"
-	"log/slog"
-	"testing"
 	"time"
 )
 
@@ -27,14 +25,5 @@ func NewErrTimeout(t time.Duration, op string) ErrTimeout {
 	return ErrTimeout{
 		Timeout: t,
 		Op:      op,
-	}
-}
-
-func LogLevel() slog.Level {
-	if testing.Verbose() {
-		return slog.LevelDebug
-	} else {
-		var no slog.Level = 99
-		return no
 	}
 }

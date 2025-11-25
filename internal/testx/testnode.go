@@ -3,8 +3,7 @@ package testx
 import (
 	"context"
 	"fmt"
-	"io"
-	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -15,20 +14,14 @@ import (
 	"github.com/balits/thesis/internal/store"
 	"github.com/balits/thesis/internal/testx/mock"
 	"github.com/hashicorp/raft"
-	"github.com/neilotoole/slogt"
 )
 
 func NewTestNode(tb testing.TB, ctx context.Context, nodeID string) *TestNode {
-	config := mock.NewMockConfig(tb, LogLevel(), true)
+	loglevel := GetTestingLogLevel()
+	config := mock.NewMockConfig(tb, loglevel, true)
 	config.NodeID = nodeID
-	config.LogLevel = LogLevel()
-	loggerFactory := slogt.Factory(func(w io.Writer) slog.Handler {
-		opts := &slog.HandlerOptions{
-			Level: config.LogLevel,
-		}
-		return slog.NewTextHandler(w, opts)
-	})
-	logger := slogt.New(tb, loggerFactory)
+	config.LogLevel = loglevel
+	logger := NewTestLogger(tb, config.LogLevel)
 	raftConfig := mock.NewMockRaftConfig(logger, config.LogLevel)
 	raftConfig.LocalID = raft.ServerID(nodeID)
 	fsm := mock.NewLoggingFSM(store.NewInMemoryStore())
@@ -70,7 +63,7 @@ func (node *TestNode) Restart(tb testing.TB) {
 
 func (node *TestNode) StartHttpServer(tb testing.TB, ctx context.Context) {
 	go func() {
-		if err := node.server.Run(ctx); err != nil {
+		if err := node.server.Run(ctx); err != nil && err != http.ErrServerClosed {
 			tb.Fatalf("HTTP server error: %v", err)
 		}
 	}()

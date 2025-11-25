@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/balits/thesis/internal/store"
+	"github.com/balits/thesis/internal/testx"
+	"github.com/balits/thesis/internal/util"
 	"github.com/hashicorp/raft"
 )
 
@@ -21,6 +23,8 @@ func TestFSM_ApplyThroughRaft(t *testing.T) {
 	fsm := store.NewInMemoryStore()
 
 	conf := raft.DefaultConfig()
+	loglevel := testx.GetTestingLogLevel()
+	conf.Logger = util.NewHcLogAdapter(testx.NewTestLogger(t, loglevel), loglevel)
 	conf.LocalID = id
 	logs := raft.NewInmemStore()
 	stable := raft.NewInmemStore()

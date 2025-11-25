@@ -22,4 +22,24 @@ up3build: ## Builds image and runs 3-node cluster
 	$(MAKE) build-img
 	$(MAKE) up3
 
+test-integ:
+	go test  ./test/integration/... -timeout 90s
+
+test-unit:
+	go test ./test/unit/... -timeout -30s
+
+test-all:
+	$(MAKE) test-unit
+	$(MAKE) test-integ
+
+test-integ-v:
+	go test  ./test/integration/... -timeout 90s -v
+
+test-unit-v:
+	go test ./test/unit/... -timeout -30s -v
+
+test-all-v:
+	$(MAKE) test-unit-v
+	$(MAKE) test-integ-v
+
 .PHONY: build build-img up3 down3 up3build
