@@ -143,7 +143,7 @@ func (s InMemorySnapshot) Persist(sink raft.SnapshotSink) error {
 	err := gob.NewEncoder(sink).Encode(s.data)
 	if err != nil {
 		err2 := sink.Cancel()
-		if err != nil {
+		if err2 != nil {
 			return errors.Join(err, err2)
 		}
 		return err
