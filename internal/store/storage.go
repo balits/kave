@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/balits/thesis/internal/metrics"
 	"github.com/hashicorp/raft"
 )
 
@@ -29,18 +30,18 @@ var (
 	ErrorKeyNotFound = fmt.Errorf("key not found")
 )
 
-// KVStore is the raft backed key-value storage interface that
+// Storage is the key-value storage interface that
 // needs to be implemented by all storage services (ephemeral or durable).
 // It serves two purpose, first are the common key-value operations like get, set or delete.
-// Second, each KVStore implementation should also implement raft.FSM,
-// fuesing the two interfaces together.
-type KVStore interface {
+// Second, each Storage implementation should also implement a part of raft.FSM,
+// specifically Snapshot() and Restore() that are both storage solution dependent
+type Storage interface {
 	//
 	// Storage operations
 	//
 
 	// Mutation -> through raft
-	Set(key string, value []byte) error
+	Set(key string, value []byte) (oldSize int, err error)
 
 	// Mutation -> through raft
 	Delete(key string) (value []byte, err error)
@@ -75,4 +76,9 @@ type KVStore interface {
 	// concurrently with any other command. The FSM must discard all previous
 	// state before restoring the snapshot.
 	Restore(snapshot io.ReadCloser) error
+
+	//
+	// Storage metrics
+	//
+	metrics.StorageMetricsProvider
 }

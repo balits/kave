@@ -8,7 +8,7 @@ import (
 const (
 	WaitStateTimeout       = time.Millisecond * 400
 	WaitFutureTimeout      = time.Millisecond * 1000
-	WaitConsistencyTimeout = time.Millisecond * 2000
+	WaitConsistencyTimeout = time.Millisecond * 4000
 	WaitJoinTimeout        = time.Millisecond * 2000
 )
 

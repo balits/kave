@@ -13,13 +13,14 @@ import (
 
 	"github.com/balits/thesis/internal/store"
 	"github.com/balits/thesis/internal/testx"
+	"github.com/balits/thesis/internal/testx/mock"
 	"github.com/hashicorp/raft"
 )
 
 func applyAndWait(tb testing.TB, node *testx.TestNode, n, sz int) int {
 	var futures []raft.ApplyFuture
 	for range n {
-		log := setLogLevel(rand.IntN(10_000), rand.IntN(1000))
+		log := setRaftLog(rand.IntN(10_000), rand.IntN(1000))
 		futures = append(futures, node.Raft.Apply(log, 0))
 	}
 	for _, f := range futures {
@@ -29,7 +30,7 @@ func applyAndWait(tb testing.TB, node *testx.TestNode, n, sz int) int {
 	return n
 }
 
-func setLogLevel(k, v int) []byte {
+func setRaftLog(k, v int) []byte {
 	c := store.Cmd{
 		Kind:  store.CmdKindSet,
 		Key:   strconv.Itoa(k),
@@ -38,6 +39,16 @@ func setLogLevel(k, v int) []byte {
 	var buf bytes.Buffer
 	_ = gob.NewEncoder(&buf).Encode(c)
 	return buf.Bytes()
+}
+
+func debugFsms(nodes []*testx.TestNode) {
+	for i, n := range nodes {
+		s := n.LoggingFsm.Store.(*mock.LoggingStore)
+		s.Lock()
+		len := len(s.Logs)
+		fmt.Printf("fsm %d, size %d, first %v, last %v\n", i+1, len, s.Logs[0], s.Logs[len-1])
+		s.Unlock()
+	}
 }
 
 // TestStress by creating a cluster, growing it to 5 nodes while
@@ -70,6 +81,7 @@ func TestStress(t *testing.T) {
 	totalApplied += applyAndWait(t, leader, 100, 10)
 	testx.NoErr(t, testx.WaitForFuture(t, leader.Raft.Snapshot()))
 
+	debugFsms(append([]*testx.TestNode{node1}, nodes...))
 	testx.CheckConsistent(t, append([]*testx.TestNode{node1}, nodes...))
 
 	disconnected := nodes[len(nodes)-1]
@@ -136,7 +148,7 @@ func TestStress(t *testing.T) {
 
 	allNodes := append(nodes, node1)
 	for _, n := range allNodes {
-		if len(n.LoggingFsm.Logs) != totalApplied {
+		if len(n.LoggingFsm.Store.(*mock.LoggingStore).Logs) != totalApplied {
 			t.Fatalf("node %s shouldve applied %d logs", n.Config.NodeID, totalApplied)
 		}
 	}

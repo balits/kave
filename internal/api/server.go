@@ -56,6 +56,7 @@ func (s *Server) newMux() *http.ServeMux {
 		"POST /set":      s.setHandler,
 		"DELETE /delete": s.deleteHandler,
 		"POST /join":     s.joinHandler,
+		"GET /status":    s.readyHandler, // for human readable debugging
 	}
 
 	mux := http.NewServeMux()

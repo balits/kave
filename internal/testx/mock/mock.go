@@ -1,12 +1,10 @@
 package mock
 
 import (
-	"io"
 	"log/slog"
 	"net"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -15,7 +13,6 @@ import (
 	"github.com/balits/thesis/internal/raftnode"
 	"github.com/balits/thesis/internal/store"
 	"github.com/hashicorp/go-hclog"
-	"github.com/hashicorp/go-msgpack/codec"
 	"github.com/hashicorp/raft"
 )
 
@@ -56,7 +53,7 @@ func NewMockRaftConfig(logger *slog.Logger, level slog.Level) *raft.Config {
 	return cfg
 }
 
-func NewMockNodeEnv(tb testing.TB, config *config.Config, raftConfig *raft.Config, logger *slog.Logger, fsm store.FSMStore) *raftnode.NodeEnv {
+func NewMockNodeEnv(tb testing.TB, config *config.Config, raftConfig *raft.Config, logger *slog.Logger, fsm *store.FSM) *raftnode.NodeEnv {
 	logs := raft.NewInmemStore()
 	stable := raft.NewInmemStore()
 	snapshots := raft.NewInmemSnapshotStore()
@@ -116,79 +113,4 @@ func NewMockNode(tb testing.TB, env *raftnode.NodeEnv) (*raftnode.Node, *api.Ser
 	env.Config.Peer = p
 
 	return node, server
-}
-
-func NewMockFSMStore() store.FSMStore {
-	return &MockFSMStore{}
-}
-
-// MockFSMStore is an implementation of the FSM interface, and just stores
-// the logs sequentially.
-// It also implements store.KVStore so its compatible with raftnode.Node
-type MockFSMStore struct {
-	sync.Mutex
-	logs [][]byte
-}
-
-// LogsUnsafe returns the logs of the fsm WITHOUT locking it
-func (m *MockFSMStore) LogsUnsafe() [][]byte {
-	// m.Lock()
-	// defer m.Unlock()
-	return m.logs
-}
-
-type MockSnapshot struct {
-	logs     [][]byte
-	maxIndex int
-}
-
-// Apply implements raft.FSM
-func (m *MockFSMStore) Apply(log *raft.Log) interface{} {
-	m.Lock()
-	defer m.Unlock()
-	m.logs = append(m.logs, log.Data)
-	return len(m.logs)
-}
-
-// Snapshot implements raft.FSM
-func (m *MockFSMStore) Snapshot() (raft.FSMSnapshot, error) {
-	m.Lock()
-	defer m.Unlock()
-	return &MockSnapshot{m.logs, len(m.logs)}, nil
-}
-
-// Restore implements raft.FSM
-func (m *MockFSMStore) Restore(inp io.ReadCloser) error {
-	m.Lock()
-	defer m.Unlock()
-	defer func() { _ = inp.Close() }()
-	hd := codec.MsgpackHandle{}
-	dec := codec.NewDecoder(inp, &hd)
-
-	m.logs = nil
-	return dec.Decode(&m.logs)
-}
-
-func (m *MockFSMStore) Set(key string, value []byte) error { return nil }
-
-// Mutation -> through raft
-func (m *MockFSMStore) Delete(key string) (value []byte, err error) { return nil, nil }
-
-// Query -> local read, may be stale (since it doesnt go through raft)
-func (m *MockFSMStore) GetStale(key string) (value []byte, err error) { return nil, nil }
-
-// Persist implements raft.FSMSnapshot
-func (m *MockSnapshot) Persist(sink raft.SnapshotSink) error {
-	hd := codec.MsgpackHandle{}
-	enc := codec.NewEncoder(sink, &hd)
-	if err := enc.Encode(m.logs[:m.maxIndex]); err != nil {
-		_ = sink.Cancel()
-		return err
-	}
-	_ = sink.Close()
-	return nil
-}
-
-// Release implements raft.FSMSnapshot
-func (m *MockSnapshot) Release() {
 }

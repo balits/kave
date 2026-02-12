@@ -17,7 +17,7 @@ import (
 
 type NodeEnv struct {
 	Dir    string
-	fsm    store.FSMStore
+	fsm    *store.FSM
 	Logger *slog.Logger
 	Config *config.Config
 
@@ -31,25 +31,19 @@ type NodeEnv struct {
 // GetStore casts our fsm into a store and returns it. This cannot fail
 // because of the composed interface, however in tests its
 // implemented by a dummy store that does nothing
-func (e *NodeEnv) GetStore() store.KVStore {
-	return e.fsm.(store.KVStore)
+func (e *NodeEnv) GetStore() store.Storage {
+	return e.fsm.Store
 }
 
 // SetFsm helps us to set the (not exported) fsm field outside of this module, for example in tests
-func (e *NodeEnv) SetFsm(fsm store.FSMStore) {
+func (e *NodeEnv) SetFsm(fsm *store.FSM) {
 	e.fsm = fsm
 }
 
 func NewEnv(cfg *config.Config, logger *slog.Logger) (*NodeEnv, error) {
-	var fsm store.FSMStore
-	if cfg.Storage == config.InmemStorage {
-		fsm = store.NewInMemoryStore() // TODO: add if on cfg.Inmem | cfg.Durable flag
-	} else {
-		panic("currently only in-memory storage is provided")
-	}
-
-	raftCfg := loadRaftConfig(raft.ServerID(cfg.NodeID), logger, cfg.LogLevel) // TODO: change cfg.LogLevel string to cfg.LogLevel slog.Level
-	transport, err := newTransport(cfg.GetRaftAddress())                       // TODO: change GetRaftAddress() string -> GetRaftAddress raft.ServerAddress
+	fsm := newFsm(cfg.Storage == config.InmemStorage, FsmOptions{true})
+	raftCfg := loadRaftConfig(raft.ServerID(cfg.NodeID), logger, cfg.LogLevel)
+	transport, err := newTransport(cfg.GetRaftAddress())
 	if err != nil {
 		return nil, err
 	}
@@ -116,6 +110,24 @@ func newTransport(addr raft.ServerAddress) (raft.Transport, error) {
 	}
 
 	return transport, nil
+}
+
+type FsmOptions struct {
+	instrumented bool
+}
+
+func newFsm(inMemory bool, opts FsmOptions) *store.FSM {
+	var storage store.Storage
+	if inMemory {
+		storage = store.NewInMemoryStore()
+	} else {
+		panic("currently only in-memory storage is available")
+	}
+
+	if opts.instrumented {
+	}
+
+	return store.NewFSM(storage)
 }
 
 func loadRaftConfig(nodeID raft.ServerID, logger *slog.Logger, level slog.Level) *raft.Config {

@@ -6,23 +6,24 @@ import (
 	"io"
 	"sync"
 
+	"github.com/balits/thesis/internal/metrics"
 	"github.com/balits/thesis/internal/store"
 	"github.com/hashicorp/raft"
 )
 
-func NewLoggingFSM(fsm store.FSMStore) *LoggingFsm {
-	return &LoggingFsm{
-		Fsm:  fsm,
-		Logs: make([]store.Cmd, 0),
+func NewLoggingStore(storage store.Storage) *LoggingStore {
+	return &LoggingStore{
+		Inner: storage,
+		Logs:  make([]store.Cmd, 0),
 	}
 }
 
 // MockFSMStore is an implementation of the FSM interface, and just stores
 // the logs sequentially.
 // It also implements store.KVStore so its compatible with raftnode.Node
-type LoggingFsm struct {
-	Fsm  store.FSMStore
-	Logs []store.Cmd
+type LoggingStore struct {
+	Inner store.Storage
+	Logs  []store.Cmd
 	sync.Mutex
 }
 
@@ -32,25 +33,13 @@ type LoggerFsmSnapshot struct {
 	maxIndex int
 }
 
-// Apply implements raft.FSM
-func (l *LoggingFsm) Apply(log *raft.Log) interface{} {
-	var cmd store.Cmd
-	if err := gob.NewDecoder(bytes.NewReader(log.Data)).Decode(&cmd); err != nil {
-		return store.NewApplyResponse(cmd, err)
-	}
-	l.Lock()
-	l.Logs = append(l.Logs, cmd)
-	l.Unlock()
-	return l.Fsm.Apply(log)
-}
-
 // Snapshot implements raft.FSM
-func (l *LoggingFsm) Snapshot() (raft.FSMSnapshot, error) {
+func (l *LoggingStore) Snapshot() (raft.FSMSnapshot, error) {
 	l.Lock()
 	logs := append([]store.Cmd{}, l.Logs...)
 	l.Unlock()
 
-	snap, err := l.Fsm.Snapshot()
+	snap, err := l.Inner.Snapshot()
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +52,7 @@ func (l *LoggingFsm) Snapshot() (raft.FSMSnapshot, error) {
 }
 
 // Restore implements raft.FSM
-func (l *LoggingFsm) Restore(inp io.ReadCloser) error {
+func (l *LoggingStore) Restore(inp io.ReadCloser) error {
 	var snap struct {
 		Logs []store.Cmd
 		Data []byte
@@ -76,16 +65,31 @@ func (l *LoggingFsm) Restore(inp io.ReadCloser) error {
 	l.Logs = snap.Logs
 	l.Unlock()
 	r := bytes.NewReader(snap.Data)
-	return l.Fsm.Restore(io.NopCloser(r))
+	return l.Inner.Restore(io.NopCloser(r))
 }
 
-func (l *LoggingFsm) Set(key string, value []byte) error { return l.Fsm.Set(key, value) }
+func (l *LoggingStore) Set(key string, value []byte) (int, error) {
+	l.Logs = append(l.Logs, store.Cmd{
+		Kind:  store.CmdKindSet,
+		Key:   key,
+		Value: value,
+	})
+	return l.Inner.Set(key, value)
+}
 
 // Mutation -> through raft
-func (l *LoggingFsm) Delete(key string) (value []byte, err error) { return l.Fsm.Delete(key) }
+func (l *LoggingStore) Delete(key string) (value []byte, err error) {
+	panic("store.Storage.Delete not implemented")
+}
 
 // Query -> local read, may be stale (since it doesnt go through raft)
-func (l *LoggingFsm) GetStale(key string) (value []byte, err error) { return l.Fsm.GetStale(key) }
+func (l *LoggingStore) GetStale(key string) (value []byte, err error) {
+	panic("store.Storage.GetStale not implemented")
+}
+
+func (l *LoggingStore) StorageMetrics() *metrics.StorageMetrics {
+	panic("store.(StorageMetricsProvider).StorageMetrics() not implemented")
+}
 
 func (s *LoggerFsmSnapshot) Persist(sink raft.SnapshotSink) error {
 	var buf bytes.Buffer

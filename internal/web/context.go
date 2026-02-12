@@ -27,11 +27,15 @@ func (ctx *Context) MethodNotAllowed() {
 }
 
 func (ctx *Context) Error(err string, statusCode int) {
-	ctx.Respond(NewResponseError(err), statusCode)
+	ctx.Respond(NewResponsePayloadError(err), statusCode)
+}
+
+func (ctx *Context) ErrorWithData(data any, err string, statusCode int) {
+	ctx.Respond(NewResponsePayload(data, err), statusCode)
 }
 
 func (ctx *Context) Ok(data any) {
-	ctx.Respond(NewResponseData(data), http.StatusOK)
+	ctx.Respond(NewResponsePayloadOK(data), http.StatusOK)
 }
 
 func (ctx *Context) Respond(data *ResponsePayload, statusCode int) {
@@ -60,14 +64,21 @@ type ResponsePayload struct {
 	Error string `json:"error"`
 }
 
-func NewResponseData(data any) *ResponsePayload {
+func NewResponsePayloadOK(data any) *ResponsePayload {
 	return &ResponsePayload{
 		Data: data,
 	}
 }
 
-func NewResponseError(err string) *ResponsePayload {
+func NewResponsePayloadError(err string) *ResponsePayload {
 	return &ResponsePayload{
+		Error: err,
+	}
+}
+
+func NewResponsePayload(data any, err string) *ResponsePayload {
+	return &ResponsePayload{
+		Data:  data,
 		Error: err,
 	}
 }

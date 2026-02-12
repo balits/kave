@@ -38,7 +38,7 @@ test-integ-v:
 test-unit-v:
 	go test ./test/unit/... -timeout -30s -v
 
-test-all-v:
+test-v:
 	$(MAKE) test-unit-v
 	$(MAKE) test-integ-v
 

@@ -23,11 +23,11 @@ func errReturnedValueDidNotMatch(expected, got any) error {
 	return fmt.Errorf("returned value did not match (expected %s, got %s)", expected, got)
 }
 
-func testSet(s store.KVStore, t *testing.T) {
+func testSet(s store.Storage, t *testing.T) {
 	t.Run("store.Set", func(t *testing.T) {
 		key := "foo"
 		value := "bar"
-		err := s.Set(key, []byte(value))
+		_, err := s.Set(key, []byte(value))
 		if err != nil {
 			t.Error(err)
 		}
@@ -41,11 +41,11 @@ func testSet(s store.KVStore, t *testing.T) {
 	})
 }
 
-func testGetStale(s store.KVStore, t *testing.T) {
+func testGetStale(s store.Storage, t *testing.T) {
 	t.Run("store.Set", func(t *testing.T) {
 		key := "foo"
 		value := "bar"
-		err := s.Set(key, []byte(value))
+		_, err := s.Set(key, []byte(value))
 		if err != nil {
 			t.Error(err)
 		}
@@ -59,11 +59,11 @@ func testGetStale(s store.KVStore, t *testing.T) {
 	})
 }
 
-func testDelete(s store.KVStore, t *testing.T) {
+func testDelete(s store.Storage, t *testing.T) {
 	t.Run("store.Set", func(t *testing.T) {
 		key := "foo"
 		value := "bar"
-		err := s.Set(key, []byte(value))
+		_, err := s.Set(key, []byte(value))
 		if err != nil {
 			t.Errorf("error during set: %v", err)
 		}

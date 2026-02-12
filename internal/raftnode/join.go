@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/balits/thesis/internal/config"
+	"github.com/balits/thesis/internal/metrics"
 	"github.com/balits/thesis/internal/web"
 	"github.com/hashicorp/raft"
 )
@@ -29,6 +30,7 @@ func (n *Node) Start() error {
 
 	if hasState {
 		n.Logger.Info("Exsisting Raft state found; resuming cluster participation")
+		n.nodeMetrics.NodeState.Store(uint32(metrics.NodeStateJoined))
 		// Raft will recover terms, logs etc
 		return nil
 	}
@@ -37,6 +39,7 @@ func (n *Node) Start() error {
 		if err := n.BootstrapCluster(); err != nil {
 			return fmt.Errorf("failed to bootstrap cluster: %v", err)
 		}
+		n.nodeMetrics.NodeState.Store(uint32(metrics.NodeStateJoined))
 		n.Logger.Info("Bootstrapped cluster successfuly")
 	} else {
 		var urls []string
@@ -53,6 +56,7 @@ func (n *Node) Start() error {
 		if err := JoinWithBackoff(n.Config.Peer, urls, 5, n.Logger); err != nil {
 			return fmt.Errorf("failed to join cluster: %v", err)
 		}
+		n.nodeMetrics.NodeState.Store(uint32(metrics.NodeStateJoined))
 		n.Logger.Info("Joined cluster successfuly")
 	}
 

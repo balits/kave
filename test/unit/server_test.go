@@ -69,7 +69,7 @@ func newMockRouter() web.Router {
 	router := web.NewRouterWithLogger(nil)
 
 	router.Register("GET", "/", func(ctx *web.Context) {
-		response := web.NewResponseData("Hello, World!")
+		response := web.NewResponsePayloadOK("Hello, World!")
 		ctx.Respond(response, 200)
 	})
 
@@ -78,12 +78,12 @@ func newMockRouter() web.Router {
 			Name string `json:"name"`
 		}
 		if err := ctx.ReadJSON(&reqBody); err != nil {
-			response := web.NewResponseError(err.Error())
+			response := web.NewResponsePayloadError(err.Error())
 			ctx.Respond(response, 400)
 			return
 		}
 
-		response := web.NewResponseData(fmt.Sprintf("Hello, %s!", reqBody.Name))
+		response := web.NewResponsePayloadOK(fmt.Sprintf("Hello, %s!", reqBody.Name))
 		ctx.Respond(response, 200)
 	})
 

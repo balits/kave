@@ -24,7 +24,7 @@ func NewTestNode(tb testing.TB, ctx context.Context, nodeID string) *TestNode {
 	logger := NewTestLogger(tb, config.LogLevel)
 	raftConfig := mock.NewMockRaftConfig(logger, config.LogLevel)
 	raftConfig.LocalID = raft.ServerID(nodeID)
-	fsm := mock.NewLoggingFSM(store.NewInMemoryStore())
+	fsm := store.NewFSM(mock.NewLoggingStore(store.NewInMemoryStore()))
 	env := mock.NewMockNodeEnv(tb, config, raftConfig, logger, fsm)
 	node, server := mock.NewMockNode(tb, env)
 
@@ -35,7 +35,7 @@ func NewTestNode(tb testing.TB, ctx context.Context, nodeID string) *TestNode {
 
 type TestNode struct {
 	*raftnode.Node
-	LoggingFsm *mock.LoggingFsm // exposed access to fsm which should stay private in prod
+	LoggingFsm *store.FSM // exposed access to fsm which should stay private in prod
 	server     *api.Server
 }
 

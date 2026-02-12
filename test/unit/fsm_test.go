@@ -15,12 +15,12 @@ import (
 )
 
 func TestFSM_ApplyInMemoryStore(t *testing.T) {
-	testApply(store.NewInMemoryStore(), t)
+	testApply(store.NewFSM(store.NewInMemoryStore()), t)
 }
 
 func TestFSM_ApplyThroughRaft(t *testing.T) {
 	id := raft.ServerID("dummy")
-	fsm := store.NewInMemoryStore()
+	fsm := store.NewFSM(store.NewInMemoryStore())
 
 	conf := raft.DefaultConfig()
 	loglevel := testx.GetTestingLogLevel()
@@ -73,7 +73,7 @@ func TestFSM_ApplyThroughRaft(t *testing.T) {
 	})
 }
 
-func testApply(fsm store.FSMStore, t *testing.T) {
+func testApply(fsm *store.FSM, t *testing.T) {
 	t.Run("FSM Apply Set", func(t *testing.T) {
 		cmd := store.Cmd{
 			Kind:  store.CmdKindSet,
@@ -97,7 +97,7 @@ func testApply(fsm store.FSMStore, t *testing.T) {
 	})
 }
 
-func doApply(fsm store.FSMStore, cmd store.Cmd) error {
+func doApply(fsm *store.FSM, cmd store.Cmd) error {
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(cmd); err != nil {
 		return fmt.Errorf("error during encoding: %w", err)
