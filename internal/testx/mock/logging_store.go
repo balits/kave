@@ -72,7 +72,7 @@ func (l *LoggingStore) Restore(inp io.ReadCloser) error {
 func (l *LoggingStore) Set(key []byte, value []byte) error {
 	l.Logs = append(l.Logs, command.Command{
 		Type:  command.CommandTypeSet,
-		Key:   string(key),
+		Key:   key,
 		Value: value,
 	})
 	return l.Inner.Set(key, value)

@@ -117,13 +117,13 @@ func (st *StorageTester) testBatch(t *testing.T) {
 	prefix := b("batch_")
 	val := slices.Concat(prefix, DEFAULT_VALUE)
 	commands := []command.Command{
-		{Type: command.CommandTypeSet, Key: "batch_set1", Value: val, BatchOps: nil, ExpectedRevision: nil},
-		{Type: command.CommandTypeSet, Key: "batch_set2", Value: val, BatchOps: nil, ExpectedRevision: nil},
-		{Type: command.CommandTypeSet, Key: "batch_set3", Value: val, BatchOps: nil, ExpectedRevision: nil},
-		{Type: command.CommandTypeSet, Key: "batch_set4", Value: val, BatchOps: nil, ExpectedRevision: nil}, // only this will survice after the batch
-		{Type: command.CommandTypeDelete, Key: "batch_set1", Value: val, BatchOps: nil, ExpectedRevision: nil},
-		{Type: command.CommandTypeDelete, Key: "batch_set2", Value: val, BatchOps: nil, ExpectedRevision: nil},
-		{Type: command.CommandTypeDelete, Key: "batch_set3", Value: val, BatchOps: nil, ExpectedRevision: nil},
+		{Type: command.CommandTypeSet, Key: []byte("batch_set1"), Value: val, BatchOps: nil, ExpectedRevision: nil},
+		{Type: command.CommandTypeSet, Key: []byte("batch_set2"), Value: val, BatchOps: nil, ExpectedRevision: nil},
+		{Type: command.CommandTypeSet, Key: []byte("batch_set3"), Value: val, BatchOps: nil, ExpectedRevision: nil},
+		{Type: command.CommandTypeSet, Key: []byte("batch_set4"), Value: val, BatchOps: nil, ExpectedRevision: nil}, // only this will survice after the batch
+		{Type: command.CommandTypeDelete, Key: []byte("batch_set1"), Value: val, BatchOps: nil, ExpectedRevision: nil},
+		{Type: command.CommandTypeDelete, Key: []byte("batch_set2"), Value: val, BatchOps: nil, ExpectedRevision: nil},
+		{Type: command.CommandTypeDelete, Key: []byte("batch_set3"), Value: val, BatchOps: nil, ExpectedRevision: nil},
 	}
 
 	expectedState := map[string][]byte{

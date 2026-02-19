@@ -26,7 +26,7 @@ func TestClusterAction_3NodeCluster_ApplyChanges(t *testing.T) {
 	for i := range setCommandsLen {
 		setCommands = append(setCommands, command.Command{
 			Type:  command.CommandTypeSet,
-			Key:   strconv.Itoa(i),
+			Key:   []byte(strconv.Itoa(i)),
 			Value: []byte(strconv.Itoa(i)),
 		})
 	}

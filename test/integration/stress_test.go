@@ -33,7 +33,7 @@ func applyAndWait(tb testing.TB, node *testx.TestNode, n, sz int) int {
 func setRaftLog(k, v int) []byte {
 	c := command.Command{
 		Type:  command.CommandTypeSet,
-		Key:   strconv.Itoa(k),
+		Key:   []byte(strconv.Itoa(k)),
 		Value: []byte(strconv.Itoa(v)),
 	}
 	var buf bytes.Buffer

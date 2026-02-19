@@ -104,5 +104,5 @@ ERR:
 }
 
 func cmdEq(this, that command.Command) bool {
-	return this.Type == that.Type && this.Key == that.Key && bytes.Equal(this.Value, that.Value)
+	return this.Type == that.Type && bytes.Equal(this.Key, that.Key) && bytes.Equal(this.Value, that.Value)
 }

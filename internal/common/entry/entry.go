@@ -1,4 +1,4 @@
-package fsm
+package entry
 
 import (
 	"bytes"
@@ -17,7 +17,7 @@ type Entry struct {
 	Version        uint64 `json:"version"`         // the amount of times this entry has been changed
 }
 
-func EncodeEntry(e *Entry) ([]byte, error) {
+func Encode(e *Entry) ([]byte, error) {
 	if e == nil {
 		return nil, errors.New("cannot encode nil entry")
 	}
@@ -26,7 +26,7 @@ func EncodeEntry(e *Entry) ([]byte, error) {
 	return buf.Bytes(), err
 }
 
-func DecodeEntry(src []byte) (*Entry, error) {
+func Decode(src []byte) (*Entry, error) {
 	var e Entry
 	err := gob.NewDecoder(bytes.NewReader(src)).Decode(&e)
 	return &e, err

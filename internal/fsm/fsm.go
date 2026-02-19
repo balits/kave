@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/balits/thesis/internal/command"
+	"github.com/balits/thesis/internal/common/entry"
 	"github.com/balits/thesis/internal/metrics"
 	"github.com/balits/thesis/internal/store"
 	"github.com/hashicorp/raft"
@@ -78,15 +79,19 @@ func (f *FSM) Restore(snapshot io.ReadCloser) error {
 }
 
 // ======== apply internals ========
-func (f *FSM) handleGet(key string) (*GetResult, error) {
-	raw, err := f.Store.Get([]byte(key))
+func (f *FSM) handleGet(key []byte) (GetResult, error) {
+	raw, err := f.Store.Get(key)
 	if err != nil {
-		return nil, err
+		return GetResult{}, err
 	}
-	return DecodeEntry(raw)
+	entry, err := entry.Decode(raw)
+	if err != nil {
+		return GetResult{}, err
+	}
+	return GetResult{entry}, nil
 }
 
-func (f *FSM) handleSet(currentRevision uint64, key string, value []byte, expectedRevision *uint64) (*SetResult, error) {
+func (f *FSM) handleSet(currentRevision uint64, key []byte, value []byte, expectedRevision *uint64) (SetResult, error) {
 	if expectedRevision == nil {
 		return f.set(currentRevision, key, value)
 	} else {
@@ -94,15 +99,15 @@ func (f *FSM) handleSet(currentRevision uint64, key string, value []byte, expect
 	}
 }
 
-func (f *FSM) handleDelete(key string) (*DeleteResult, error) {
+func (f *FSM) handleDelete(key []byte) (*DeleteResult, error) {
 	delete := new(DeleteResult)
-	rawPrevious, err := f.Store.Delete([]byte(key))
+	rawPrevious, err := f.Store.Delete(key)
 	if err != nil {
 		return nil, err
 	}
 
 	if rawPrevious != nil {
-		prevEntry, err := DecodeEntry(rawPrevious)
+		prevEntry, err := entry.Decode(rawPrevious)
 		if err != nil {
 			return nil, err
 		}
@@ -143,25 +148,25 @@ func (f *FSM) handleBatch(currentRevision uint64, commands []command.Command) (r
 	for _, cmd := range commands {
 		switch cmd.Type {
 		case command.CommandTypeSet:
-			entry := new(Entry)
+			ent := new(entry.Entry)
 			rawPrev, batchError := f.Store.Get([]byte(cmd.Key))
 			if batchError != nil {
 				return
 			}
 
 			if rawPrev == nil {
-				entry.Key = []byte(cmd.Key)
-				entry.Value = cmd.Value
-				entry.CreateRevision = currentRevision
-				entry.ModifyRevision = currentRevision
-				entry.Version = 1
+				ent.Key = []byte(cmd.Key)
+				ent.Value = cmd.Value
+				ent.CreateRevision = currentRevision
+				ent.ModifyRevision = currentRevision
+				ent.Version = 1
 			} else {
-				entry, _ = DecodeEntry(rawPrev)
-				entry.Value = cmd.Value
-				entry.ModifyRevision = currentRevision
-				entry.Version += 1
+				ent, _ = entry.Decode(rawPrev)
+				ent.Value = cmd.Value
+				ent.ModifyRevision = currentRevision
+				ent.Version += 1
 			}
-			encoded, batchError := EncodeEntry(entry)
+			encoded, batchError := entry.Encode(ent)
 			if batchError != nil {
 				return
 			}
@@ -184,62 +189,63 @@ func (f *FSM) handleBatch(currentRevision uint64, commands []command.Command) (r
 	return
 }
 
-func (f *FSM) set(currentRevision uint64, key string, value []byte) (*SetResult, error) {
-	entry := new(Entry)
-	rawPrev, err := f.Store.Get([]byte(key))
+func (f *FSM) set(currentRevision uint64, key []byte, value []byte) (SetResult, error) {
+	ent := new(entry.Entry)
+	rawPrev, err := f.Store.Get(key)
 	if rawPrev == nil {
-		entry.Key = []byte(key)
-		entry.Value = value
-		entry.CreateRevision = currentRevision
-		entry.ModifyRevision = currentRevision
-		entry.Version = 1
+		ent.Key = key
+		ent.Value = value
+		ent.CreateRevision = currentRevision
+		ent.ModifyRevision = currentRevision
+		ent.Version = 1
 	} else {
-		entry, _ = DecodeEntry(rawPrev)
-		entry.Value = value
-		entry.ModifyRevision = currentRevision
-		entry.Version += 1
+		ent, _ = entry.Decode(rawPrev)
+		ent.Value = value
+		ent.ModifyRevision = currentRevision
+		ent.Version += 1
 	}
 
-	encoded, _ := EncodeEntry(entry)
-	err = f.Store.Set([]byte(key), encoded)
+	encoded, _ := entry.Encode(ent)
+	err = f.Store.Set(key, encoded)
 	if err != nil {
-		return nil, err
+		return SetResult{}, err
 	}
 
-	return entry, nil
+	return SetResult{ent}, nil
 }
 
-func (f *FSM) setCAS(currentRevision, expectedRevision uint64, key string, value []byte) (*SetResult, error) {
-	newEntry := new(Entry)
-	rawPrev, err := f.Store.Get([]byte(key))
+func (f *FSM) setCAS(currentRevision, expectedRevision uint64, key []byte, value []byte) (SetResult, error) {
+	newEntry := new(entry.Entry)
+	rawPrev, err := f.Store.Get(key)
 	if err != nil {
-		return nil, err
+		return SetResult{}, err
 	}
 
 	// if no prev value was present, we either insert a new one if expectedRevision is 0
 	// otherwise we cant compare to anything -> error
 	if rawPrev == nil {
 		if expectedRevision != 0 {
-			return nil, errors.New("no previous value to compare revisions with")
+			return SetResult{}, errors.New("no previous value to compare revisions with")
 		}
-		newEntry = &Entry{
-			Key:            []byte(key),
+
+		newEntry = &entry.Entry{
+			Key:            key,
 			Value:          value,
 			CreateRevision: currentRevision,
 			ModifyRevision: currentRevision,
 			Version:        1,
 		}
 	} else {
-		prevEntry, err := DecodeEntry(rawPrev)
+		prevEntry, err := entry.Decode(rawPrev)
 		if err != nil {
-			return nil, err
+			return SetResult{}, err
 		}
 
 		if prevEntry.ModifyRevision != expectedRevision {
-			return nil, ErrRevisionMismatch
+			return SetResult{}, ErrRevisionMismatch
 		}
 
-		newEntry = &Entry{
+		newEntry = &entry.Entry{
 			Key:            prevEntry.Key,
 			Value:          value,
 			CreateRevision: prevEntry.CreateRevision,
@@ -248,17 +254,17 @@ func (f *FSM) setCAS(currentRevision, expectedRevision uint64, key string, value
 		}
 	}
 
-	newBytes, err := EncodeEntry(newEntry)
+	newBytes, err := entry.Encode(newEntry)
 	if err != nil {
-		return nil, err
+		return SetResult{}, err
 	}
 
-	err = f.Store.Set([]byte(key), newBytes)
+	err = f.Store.Set(key, newBytes)
 	if err != nil {
-		return nil, err
+		return SetResult{}, err
 	}
 
-	return newEntry, nil
+	return SetResult{newEntry}, nil
 }
 
 // ========= metrics.FsmMetricsProvider impl =========

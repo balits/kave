@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/balits/thesis/internal/command"
+	"github.com/balits/thesis/internal/common/entry"
 	"github.com/balits/thesis/internal/config"
 	"github.com/balits/thesis/internal/fsm"
 	"github.com/balits/thesis/internal/store"
@@ -41,7 +42,7 @@ func (s *Server) getHandler(ctx *web.Context) {
 	switch err {
 	case nil:
 		s.Logger.Debug("HTTP /get request", "key", body.Key, "value", encoded)
-		entry, err := fsm.DecodeEntry(encoded)
+		entry, err := entry.Decode(encoded)
 		if err != nil {
 			ctx.Error("err", http.StatusInternalServerError)
 			return
@@ -98,7 +99,7 @@ func (s *Server) setHandler(ctx *web.Context) {
 	var buff bytes.Buffer
 	cmd := command.Command{
 		Type:  command.CommandTypeSet,
-		Key:   body.Key,
+		Key:   []byte(body.Key),
 		Value: body.Value,
 	}
 	err = gob.NewEncoder(&buff).Encode(cmd)
@@ -126,7 +127,7 @@ func (s *Server) setHandler(ctx *web.Context) {
 	}
 
 	value := result.SetResult
-	if value == nil {
+	if value.Entry == nil {
 		ctx.Error("apply error: no result value found", http.StatusInternalServerError)
 	}
 
@@ -152,7 +153,7 @@ func (s *Server) deleteHandler(ctx *web.Context) {
 	var buff bytes.Buffer
 	cmd := command.Command{
 		Type: command.CommandTypeDelete,
-		Key:  body.Key,
+		Key:  []byte(body.Key),
 	}
 	err = gob.NewEncoder(&buff).Encode(cmd)
 	if err != nil {

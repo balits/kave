@@ -34,7 +34,7 @@ func (t CommandType) String() string {
 
 type Command struct {
 	Type CommandType
-	Key  string
+	Key  []byte
 
 	// for SET operations
 	Value []byte

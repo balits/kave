@@ -1,11 +1,11 @@
 package unit
 
 import (
-	"maps"
 	"bytes"
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand"
 	"sync/atomic"
 	"testing"
@@ -71,7 +71,7 @@ func TestFSM_ApplyThroughRaft(t *testing.T) {
 	t.Run("FSM Apply Set through Raft", func(t *testing.T) {
 		cmd := command.Command{
 			Type:  command.CommandTypeSet,
-			Key:   "foo",
+			Key:   []byte("foo"),
 			Value: []byte("bar"),
 		}
 		if err = doRaftApply(node, cmd); err != nil {
@@ -81,9 +81,8 @@ func TestFSM_ApplyThroughRaft(t *testing.T) {
 
 	t.Run("FSM Apply Delete through Raft", func(t *testing.T) {
 		cmd := command.Command{
-			Type:  command.CommandTypeDelete,
-			Key:   "foo",
-			Value: []byte(""),
+			Type: command.CommandTypeDelete,
+			Key:  []byte("foo"),
 		}
 		if err = doRaftApply(node, cmd); err != nil {
 			t.Error(err)
@@ -117,7 +116,7 @@ func (ft *fsmTester) testSet(t *testing.T) {
 	for k, v := range state {
 		result, ok := ft.f.Apply(newLog(command.Command{
 			Type:  command.CommandTypeSet,
-			Key:   k,
+			Key:   []byte(k),
 			Value: v,
 		})).(fsm.AppyResult)
 
@@ -150,7 +149,7 @@ func (ft *fsmTester) testDelete(t *testing.T) {
 	for k, oldValue := range state {
 		result, ok := ft.f.Apply(newLog(command.Command{
 			Type: command.CommandTypeDelete,
-			Key:  k,
+			Key:  []byte(k),
 		})).(fsm.AppyResult)
 
 		if !ok {
@@ -204,7 +203,7 @@ func (ft *fsmTester) testBatch(t *testing.T) {
 	batch := make([]command.Command, len(normalizedState))
 
 	for k, v := range randomState {
-		cmd := command.Command{Key: k, Value: v}
+		cmd := command.Command{Key: []byte(k), Value: v}
 		if s(v) == "set" {
 			cmd.Type = command.CommandTypeSet
 		} else if s(v) == "delete" {
