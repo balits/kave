@@ -84,7 +84,7 @@ func (st *StorageTester) testSet(t *testing.T) {
 	}
 
 	for key, expected := range st.dummyState {
-		got, err := st.store.GetStale(b(key))
+		got, err := st.store.Get(b(key))
 		if err != nil {
 			t.Fatalf("GET_STALE failed: %v", err)
 		}

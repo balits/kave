@@ -51,7 +51,7 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-func (s *Store) GetStale(key []byte) (value []byte, err error) {
+func (s *Store) Get(key []byte) (value []byte, err error) {
 	s.storageMetrics.GetCount.Add(1)
 
 	err = s.db.View(func(tx *bolt.Tx) error {

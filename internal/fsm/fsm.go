@@ -79,7 +79,7 @@ func (f *FSM) Restore(snapshot io.ReadCloser) error {
 
 // ======== apply internals ========
 func (f *FSM) handleGet(key string) (*GetResult, error) {
-	raw, err := f.Store.GetStale([]byte(key))
+	raw, err := f.Store.Get([]byte(key))
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (f *FSM) handleBatch(currentRevision uint64, commands []command.Command) (r
 		switch cmd.Type {
 		case command.CommandTypeSet:
 			entry := new(Entry)
-			rawPrev, batchError := f.Store.GetStale([]byte(cmd.Key))
+			rawPrev, batchError := f.Store.Get([]byte(cmd.Key))
 			if batchError != nil {
 				return
 			}
@@ -186,7 +186,7 @@ func (f *FSM) handleBatch(currentRevision uint64, commands []command.Command) (r
 
 func (f *FSM) set(currentRevision uint64, key string, value []byte) (*SetResult, error) {
 	entry := new(Entry)
-	rawPrev, err := f.Store.GetStale([]byte(key))
+	rawPrev, err := f.Store.Get([]byte(key))
 	if rawPrev == nil {
 		entry.Key = []byte(key)
 		entry.Value = value
@@ -211,7 +211,7 @@ func (f *FSM) set(currentRevision uint64, key string, value []byte) (*SetResult,
 
 func (f *FSM) setCAS(currentRevision, expectedRevision uint64, key string, value []byte) (*SetResult, error) {
 	newEntry := new(Entry)
-	rawPrev, err := f.Store.GetStale([]byte(key))
+	rawPrev, err := f.Store.Get([]byte(key))
 	if err != nil {
 		return nil, err
 	}

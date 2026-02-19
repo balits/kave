@@ -37,7 +37,7 @@ func (s *Server) getHandler(ctx *web.Context) {
 		return
 	}
 
-	encoded, err := s.node.GetStore().GetStale([]byte(body.Key))
+	encoded, err := s.node.GetStore().Get([]byte(body.Key))
 	switch err {
 	case nil:
 		s.Logger.Debug("HTTP /get request", "key", body.Key, "value", encoded)

@@ -30,7 +30,7 @@ var (
 type Storage interface {
 	metrics.StorageMetricsProvider
 
-	GetStale(key []byte) (value []byte, err error)
+	Get(key []byte) (value []byte, err error)
 	Set(key, value []byte) error
 	Delete(key []byte) (value []byte, err error)
 

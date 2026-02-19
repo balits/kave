@@ -29,7 +29,7 @@ func NewStore() store.Storage {
 
 // ========= store.KVStore impl =========
 
-func (s *Store) GetStale(key []byte) (value []byte, err error) {
+func (s *Store) Get(key []byte) (value []byte, err error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.doGet(key)

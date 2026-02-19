@@ -78,14 +78,12 @@ func (l *LoggingStore) Set(key []byte, value []byte) error {
 	return l.Inner.Set(key, value)
 }
 
-// Mutation -> through raft
 func (l *LoggingStore) Delete(key []byte) (value []byte, err error) {
 	panic("store.Storage.Delete not implemented")
 }
 
-// Query -> local read, may be stale (since it doesnt go through raft)
-func (l *LoggingStore) GetStale(key []byte) (value []byte, err error) {
-	panic("store.Storage.GetStale not implemented")
+func (l *LoggingStore) Get(key []byte) (value []byte, err error) {
+	return l.Inner.Get(key)
 }
 
 func (l *LoggingStore) StorageMetrics() *metrics.StorageMetrics {
@@ -93,7 +91,7 @@ func (l *LoggingStore) StorageMetrics() *metrics.StorageMetrics {
 }
 
 func (l *LoggingStore) PrefixScan(prefix []byte) ([]store.KVItem, error) {
-	panic("store.(StorageMetricsProvider).StorageMetrics() not implemented")
+	panic("store.PrefixScan() not implemented")
 }
 
 func (l *LoggingStore) NewBatch() (store.Batch, error) {
