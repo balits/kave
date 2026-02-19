@@ -197,6 +197,9 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 	fmt.Printf("ConfigJSON %+v\n", configJson)
+	if err = configJson.Validate(); err != nil {
+		return nil, err
+	}
 
 	// convert to valid config
 	config, err := configJson.ToConfig()

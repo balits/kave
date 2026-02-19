@@ -70,11 +70,11 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 	}
 }
 func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
-	return f.Snapshot()
+	return f.Store.Snapshot()
 }
 
 func (f *FSM) Restore(snapshot io.ReadCloser) error {
-	return f.Restore(snapshot)
+	return f.Store.Restore(snapshot)
 }
 
 // ======== apply internals ========

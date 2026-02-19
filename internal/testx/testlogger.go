@@ -10,7 +10,7 @@ import (
 
 func GetTestingLogLevel() slog.Level {
 	if testing.Verbose() {
-		return slog.LevelInfo
+		return slog.LevelDebug
 	} else {
 		var no slog.Level = 99
 		return no

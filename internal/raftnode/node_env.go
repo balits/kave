@@ -12,6 +12,7 @@ import (
 	"github.com/balits/thesis/internal/config"
 	"github.com/balits/thesis/internal/fsm"
 	"github.com/balits/thesis/internal/store"
+	"github.com/balits/thesis/internal/store/durable"
 	"github.com/balits/thesis/internal/store/inmem"
 	"github.com/balits/thesis/internal/util"
 	"github.com/hashicorp/raft"
@@ -45,7 +46,11 @@ func (e *NodeEnv) SetFsm(fsm *fsm.FSM) {
 }
 
 func NewEnv(cfg *config.Config, logger *slog.Logger) (*NodeEnv, error) {
-	fsm := newFsm(cfg.Storage)
+	fsm, err := newFsm(cfg.Storage, cfg.Dir)
+	if err != nil {
+		return nil, err
+	}
+
 	raftCfg := loadRaftConfig(raft.ServerID(cfg.NodeID), logger, cfg.LogLevel)
 	transport, err := newTransport(cfg.GetRaftAddress())
 	if err != nil {
@@ -72,16 +77,20 @@ func NewEnv(cfg *config.Config, logger *slog.Logger) (*NodeEnv, error) {
 	return env, nil
 }
 
-func newFsm(kind config.StorageKind) *fsm.FSM {
+func newFsm(kind config.StorageKind, dataDir string) (*fsm.FSM, error) {
 	var s store.Storage
 	switch kind {
 	case config.StorageKindBolt:
-		util.Todo("boltdb storage")
+		durable, err := durable.NewStore(dataDir + "/kvbolt.db")
+		if err != nil {
+			return nil, err
+		}
+		s = durable
 	case config.StorageKindInMemory:
 		s = inmem.NewStore()
 	}
 
-	return fsm.New(s)
+	return fsm.New(s), nil
 }
 
 func newRaftStores(storage config.StorageKind, dir string) (logs raft.LogStore, stable raft.StableStore, snapshots raft.SnapshotStore, err error) {

@@ -34,4 +34,8 @@ go.work.sum
 # Raft run-time directory for storage
 data/
 
+# compiled go code
 bin/
+
+# local cluster configs
+config/

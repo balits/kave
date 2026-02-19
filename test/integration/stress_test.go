@@ -63,7 +63,7 @@ func TestStress(t *testing.T) {
 	testx.NoErr(t, testx.WaitForState(node1, raft.Leader))
 
 	totalApplied := 0
-	totalApplied += applyAndWait(t, node1, 100, 10)
+	totalApplied += applyAndWait(t, node1, 1000, 10)
 	testx.NoErr(t, testx.WaitForFuture(t, node1.Raft.Snapshot()))
 
 	var nodes []*testx.TestNode
