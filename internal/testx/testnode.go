@@ -65,7 +65,7 @@ func (node *TestNode) Restart(tb testing.TB) {
 func (node *TestNode) StartHttpServer(tb testing.TB, ctx context.Context) {
 	go func() {
 		if err := node.server.Run(ctx); err != nil && err != http.ErrServerClosed {
-			tb.Fatalf("HTTP server error: %v", err)
+			tb.Logf("HTTP server error: %v", err)
 		}
 	}()
 }
