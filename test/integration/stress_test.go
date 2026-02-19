@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/balits/thesis/internal/store"
+	"github.com/balits/thesis/internal/command"
 	"github.com/balits/thesis/internal/testx"
 	"github.com/balits/thesis/internal/testx/mock"
 	"github.com/hashicorp/raft"
@@ -31,8 +31,8 @@ func applyAndWait(tb testing.TB, node *testx.TestNode, n, sz int) int {
 }
 
 func setRaftLog(k, v int) []byte {
-	c := store.Cmd{
-		Kind:  store.CmdKindSet,
+	c := command.Command{
+		Type:  command.CommandTypeSet,
 		Key:   strconv.Itoa(k),
 		Value: []byte(strconv.Itoa(v)),
 	}

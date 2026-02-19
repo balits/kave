@@ -19,17 +19,17 @@ type Node struct {
 	Raft *raft.Raft
 
 	// Information about the state of the Node
-	nodeMetrics metrics.NodeMetricsAtomic
+	nodeMetrics *metrics.NodeMetricsAtomic
 }
 
 func CreateNode(env *NodeEnv) *Node {
-	nodeMetrics := new(metrics.NodeMetricsAtomic)
-	nodeMetrics.StorageState.Store(uint32(metrics.StorageStateOperational))
-	return &Node{
+	n := &Node{
 		Raft:        nil,
 		NodeEnv:     *env,
-		nodeMetrics: *nodeMetrics,
+		nodeMetrics: new(metrics.NodeMetricsAtomic),
 	}
+	n.nodeMetrics.StorageState.Store(uint32(metrics.StorageStateOperational))
+	return n
 }
 
 func (n *Node) SetupRaft() error {

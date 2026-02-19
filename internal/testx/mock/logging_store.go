@@ -6,15 +6,16 @@ import (
 	"io"
 	"sync"
 
+	"github.com/balits/thesis/internal/command"
 	"github.com/balits/thesis/internal/metrics"
 	"github.com/balits/thesis/internal/store"
 	"github.com/hashicorp/raft"
 )
 
-func NewLoggingStore(storage store.Storage) *LoggingStore {
+func NewLoggingStore(storage store.Storage) store.Storage {
 	return &LoggingStore{
 		Inner: storage,
-		Logs:  make([]store.Cmd, 0),
+		Logs:  make([]command.Command, 0),
 	}
 }
 
@@ -23,20 +24,20 @@ func NewLoggingStore(storage store.Storage) *LoggingStore {
 // It also implements store.KVStore so its compatible with raftnode.Node
 type LoggingStore struct {
 	Inner store.Storage
-	Logs  []store.Cmd
+	Logs  []command.Command
 	sync.Mutex
 }
 
 type LoggerFsmSnapshot struct {
 	snapshot raft.FSMSnapshot
-	logs     []store.Cmd
+	logs     []command.Command
 	maxIndex int
 }
 
 // Snapshot implements raft.FSM
 func (l *LoggingStore) Snapshot() (raft.FSMSnapshot, error) {
 	l.Lock()
-	logs := append([]store.Cmd{}, l.Logs...)
+	logs := append([]command.Command{}, l.Logs...)
 	l.Unlock()
 
 	snap, err := l.Inner.Snapshot()
@@ -54,7 +55,7 @@ func (l *LoggingStore) Snapshot() (raft.FSMSnapshot, error) {
 // Restore implements raft.FSM
 func (l *LoggingStore) Restore(inp io.ReadCloser) error {
 	var snap struct {
-		Logs []store.Cmd
+		Logs []command.Command
 		Data []byte
 	}
 
@@ -68,27 +69,39 @@ func (l *LoggingStore) Restore(inp io.ReadCloser) error {
 	return l.Inner.Restore(io.NopCloser(r))
 }
 
-func (l *LoggingStore) Set(key string, value []byte) (int, error) {
-	l.Logs = append(l.Logs, store.Cmd{
-		Kind:  store.CmdKindSet,
-		Key:   key,
+func (l *LoggingStore) Set(key []byte, value []byte) error {
+	l.Logs = append(l.Logs, command.Command{
+		Type:  command.CommandTypeSet,
+		Key:   string(key),
 		Value: value,
 	})
 	return l.Inner.Set(key, value)
 }
 
 // Mutation -> through raft
-func (l *LoggingStore) Delete(key string) (value []byte, err error) {
+func (l *LoggingStore) Delete(key []byte) (value []byte, err error) {
 	panic("store.Storage.Delete not implemented")
 }
 
 // Query -> local read, may be stale (since it doesnt go through raft)
-func (l *LoggingStore) GetStale(key string) (value []byte, err error) {
+func (l *LoggingStore) GetStale(key []byte) (value []byte, err error) {
 	panic("store.Storage.GetStale not implemented")
 }
 
 func (l *LoggingStore) StorageMetrics() *metrics.StorageMetrics {
 	panic("store.(StorageMetricsProvider).StorageMetrics() not implemented")
+}
+
+func (l *LoggingStore) PrefixScan(prefix []byte) ([]store.KVItem, error) {
+	panic("store.(StorageMetricsProvider).StorageMetrics() not implemented")
+}
+
+func (l *LoggingStore) NewBatch() (store.Batch, error) {
+	return l.Inner.NewBatch()
+}
+
+func (l *LoggingStore) Close() error {
+	return l.Inner.Close()
 }
 
 func (s *LoggerFsmSnapshot) Persist(sink raft.SnapshotSink) error {
@@ -102,7 +115,7 @@ func (s *LoggerFsmSnapshot) Persist(sink raft.SnapshotSink) error {
 
 	// Encode both logs and underlying snapshot data
 	if err := gob.NewEncoder(sink).Encode(struct {
-		Logs []store.Cmd
+		Logs []command.Command
 		Data []byte
 	}{
 		Logs: s.logs,

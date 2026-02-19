@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/balits/thesis/internal/command"
 	"github.com/balits/thesis/internal/config"
+	"github.com/balits/thesis/internal/fsm"
 	"github.com/balits/thesis/internal/store"
 	"github.com/balits/thesis/internal/web"
 	"github.com/hashicorp/raft"
@@ -35,15 +37,19 @@ func (s *Server) getHandler(ctx *web.Context) {
 		return
 	}
 
-	value, err := s.node.GetStore().GetStale(body.Key)
+	encoded, err := s.node.GetStore().GetStale([]byte(body.Key))
 	switch err {
 	case nil:
-		s.Logger.Debug("HTTP /get request", "key", body.Key, "value", value)
-		data := map[string][]byte{"value": value}
-		ctx.Ok(data)
-	case store.ErrorKeyNotFound:
+		s.Logger.Debug("HTTP /get request", "key", body.Key, "value", encoded)
+		entry, err := fsm.DecodeEntry(encoded)
+		if err != nil {
+			ctx.Error("err", http.StatusInternalServerError)
+			return
+		}
+		ctx.Ok(entry)
+	case store.ErrKeyNotFound:
 		s.Logger.Debug("HTTP /get request: key not found", "key", body.Key)
-		ctx.Error("Key not found", http.StatusNotFound)
+		ctx.Error("key not found", http.StatusNotFound)
 	default:
 		ctx.Error(fmt.Sprintf("Error during store.Get: %v", err.Error()), http.StatusInternalServerError)
 	}
@@ -90,34 +96,41 @@ func (s *Server) setHandler(ctx *web.Context) {
 	}
 
 	var buff bytes.Buffer
-	cmd := store.Cmd{
-		Kind:  store.CmdKindSet,
+	cmd := command.Command{
+		Type:  command.CommandTypeSet,
 		Key:   body.Key,
 		Value: body.Value,
 	}
 	err = gob.NewEncoder(&buff).Encode(cmd)
 	if err != nil {
-		ctx.Error(fmt.Sprintf("Error during gob encoding: %v", err.Error()), http.StatusInternalServerError)
+		ctx.Error(fmt.Sprintf("encoding error: %v", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
 	future := s.node.Raft.Apply(buff.Bytes(), 5*time.Second)
 	err = future.Error()
 	if err != nil {
-		ctx.Error(fmt.Sprintf("Error during raft.Apply: %v", err.Error()), http.StatusInternalServerError)
+		ctx.Error(fmt.Sprintf("apply error: %v", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
-	applyResponse, ok := future.Response().(store.ApplyResponse)
+	result, ok := future.Response().(fsm.AppyResult)
 	if !ok {
 		ctx.Error(errApplyResponseCastFailed, http.StatusInternalServerError)
 		return
 	}
-	if applyResponse.IsError() {
-		ctx.Error(fmt.Sprintf("Error during raft.Apply.Response: %v", applyResponse.GetError()), http.StatusInternalServerError)
+
+	if err := result.Error(); err != nil {
+		ctx.Error(fmt.Sprintf("apply error: %v", err), http.StatusInternalServerError)
 		return
 	}
-	ctx.Ok(nil)
+
+	value := result.SetResult
+	if value == nil {
+		ctx.Error("apply error: no result value found", http.StatusInternalServerError)
+	}
+
+	ctx.Ok(value)
 }
 
 func (s *Server) deleteHandler(ctx *web.Context) {
@@ -126,7 +139,7 @@ func (s *Server) deleteHandler(ctx *web.Context) {
 		return
 	}
 
-	var body web.GetBody
+	var body web.DeleteBody
 	err := ctx.ReadJSON(&body)
 	if err != nil {
 		ctx.Error(fmt.Sprintf("Request body: %v", err.Error()), http.StatusBadRequest)
@@ -137,28 +150,33 @@ func (s *Server) deleteHandler(ctx *web.Context) {
 	}
 
 	var buff bytes.Buffer
-	cmd := store.Cmd{
-		Kind: store.CmdKindDelete,
+	cmd := command.Command{
+		Type: command.CommandTypeDelete,
 		Key:  body.Key,
 	}
 	err = gob.NewEncoder(&buff).Encode(cmd)
 	if err != nil {
-		ctx.Error(fmt.Sprintf("Error during gob encoding: %v", err.Error()), http.StatusInternalServerError)
+		ctx.Error(fmt.Sprintf("encoding error: %v", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
 	future := s.node.Raft.Apply(buff.Bytes(), time.Second*5)
 	err = future.Error()
 	if err != nil {
-		ctx.Error(fmt.Sprintf("Error during raft.Apply: %v", err.Error()), http.StatusInternalServerError)
+		ctx.Error(fmt.Sprintf("apply error: %v", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
-	applyResponse := future.Response().(store.ApplyResponse)
-	if applyResponse.IsError() {
-		ctx.Error(fmt.Sprintf("Error during raft.Apply.Response: %v", applyResponse.GetError()), http.StatusInternalServerError)
+	result := future.Response().(fsm.AppyResult)
+	if err := result.Error(); err != nil {
+		ctx.Error(fmt.Sprintf("apply error: %v", err), http.StatusInternalServerError)
 		return
 	}
-	data := map[string][]byte{"value": applyResponse.Cmd.Value}
-	ctx.Ok(data)
+
+	value := result.DeleteResult
+	if value == nil {
+		ctx.Error("apply error: no result value found", http.StatusInternalServerError)
+	}
+
+	ctx.Ok(value)
 }

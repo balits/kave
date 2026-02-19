@@ -10,8 +10,9 @@ import (
 	"time"
 
 	"github.com/balits/thesis/internal/api"
+	"github.com/balits/thesis/internal/fsm"
 	"github.com/balits/thesis/internal/raftnode"
-	"github.com/balits/thesis/internal/store"
+	"github.com/balits/thesis/internal/store/inmem"
 	"github.com/balits/thesis/internal/testx/mock"
 	"github.com/hashicorp/raft"
 )
@@ -24,7 +25,7 @@ func NewTestNode(tb testing.TB, ctx context.Context, nodeID string) *TestNode {
 	logger := NewTestLogger(tb, config.LogLevel)
 	raftConfig := mock.NewMockRaftConfig(logger, config.LogLevel)
 	raftConfig.LocalID = raft.ServerID(nodeID)
-	fsm := store.NewFSM(mock.NewLoggingStore(store.NewInMemoryStore()))
+	fsm := fsm.New(mock.NewLoggingStore(inmem.NewStore()))
 	env := mock.NewMockNodeEnv(tb, config, raftConfig, logger, fsm)
 	node, server := mock.NewMockNode(tb, env)
 
@@ -35,7 +36,7 @@ func NewTestNode(tb testing.TB, ctx context.Context, nodeID string) *TestNode {
 
 type TestNode struct {
 	*raftnode.Node
-	LoggingFsm *store.FSM // exposed access to fsm which should stay private in prod
+	LoggingFsm *fsm.FSM // exposed access to fsm which should stay private in prod
 	server     *api.Server
 }
 

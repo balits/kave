@@ -8,15 +8,13 @@ import (
 	"log/slog"
 	"os"
 	"strings"
-
-	"github.com/balits/thesis/internal/util"
 )
 
 type StorageKind string
 
 const (
-	InmemStorage   StorageKind = "inmemory"
-	DurableStorage StorageKind = "durable"
+	StorageKindInMemory StorageKind = "inmemory"
+	StorageKindBolt     StorageKind = "boltdb"
 )
 
 // Config is the global configuration pertaining to this node. It contains
@@ -49,20 +47,54 @@ func (c *Config) FindPeer(nodeID string) (info *Peer, ok bool) {
 	return
 }
 
+type ConfigLogLevel = string
+
+const (
+	LogLevelDebug ConfigLogLevel = "debug"
+	LogLevelInfo  ConfigLogLevel = "info"
+	LogLevelWarn  ConfigLogLevel = "warn"
+	LogLevelError ConfigLogLevel = "error"
+)
+
+func ConfigLogLevelToSlogLogLevel(l ConfigLogLevel) (out slog.Level) {
+	switch l {
+	case LogLevelDebug:
+		out = slog.LevelDebug
+	case LogLevelInfo:
+		out = slog.LevelInfo
+	case LogLevelWarn:
+		out = slog.LevelWarn
+	case LogLevelError:
+		out = slog.LevelError
+	}
+	return
+}
+
 // ConfigJson handles reading a structured config from json files, and turning them into proper Configs
 type ConfigJson struct {
-	Storage  string `json:"storage"`
-	LogLevel string `json:"log_level"`
-	Dir      string `json:"dir"`
-	Peers    string `json:"peers"`
+	Storage  StorageKind    `json:"storage"`
+	LogLevel ConfigLogLevel `json:"log_level"`
+	Dir      string         `json:"dir"`
+	Peers    string         `json:"peers"`
 }
 
 func (cj *ConfigJson) Validate() error {
 	if cj.Dir == "" {
 		return errors.New("data dir is required")
 	}
-	if cj.LogLevel != "DEBUG" && cj.LogLevel != "INFO" && cj.LogLevel != "WARN" && cj.LogLevel != "ERROR" {
-		return fmt.Errorf("invalid log level: '%s', expected: DEBUG | INFO | WARN | ERROR", cj.LogLevel)
+
+	switch cj.Storage {
+	case StorageKindBolt, StorageKindInMemory:
+		// ok
+	default:
+		return errors.New("unrecognised storage kind")
+	}
+
+	switch cj.LogLevel {
+	case LogLevelDebug, LogLevelInfo, LogLevelWarn, LogLevelError:
+		// ok
+	default:
+		return errors.New("unrecognised loglevel kind")
 	}
 
 	return nil
@@ -72,8 +104,8 @@ func (cj *ConfigJson) Validate() error {
 // into a usable Config, or returns with an error.
 // It also removes a given node from the peer list
 func (cj *ConfigJson) ToConfig() (*Config, error) {
-	logLevel := util.StringToSlogLevel(cj.LogLevel)
 	var peers []Peer
+
 	if strings.TrimSpace(cj.Peers) == "" {
 		peers = make([]Peer, 0)
 	} else {
@@ -104,11 +136,15 @@ func (cj *ConfigJson) ToConfig() (*Config, error) {
 	}
 
 	var storage StorageKind
-	if cj.Storage == string(DurableStorage) || cj.Storage == string(InmemStorage) {
-		storage = StorageKind(cj.Storage)
-	} else {
-		return nil, fmt.Errorf("storage kind not specified, got %s, exepcted %s or %s", cj.Storage, InmemStorage, DurableStorage)
+
+	switch cj.Storage {
+	case StorageKindBolt, StorageKindInMemory:
+		storage = cj.Storage
+	default:
+		return nil, errors.New("unrecognised storage kind")
 	}
+
+	logLevel := ConfigLogLevelToSlogLogLevel(cj.LogLevel)
 
 	c := &Config{
 		Storage:  storage,
@@ -153,18 +189,21 @@ func LoadConfig() (*Config, error) {
 	if err := p.ValidateNodeConfig(); err != nil {
 		return nil, err
 	}
+	fmt.Printf("Peer %+v\n", p)
 
 	// parse json from config flag path
 	configJson, err := newConfigJson(*configPath)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("ConfigJSON %+v\n", configJson)
 
 	// convert to valid config
 	config, err := configJson.ToConfig()
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("Config %+v\n", config)
 
 	config.Bootstrap = *bootstrap
 	config.Peer = p

@@ -10,8 +10,8 @@ import (
 
 	"github.com/balits/thesis/internal/api"
 	"github.com/balits/thesis/internal/config"
+	"github.com/balits/thesis/internal/fsm"
 	"github.com/balits/thesis/internal/raftnode"
-	"github.com/balits/thesis/internal/store"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/raft"
 )
@@ -27,7 +27,7 @@ func NewMockConfig(tb testing.TB, level slog.Level, bootstrap bool) *config.Conf
 	c := &config.Config{
 		Bootstrap: bootstrap,
 		Dir:       dir,
-		Storage:   config.InmemStorage,
+		Storage:   config.StorageKindInMemory,
 		LogLevel:  level,
 		Peers:     make([]config.Peer, 0),
 	}
@@ -53,7 +53,7 @@ func NewMockRaftConfig(logger *slog.Logger, level slog.Level) *raft.Config {
 	return cfg
 }
 
-func NewMockNodeEnv(tb testing.TB, config *config.Config, raftConfig *raft.Config, logger *slog.Logger, fsm *store.FSM) *raftnode.NodeEnv {
+func NewMockNodeEnv(tb testing.TB, config *config.Config, raftConfig *raft.Config, logger *slog.Logger, fsm *fsm.FSM) *raftnode.NodeEnv {
 	logs := raft.NewInmemStore()
 	stable := raft.NewInmemStore()
 	snapshots := raft.NewInmemSnapshotStore()

@@ -97,23 +97,6 @@ func slogLeveltoHcLevel(lvl slog.Level) hclog.Level {
 	}
 }
 
-func StringToSlogLevel(raw string) (out slog.Level) {
-	level := strings.ToUpper(raw)
-	switch level {
-	case "DEBUG":
-		out = slog.LevelDebug
-	case "INFO":
-		out = slog.LevelInfo
-	case "WARN":
-		out = slog.LevelWarn
-	case "ERROR":
-		out = slog.LevelError
-	default:
-		out = slog.LevelInfo
-	}
-	return
-}
-
 // ============ hclog.Logger impl ============
 
 func (a *HcLogAdapter) Log(level hclog.Level, msg string, args ...interface{}) {

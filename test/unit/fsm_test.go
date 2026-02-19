@@ -1,26 +1,44 @@
 package unit
 
 import (
+	"maps"
 	"bytes"
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"math/rand"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/balits/thesis/internal/command"
+	"github.com/balits/thesis/internal/fsm"
 	"github.com/balits/thesis/internal/store"
+	"github.com/balits/thesis/internal/store/inmem"
 	"github.com/balits/thesis/internal/testx"
 	"github.com/balits/thesis/internal/util"
 	"github.com/hashicorp/raft"
 )
 
-func TestFSM_ApplyInMemoryStore(t *testing.T) {
-	testApply(store.NewFSM(store.NewInMemoryStore()), t)
+var raftIndex atomic.Uint64 // default 0
+
+type fsmTester struct {
+	f *fsm.FSM
+	n int
+}
+
+func Test_FSM(t *testing.T) {
+	t.Run("with_inmemory_storage", func(t *testing.T) {
+		tester := fsmTester{fsm.New(inmem.NewStore()), 10}
+		t.Run("SET", tester.testSet)
+		t.Run("DELETE", tester.testDelete)
+		t.Run("BATCH", tester.testBatch)
+	})
 }
 
 func TestFSM_ApplyThroughRaft(t *testing.T) {
 	id := raft.ServerID("dummy")
-	fsm := store.NewFSM(store.NewInMemoryStore())
+	_f := fsm.New(inmem.NewStore())
 
 	conf := raft.DefaultConfig()
 	loglevel := testx.GetTestingLogLevel()
@@ -30,7 +48,7 @@ func TestFSM_ApplyThroughRaft(t *testing.T) {
 	stable := raft.NewInmemStore()
 	snaps := raft.NewInmemSnapshotStore()
 	_, trans := raft.NewInmemTransport(raft.ServerAddress(""))
-	node, err := raft.NewRaft(conf, fsm, logs, stable, snaps, trans)
+	node, err := raft.NewRaft(conf, _f, logs, stable, snaps, trans)
 	if err != nil {
 		t.Errorf("could not create raft node: %v", err)
 	}
@@ -51,8 +69,8 @@ func TestFSM_ApplyThroughRaft(t *testing.T) {
 	<-node.LeaderCh() // wait until node becomes leader (pre voting, voting election etc)
 
 	t.Run("FSM Apply Set through Raft", func(t *testing.T) {
-		cmd := store.Cmd{
-			Kind:  store.CmdKindSet,
+		cmd := command.Command{
+			Type:  command.CommandTypeSet,
 			Key:   "foo",
 			Value: []byte("bar"),
 		}
@@ -62,8 +80,8 @@ func TestFSM_ApplyThroughRaft(t *testing.T) {
 	})
 
 	t.Run("FSM Apply Delete through Raft", func(t *testing.T) {
-		cmd := store.Cmd{
-			Kind:  store.CmdKindDelete,
+		cmd := command.Command{
+			Type:  command.CommandTypeDelete,
 			Key:   "foo",
 			Value: []byte(""),
 		}
@@ -73,49 +91,7 @@ func TestFSM_ApplyThroughRaft(t *testing.T) {
 	})
 }
 
-func testApply(fsm *store.FSM, t *testing.T) {
-	t.Run("FSM Apply Set", func(t *testing.T) {
-		cmd := store.Cmd{
-			Kind:  store.CmdKindSet,
-			Key:   "foo",
-			Value: []byte("bar"),
-		}
-		if err := doApply(fsm, cmd); err != nil {
-			t.Error(err)
-		}
-	})
-
-	t.Run("FSM Apply Delete", func(t *testing.T) {
-		cmd := store.Cmd{
-			Kind:  store.CmdKindDelete,
-			Key:   "foo",
-			Value: []byte(""),
-		}
-		if err := doApply(fsm, cmd); err != nil {
-			t.Error(err)
-		}
-	})
-}
-
-func doApply(fsm *store.FSM, cmd store.Cmd) error {
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(cmd); err != nil {
-		return fmt.Errorf("error during encoding: %w", err)
-	}
-
-	response := fsm.Apply(newLog(buf.Bytes()))
-
-	applyResponse, ok := response.(store.ApplyResponse)
-	if !ok {
-		return errors.New("could not cast Apply return type to ApplyResponse")
-	}
-	if applyResponse.IsError() {
-		return applyResponse.GetError()
-	}
-	return nil
-}
-
-func doRaftApply(node *raft.Raft, cmd store.Cmd) error {
+func doRaftApply(node *raft.Raft, cmd command.Command) error {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	err := gob.NewEncoder(buf).Encode(&cmd)
 	if err != nil {
@@ -125,18 +101,152 @@ func doRaftApply(node *raft.Raft, cmd store.Cmd) error {
 	if err = fututre.Error(); err != nil {
 		return err
 	}
-	response, ok := fututre.Response().(store.ApplyResponse)
+	result, ok := fututre.Response().(fsm.AppyResult)
 	if !ok {
 		return errors.New("Could not cat future.Response() as ApplyResponse")
 	}
-	if response.IsError() {
-		return response.GetError()
-	}
-	return nil
+	return result.Error()
 }
 
-func newLog(data []byte) *raft.Log {
+func (ft *fsmTester) testSet(t *testing.T) {
+	state := make(map[string][]byte, ft.n)
+	for i := range ft.n {
+		state[fmt.Sprintf("key%d", i)] = DEFAULT_VALUE
+	}
+
+	for k, v := range state {
+		result, ok := ft.f.Apply(newLog(command.Command{
+			Type:  command.CommandTypeSet,
+			Key:   k,
+			Value: v,
+		})).(fsm.AppyResult)
+
+		if !ok {
+			t.Fatal("SET failed:  Apply didnt return fsm.Result")
+		}
+
+		if err := result.Error(); err != nil {
+			t.Fatal("SET failed:", err)
+		}
+
+		stored := result.SetResult
+
+		if stored.ModifyRevision != raftIndex.Load() {
+			t.Fatal("SET failed: ModifyRevisions did not match")
+		}
+
+		if !bytes.Equal(v, stored.Value) {
+			t.Fatal("SET failed: stored values did not match")
+		}
+	}
+}
+
+func (ft *fsmTester) testDelete(t *testing.T) {
+	state := make(map[string][]byte, ft.n)
+	for i := range ft.n {
+		state[fmt.Sprintf("key%d", i)] = DEFAULT_VALUE
+	}
+
+	for k, oldValue := range state {
+		result, ok := ft.f.Apply(newLog(command.Command{
+			Type: command.CommandTypeDelete,
+			Key:  k,
+		})).(fsm.AppyResult)
+
+		if !ok {
+			t.Fatal("DELETE failed: Apply didnt return fsm.Result")
+		}
+
+		if err := result.Error(); err != nil {
+			t.Fatal("DELETE failed:", err)
+		}
+
+		delete := result.DeleteResult
+		if !delete.Deleted {
+			t.Fatal("DELETE failed: delete was a no-op, key not found")
+		}
+
+		if !bytes.Equal(oldValue, delete.PrevEntry.Value) {
+			t.Fatal("DELETE failed: stored values did not match")
+		}
+	}
+}
+
+func (ft *fsmTester) testBatch(t *testing.T) {
+	keyGen := func() string {
+		return fmt.Sprintf("%b", rand.Intn(5))
+	}
+
+	randomState := make(map[string][]byte)
+	for i := range ft.n {
+		if i%3 == 0 {
+			randomState[keyGen()] = b("set")
+		} else {
+			randomState[keyGen()] = b("delete")
+		}
+	}
+
+	bc := store.NewBatchCollector()
+	for k, v := range randomState {
+		if s(v) == "set" {
+			bc.RecordSet([]byte(k), v)
+		} else if s(v) == "delete" {
+			bc.RecordDelete(v)
+		}
+	}
+
+	normalizedState := make(map[string][]byte)
+	maps.Copy(normalizedState, bc.Writes())
+	for k, _ := range bc.Deletes() {
+		normalizedState[k] = b("")
+	}
+
+	batch := make([]command.Command, len(normalizedState))
+
+	for k, v := range randomState {
+		cmd := command.Command{Key: k, Value: v}
+		if s(v) == "set" {
+			cmd.Type = command.CommandTypeSet
+		} else if s(v) == "delete" {
+			cmd.Type = command.CommandTypeDelete
+		} else {
+			continue
+		}
+
+		batch = append(batch, cmd)
+	}
+
+	result, ok := ft.f.Apply(newLog(command.Command{
+		Type:     command.CommandTypeBatch,
+		BatchOps: batch,
+	})).(fsm.AppyResult)
+
+	if !ok {
+		t.Fatal("DELETE failed: Apply didnt return fsm.Result")
+	}
+
+	if err := result.Error(); err != nil {
+		t.Fatal("BATCH failed:", err)
+	}
+
+	if err := result.Error(); err != nil {
+		t.Fatal("BATCH failed:", err)
+	}
+
+	if !result.BatchResult.Success {
+		t.Fatal("BATCH failed: batch result unsuccessful")
+	}
+}
+
+func newLog(cmd command.Command) *raft.Log {
+	bytes, err := command.Encode(cmd)
+	if err != nil {
+		panic(err)
+	}
+
+	logIndex := raftIndex.Add(1)
 	return &raft.Log{
-		Data: data,
+		Index: logIndex,
+		Data:  bytes,
 	}
 }

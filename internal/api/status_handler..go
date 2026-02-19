@@ -8,7 +8,7 @@ import (
 	"github.com/hashicorp/raft"
 )
 
-func (s *Server) readyHandler(ctx *web.Context) {
+func (s *Server) statusHandler(ctx *web.Context) {
 	var status metrics.Status
 	status.FsmMetrics = s.node.FsmMetrics()
 	status.NodeMetrics = s.node.NodeMetrics()

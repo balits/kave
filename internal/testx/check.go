@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/balits/thesis/internal/store"
+	"github.com/balits/thesis/internal/command"
 	"github.com/balits/thesis/internal/testx/mock"
 )
 
@@ -38,7 +38,7 @@ CHECK:
 		for idx, log := range firstStore.Logs {
 			other := currentStore.Logs[idx]
 			if !cmdEq(log, other) {
-				err = fmt.Errorf("log entry %d mismatch between %s/%s : '%s' / '%s'", idx, first.Config.NodeID, currentNode.Config.NodeID, log, other)
+				err = fmt.Errorf("log entry %d mismatch between %s/%s : '%v' / '%v'", idx, first.Config.NodeID, currentNode.Config.NodeID, log, other)
 				currentStore.Unlock()
 				goto ERR
 			}
@@ -103,6 +103,6 @@ ERR:
 	*/
 }
 
-func cmdEq(this, that store.Cmd) bool {
-	return this.Kind == that.Kind && this.Key == that.Key && bytes.Equal(this.Value, that.Value)
+func cmdEq(this, that command.Command) bool {
+	return this.Type == that.Type && this.Key == that.Key && bytes.Equal(this.Value, that.Value)
 }

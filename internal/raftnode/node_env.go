@@ -6,10 +6,13 @@ import (
 	"net"
 	"os"
 	"path"
+	"testing"
 	"time"
 
 	"github.com/balits/thesis/internal/config"
+	"github.com/balits/thesis/internal/fsm"
 	"github.com/balits/thesis/internal/store"
+	"github.com/balits/thesis/internal/store/inmem"
 	"github.com/balits/thesis/internal/util"
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
@@ -17,7 +20,7 @@ import (
 
 type NodeEnv struct {
 	Dir    string
-	fsm    *store.FSM
+	fsm    *fsm.FSM
 	Logger *slog.Logger
 	Config *config.Config
 
@@ -28,27 +31,28 @@ type NodeEnv struct {
 	Snapshots  raft.SnapshotStore
 }
 
-// GetStore casts our fsm into a store and returns it. This cannot fail
-// because of the composed interface, however in tests its
-// implemented by a dummy store that does nothing
+// GetStore returns the
 func (e *NodeEnv) GetStore() store.Storage {
 	return e.fsm.Store
 }
 
-// SetFsm helps us to set the (not exported) fsm field outside of this module, for example in tests
-func (e *NodeEnv) SetFsm(fsm *store.FSM) {
+// SetFsm helps us to set the (not exported) fsm field in tests
+func (e *NodeEnv) SetFsm(fsm *fsm.FSM) {
+	if !testing.Testing() {
+		panic("SetFSM can only be called in tests")
+	}
 	e.fsm = fsm
 }
 
 func NewEnv(cfg *config.Config, logger *slog.Logger) (*NodeEnv, error) {
-	fsm := newFsm(cfg.Storage == config.InmemStorage, FsmOptions{true})
+	fsm := newFsm(cfg.Storage)
 	raftCfg := loadRaftConfig(raft.ServerID(cfg.NodeID), logger, cfg.LogLevel)
 	transport, err := newTransport(cfg.GetRaftAddress())
 	if err != nil {
 		return nil, err
 	}
 
-	logs, stable, snapshots, err := newStores(cfg.Storage, cfg.Dir)
+	logs, stable, snapshots, err := newRaftStores(cfg.Storage, cfg.Dir)
 	if err != nil {
 		return nil, err
 	}
@@ -68,8 +72,20 @@ func NewEnv(cfg *config.Config, logger *slog.Logger) (*NodeEnv, error) {
 	return env, nil
 }
 
-func newStores(storage config.StorageKind, dir string) (logs raft.LogStore, stable raft.StableStore, snapshots raft.SnapshotStore, err error) {
-	if storage == config.InmemStorage {
+func newFsm(kind config.StorageKind) *fsm.FSM {
+	var s store.Storage
+	switch kind {
+	case config.StorageKindBolt:
+		util.Todo("boltdb storage")
+	case config.StorageKindInMemory:
+		s = inmem.NewStore()
+	}
+
+	return fsm.New(s)
+}
+
+func newRaftStores(storage config.StorageKind, dir string) (logs raft.LogStore, stable raft.StableStore, snapshots raft.SnapshotStore, err error) {
+	if storage == config.StorageKindInMemory {
 		logs = raft.NewInmemStore()
 		stable = raft.NewInmemStore()
 		snapshots = raft.NewInmemSnapshotStore()
@@ -110,24 +126,6 @@ func newTransport(addr raft.ServerAddress) (raft.Transport, error) {
 	}
 
 	return transport, nil
-}
-
-type FsmOptions struct {
-	instrumented bool
-}
-
-func newFsm(inMemory bool, opts FsmOptions) *store.FSM {
-	var storage store.Storage
-	if inMemory {
-		storage = store.NewInMemoryStore()
-	} else {
-		panic("currently only in-memory storage is available")
-	}
-
-	if opts.instrumented {
-	}
-
-	return store.NewFSM(storage)
 }
 
 func loadRaftConfig(nodeID raft.ServerID, logger *slog.Logger, level slog.Level) *raft.Config {

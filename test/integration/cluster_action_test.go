@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/balits/thesis/internal/store"
+	"github.com/balits/thesis/internal/command"
 	"github.com/balits/thesis/internal/testx"
 	"github.com/hashicorp/raft"
 )
@@ -22,10 +22,10 @@ func TestClusterAction_3NodeCluster_ApplyChanges(t *testing.T) {
 	nodes := cluster.Slice()
 
 	setCommandsLen := 10
-	setCommands := make([]store.Cmd, 0, setCommandsLen)
+	setCommands := make([]command.Command, 0, setCommandsLen)
 	for i := range setCommandsLen {
-		setCommands = append(setCommands, store.Cmd{
-			Kind:  store.CmdKindSet,
+		setCommands = append(setCommands, command.Command{
+			Type:  command.CommandTypeSet,
 			Key:   strconv.Itoa(i),
 			Value: []byte(strconv.Itoa(i)),
 		})
@@ -73,7 +73,7 @@ func makeCluster(tb testing.TB, ctx context.Context, n int) *testx.Cluster {
 	return cluster
 }
 
-func applyCmdsAndWait(tb testing.TB, node *testx.TestNode, commands []store.Cmd) int {
+func applyCmdsAndWait(tb testing.TB, node *testx.TestNode, commands []command.Command) int {
 	var (
 		futures []raft.ApplyFuture
 	)
