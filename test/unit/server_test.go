@@ -9,7 +9,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/balits/thesis/internal/web"
+	"github.com/balits/kave/internal/web"
 )
 
 func TestServerGET(t *testing.T) {

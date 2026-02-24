@@ -1,6 +1,6 @@
 package fsm
 
-import "github.com/balits/thesis/internal/common/entry"
+import "github.com/balits/kave/internal/common"
 
 // ApplyResult is the type returned by FSM.Apply overwriting the any typed return value
 // in hc's raft, and is accessible by applyFuture.Result().
@@ -22,16 +22,16 @@ func (ar AppyResult) Error() error {
 }
 
 type SetResult struct {
-	*entry.Entry
+	*common.Entry
 }
 
 type GetResult struct {
-	*entry.Entry
+	*common.Entry
 }
 
 type DeleteResult struct {
-	Deleted   bool         `json:"deleted"`
-	PrevEntry *entry.Entry `json:"prev_kv,omitempty"`
+	Deleted   bool      `json:"deleted"`
+	PrevEntry *common.Entry `json:"prev_kv,omitempty"`
 }
 
 type BatchResult struct {

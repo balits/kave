@@ -1,0 +1,21 @@
+@startuml
+
+actor Client
+participant "HTTP/gRPC" as API
+participant KVService
+participant Raft
+participant FSM
+participant Storage
+
+Client -> API : PUT /kv/foo
+API -> KVService : Put(ctx, key, value)
+KVService -> Raft : Apply(command)
+Raft -> FSM : Apply(logEntry)
+FSM -> Storage : Get(key)
+FSM -> Storage : Put(key, newEntry)
+FSM --> Raft : result
+Raft --> KVService : Future result
+KVService --> API : Response
+API --> Client : 200 OK
+
+@enduml

@@ -6,10 +6,9 @@ import (
 	"io"
 	"time"
 
-	"github.com/balits/thesis/internal/command"
-	"github.com/balits/thesis/internal/common/entry"
-	"github.com/balits/thesis/internal/metrics"
-	"github.com/balits/thesis/internal/store"
+	"github.com/balits/kave/internal/common"
+	"github.com/balits/kave/internal/metrics"
+	"github.com/balits/kave/internal/store"
 	"github.com/hashicorp/raft"
 )
 
@@ -36,38 +35,28 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 	f.fsmMetrics.ApplyIndex.Store(raftLogIndex)
 	f.fsmMetrics.Term.Store(log.Term)
 
-	cmd, err := command.Decode(log.Data)
+	cmd, err := common.DecodeCommand(log.Data)
 	if err != nil {
 		return AppyResult{err: err}
 	}
 
 	switch cmd.Type {
-	case command.CommandTypeGet:
-		result, err := f.handleGet(cmd.Key)
-		return AppyResult{
-			err:       err,
-			GetResult: result,
-		}
-
-	case command.CommandTypeSet:
-		result, err := f.handleSet(raftLogIndex, cmd.Key, cmd.Value, cmd.ExpectedRevision)
+	case common.CmdSet:
+		result, err := f.handleSet(raftLogIndex, cmd)
 		return AppyResult{
 			err:       err,
 			SetResult: result,
 		}
 
-	case command.CommandTypeDelete:
-		result, err := f.handleDelete(cmd.Key)
+	case common.CmdDelete:
+		result, err := f.handleDelete(cmd)
 		return AppyResult{
 			err:          err,
 			DeleteResult: result,
 		}
 
-	case command.CommandTypeBatch:
-		return f.handleBatch(raftLogIndex, cmd.BatchOps)
-
 	default:
-		return AppyResult{err: fmt.Errorf("unsupported command to FSM.Apply: %s", cmd.Type)}
+		return AppyResult{err: fmt.Errorf("unsupported types.to FSM.Apply: %s", cmd.Type)}
 	}
 }
 func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
@@ -79,119 +68,109 @@ func (f *FSM) Restore(snapshot io.ReadCloser) error {
 }
 
 // ======== apply internals ========
-func (f *FSM) handleGet(key []byte) (GetResult, error) {
-	raw, err := f.Store.Get(key)
-	if err != nil {
-		return GetResult{}, err
-	}
-	entry, err := entry.Decode(raw)
-	if err != nil {
-		return GetResult{}, err
-	}
-	return GetResult{entry}, nil
-}
 
-func (f *FSM) handleSet(currentRevision uint64, key []byte, value []byte, expectedRevision *uint64) (SetResult, error) {
-	if expectedRevision == nil {
-		return f.set(currentRevision, key, value)
+func (f *FSM) handleSet(currentRevision uint64, cmd common.Command) (SetResult, error) {
+	if cmd.ExpectedRevision == nil {
+		return f.set(currentRevision, cmd.Bucket, cmd.Key, cmd.Value)
 	} else {
-		return f.setCAS(currentRevision, *expectedRevision, key, value)
+		return f.setCAS(currentRevision, *cmd.ExpectedRevision, cmd.Bucket, cmd.Key, cmd.Value)
 	}
 }
 
-func (f *FSM) handleDelete(key []byte) (*DeleteResult, error) {
-	delete := new(DeleteResult)
-	rawPrevious, err := f.Store.Delete(key)
+func (f *FSM) handleDelete(cmd common.Command) (*DeleteResult, error) {
+	result := new(DeleteResult)
+	rawPrevious, err := f.Store.Delete(cmd.Bucket, cmd.Key)
 	if err != nil {
 		return nil, err
 	}
 
 	if rawPrevious != nil {
-		prevEntry, err := entry.Decode(rawPrevious)
+		prevEntry, err := common.DecodeEntry(rawPrevious)
 		if err != nil {
 			return nil, err
 		}
-		delete.Deleted = true
-		delete.PrevEntry = prevEntry
+		result.Deleted = true
+		result.PrevEntry = prevEntry
 	}
 
-	return delete, nil
+	return result, nil
 }
 
-func (f *FSM) handleBatch(currentRevision uint64, commands []command.Command) (result AppyResult) {
-	var batchError error // defer checks this variable, and sets result.err if an error occured
+func (f *FSM) handleBatch(currentRevision uint64, bucket store.Bucket, commands []common.Command) (result AppyResult) {
+	// var batchError error // defer checks this variable, and sets result.err if an error occured
 
-	batch, batchError := f.Store.NewBatch()
-	if batchError != nil {
-		result.err = batchError
-		return
-	}
+	// batch, batchError := f.Store.NewBatch()
+	// if batchError != nil {
+	// 	result.err = batchError
+	// 	return
+	// }
 
-	defer func() {
-		// failed to create batch
-		if batch == nil {
-			result.err = batchError
-			return
-		}
-		// some error happened during batch
-		if batchError != nil {
-			if err2 := batch.Abort(); err2 != nil {
-				result.err = errors.Join(err2, batchError)
-			}
-			result.err = batchError
-			return
-		}
+	// defer func() {
+	// 	// failed to create batch
+	// 	if batch == nil {
+	// 		result.err = batchError
+	// 		return
+	// 	}
+	// 	// some error happened during batch
+	// 	if batchError != nil {
+	// 		if err2 := batch.Abort(); err2 != nil {
+	// 			result.err = errors.Join(err2, batchError)
+	// 		}
+	// 		result.err = batchError
+	// 		return
+	// 	}
 
-		result.BatchResult = &BatchResult{true}
-	}()
+	// 	result.BatchResult = &BatchResult{true}
+	// }()
 
-	for _, cmd := range commands {
-		switch cmd.Type {
-		case command.CommandTypeSet:
-			ent := new(entry.Entry)
-			rawPrev, batchError := f.Store.Get([]byte(cmd.Key))
-			if batchError != nil {
-				return
-			}
+	// for _, cmd := range commands {
+	// 	switch cmd.Type {
+	// 	case common.CmdSet:
+	// 		ent := new(common.Entry)
+	// 		rawPrev, batchError := f.Store.Get([]byte(cmd.Key))
+	// 		if batchError != nil {
+	// 			return
+	// 		}
 
-			if rawPrev == nil {
-				ent.Key = []byte(cmd.Key)
-				ent.Value = cmd.Value
-				ent.CreateRevision = currentRevision
-				ent.ModifyRevision = currentRevision
-				ent.Version = 1
-			} else {
-				ent, _ = entry.Decode(rawPrev)
-				ent.Value = cmd.Value
-				ent.ModifyRevision = currentRevision
-				ent.Version += 1
-			}
-			encoded, batchError := entry.Encode(ent)
-			if batchError != nil {
-				return
-			}
+	// 		if rawPrev == nil {
+	// 			ent.Key = []byte(cmd.Key)
+	// 			ent.Value = cmd.Value
+	// 			ent.CreateRevision = currentRevision
+	// 			ent.ModifyRevision = currentRevision
+	// 			ent.Version = 1
+	// 		} else {
+	// 			ent, _ = common.DecodeEntry(rawPrev)
+	// 			ent.Value = cmd.Value
+	// 			ent.ModifyRevision = currentRevision
+	// 			ent.Version += 1
+	// 		}
+	// 		encoded, batchError := common.EncodeEntry(ent)
+	// 		if batchError != nil {
+	// 			return
+	// 		}
 
-			batchError = batch.Set([]byte(cmd.Key), encoded)
-			if batchError != nil {
-				return
-			}
-		case command.CommandTypeDelete:
-			batchError = batch.Delete([]byte(cmd.Key))
-			if batchError != nil {
-				return
-			}
-			// case CommandTypeCompareAndSwap:
-			// 	panic("Batch CAS unimplemented")
-		}
-	}
+	// 		batchError = batch.Set([]byte(cmd.Key), encoded)
+	// 		if batchError != nil {
+	// 			return
+	// 		}
+	// 	case common.CmdDelete:
+	// 		batchError = batch.Delete([]byte(cmd.Key))
+	// 		if batchError != nil {
+	// 			return
+	// 		}
+	// 		// case types.ypeCompareAndSwap:
+	// 		// 	panic("Batch CAS unimplemented")
+	// 	}
+	// }
 
-	batchError = batch.Commit()
-	return
+	// batchError = batch.Commit()
+	// return
+	return AppyResult{BatchResult: &BatchResult{false}}
 }
 
-func (f *FSM) set(currentRevision uint64, key []byte, value []byte) (SetResult, error) {
-	ent := new(entry.Entry)
-	rawPrev, err := f.Store.Get(key)
+func (f *FSM) set(currentRevision uint64, bucket store.Bucket, key []byte, value []byte) (SetResult, error) {
+	ent := new(common.Entry)
+	rawPrev, err := f.Store.Get(bucket, key)
 	if rawPrev == nil {
 		ent.Key = key
 		ent.Value = value
@@ -199,14 +178,14 @@ func (f *FSM) set(currentRevision uint64, key []byte, value []byte) (SetResult, 
 		ent.ModifyRevision = currentRevision
 		ent.Version = 1
 	} else {
-		ent, _ = entry.Decode(rawPrev)
+		ent, _ = common.DecodeEntry(rawPrev)
 		ent.Value = value
 		ent.ModifyRevision = currentRevision
 		ent.Version += 1
 	}
 
-	encoded, _ := entry.Encode(ent)
-	err = f.Store.Set(key, encoded)
+	encoded, _ := common.EncodeEntry(ent)
+	err = f.Store.Set(bucket, key, encoded)
 	if err != nil {
 		return SetResult{}, err
 	}
@@ -214,9 +193,9 @@ func (f *FSM) set(currentRevision uint64, key []byte, value []byte) (SetResult, 
 	return SetResult{ent}, nil
 }
 
-func (f *FSM) setCAS(currentRevision, expectedRevision uint64, key []byte, value []byte) (SetResult, error) {
-	newEntry := new(entry.Entry)
-	rawPrev, err := f.Store.Get(key)
+func (f *FSM) setCAS(currentRevision, expectedRevision uint64, bucket store.Bucket, key []byte, value []byte) (SetResult, error) {
+	newEntry := new(common.Entry)
+	rawPrev, err := f.Store.Get(bucket, key)
 	if err != nil {
 		return SetResult{}, err
 	}
@@ -228,7 +207,7 @@ func (f *FSM) setCAS(currentRevision, expectedRevision uint64, key []byte, value
 			return SetResult{}, errors.New("no previous value to compare revisions with")
 		}
 
-		newEntry = &entry.Entry{
+		newEntry = &common.Entry{
 			Key:            key,
 			Value:          value,
 			CreateRevision: currentRevision,
@@ -236,7 +215,7 @@ func (f *FSM) setCAS(currentRevision, expectedRevision uint64, key []byte, value
 			Version:        1,
 		}
 	} else {
-		prevEntry, err := entry.Decode(rawPrev)
+		prevEntry, err := common.DecodeEntry(rawPrev)
 		if err != nil {
 			return SetResult{}, err
 		}
@@ -245,7 +224,7 @@ func (f *FSM) setCAS(currentRevision, expectedRevision uint64, key []byte, value
 			return SetResult{}, ErrRevisionMismatch
 		}
 
-		newEntry = &entry.Entry{
+		newEntry = &common.Entry{
 			Key:            prevEntry.Key,
 			Value:          value,
 			CreateRevision: prevEntry.CreateRevision,
@@ -254,12 +233,12 @@ func (f *FSM) setCAS(currentRevision, expectedRevision uint64, key []byte, value
 		}
 	}
 
-	newBytes, err := entry.Encode(newEntry)
+	newBytes, err := common.EncodeEntry(newEntry)
 	if err != nil {
 		return SetResult{}, err
 	}
 
-	err = f.Store.Set(key, newBytes)
+	err = f.Store.Set(bucket, key, newBytes)
 	if err != nil {
 		return SetResult{}, err
 	}

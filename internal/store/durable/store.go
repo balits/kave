@@ -2,19 +2,13 @@ package durable
 
 import (
 	"bytes"
-	"errors"
 	"io"
 
-	"github.com/balits/thesis/internal/metrics"
-	"github.com/balits/thesis/internal/store"
-	"github.com/balits/thesis/internal/util"
+	"github.com/balits/kave/internal/metrics"
+	"github.com/balits/kave/internal/store"
+	"github.com/balits/kave/internal/util"
 	"github.com/hashicorp/raft"
 	bolt "go.etcd.io/bbolt"
-)
-
-var (
-	defaultBucket     = []byte("_")
-	ErrBucketNotFound = errors.New("bucket not found")
 )
 
 type Store struct {
@@ -34,7 +28,7 @@ func NewStore(path string) (*Store, error) {
 		return nil, err
 	}
 
-	tx.CreateBucket(defaultBucket)
+	tx.CreateBucket([]byte(store.BucketKV))
 	err = tx.Commit()
 	if err != nil {
 		return nil, err
@@ -51,13 +45,13 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-func (s *Store) Get(key []byte) (value []byte, err error) {
+func (s *Store) Get(bucket store.Bucket, key []byte) (value []byte, err error) {
 	s.storageMetrics.GetCount.Add(1)
 
 	err = s.db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(defaultBucket)
+		bucket := tx.Bucket([]byte(bucket))
 		if bucket == nil {
-			return ErrBucketNotFound
+			return store.ErrBucketNotFound
 		}
 
 		value = copyBytes(bucket.Get(key))
@@ -75,13 +69,13 @@ func (s *Store) Get(key []byte) (value []byte, err error) {
 	return
 }
 
-func (s *Store) Set(key, value []byte) error {
+func (s *Store) Set(bucket store.Bucket, key, value []byte) error {
 	s.storageMetrics.SetCount.Add(1)
 	var oldValue []byte
 	err := s.db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(defaultBucket)
+		bucket := tx.Bucket([]byte(bucket))
 		if bucket == nil {
-			return ErrBucketNotFound
+			return store.ErrBucketNotFound
 		}
 
 		oldValue = copyBytes(bucket.Get(key))
@@ -103,11 +97,11 @@ func (s *Store) Set(key, value []byte) error {
 	return nil
 }
 
-func (s *Store) Delete(key []byte) (value []byte, err error) {
+func (s *Store) Delete(bucket store.Bucket, key []byte) (value []byte, err error) {
 	err = s.db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(defaultBucket)
+		bucket := tx.Bucket([]byte(bucket))
 		if bucket == nil {
-			return ErrBucketNotFound
+			return store.ErrBucketNotFound
 		}
 
 		value = copyBytes(bucket.Get(key))
@@ -128,12 +122,12 @@ func (s *Store) Delete(key []byte) (value []byte, err error) {
 	return
 }
 
-func (s *Store) PrefixScan(prefix []byte) ([]store.KVItem, error) {
-	result := make([]store.KVItem, 0)
+func (s *Store) PrefixScan(prefix []byte) ([]store.KV, error) {
+	result := make([]store.KV, 0)
 	err := s.db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(defaultBucket)
+		bucket := tx.Bucket([]byte(store.BucketKV))
 		if bucket == nil {
-			return ErrBucketNotFound
+			return store.ErrBucketNotFound
 		}
 
 		cursor := bucket.Cursor()
@@ -143,7 +137,7 @@ func (s *Store) PrefixScan(prefix []byte) ([]store.KVItem, error) {
 				break
 			}
 
-			result = append(result, store.KVItem{
+			result = append(result, store.KV{
 				Key:   copyBytes(k),
 				Value: copyBytes(v),
 			})

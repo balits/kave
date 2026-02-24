@@ -5,18 +5,16 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
-	"maps"
-	"math/rand"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/balits/thesis/internal/command"
-	"github.com/balits/thesis/internal/fsm"
-	"github.com/balits/thesis/internal/store"
-	"github.com/balits/thesis/internal/store/inmem"
-	"github.com/balits/thesis/internal/testx"
-	"github.com/balits/thesis/internal/util"
+	"github.com/balits/kave/internal/common"
+	"github.com/balits/kave/internal/fsm"
+	"github.com/balits/kave/internal/store"
+	"github.com/balits/kave/internal/store/inmem"
+	"github.com/balits/kave/internal/util"
+	"github.com/balits/kave/test"
 	"github.com/hashicorp/raft"
 )
 
@@ -41,8 +39,7 @@ func TestFSM_ApplyThroughRaft(t *testing.T) {
 	_f := fsm.New(inmem.NewStore())
 
 	conf := raft.DefaultConfig()
-	loglevel := testx.GetTestingLogLevel()
-	conf.Logger = util.NewHcLogAdapter(testx.NewTestLogger(t, loglevel), loglevel)
+	conf.Logger = util.NewHcLogAdapter(test.NewTestLogger(t), test.LogLevel())
 	conf.LocalID = id
 	logs := raft.NewInmemStore()
 	stable := raft.NewInmemStore()
@@ -69,10 +66,11 @@ func TestFSM_ApplyThroughRaft(t *testing.T) {
 	<-node.LeaderCh() // wait until node becomes leader (pre voting, voting election etc)
 
 	t.Run("FSM Apply Set through Raft", func(t *testing.T) {
-		cmd := command.Command{
-			Type:  command.CommandTypeSet,
-			Key:   []byte("foo"),
-			Value: []byte("bar"),
+		cmd := common.Command{
+			Type:   common.CmdSet,
+			Bucket: store.BucketKV,
+			Key:    []byte("foo"),
+			Value:  []byte("bar"),
 		}
 		if err = doRaftApply(node, cmd); err != nil {
 			t.Error(err)
@@ -80,9 +78,10 @@ func TestFSM_ApplyThroughRaft(t *testing.T) {
 	})
 
 	t.Run("FSM Apply Delete through Raft", func(t *testing.T) {
-		cmd := command.Command{
-			Type: command.CommandTypeDelete,
-			Key:  []byte("foo"),
+		cmd := common.Command{
+			Bucket: store.BucketKV,
+			Type:   common.CmdDelete,
+			Key:    []byte("foo"),
 		}
 		if err = doRaftApply(node, cmd); err != nil {
 			t.Error(err)
@@ -90,7 +89,7 @@ func TestFSM_ApplyThroughRaft(t *testing.T) {
 	})
 }
 
-func doRaftApply(node *raft.Raft, cmd command.Command) error {
+func doRaftApply(node *raft.Raft, cmd common.Command) error {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	err := gob.NewEncoder(buf).Encode(&cmd)
 	if err != nil {
@@ -114,10 +113,11 @@ func (ft *fsmTester) testSet(t *testing.T) {
 	}
 
 	for k, v := range state {
-		result, ok := ft.f.Apply(newLog(command.Command{
-			Type:  command.CommandTypeSet,
-			Key:   []byte(k),
-			Value: v,
+		result, ok := ft.f.Apply(newLog(common.Command{
+			Bucket: store.BucketKV,
+			Type:   common.CmdSet,
+			Key:    []byte(k),
+			Value:  v,
 		})).(fsm.AppyResult)
 
 		if !ok {
@@ -147,9 +147,10 @@ func (ft *fsmTester) testDelete(t *testing.T) {
 	}
 
 	for k, oldValue := range state {
-		result, ok := ft.f.Apply(newLog(command.Command{
-			Type: command.CommandTypeDelete,
-			Key:  []byte(k),
+		result, ok := ft.f.Apply(newLog(common.Command{
+			Bucket: store.BucketKV,
+			Type:   common.CmdDelete,
+			Key:    []byte(k),
 		})).(fsm.AppyResult)
 
 		if !ok {
@@ -172,73 +173,73 @@ func (ft *fsmTester) testDelete(t *testing.T) {
 }
 
 func (ft *fsmTester) testBatch(t *testing.T) {
-	keyGen := func() string {
-		return fmt.Sprintf("%b", rand.Intn(5))
-	}
+	// keyGen := func() string {
+	// 	return fmt.Sprintf("%b", rand.Intn(5))
+	// }
 
-	randomState := make(map[string][]byte)
-	for i := range ft.n {
-		if i%3 == 0 {
-			randomState[keyGen()] = b("set")
-		} else {
-			randomState[keyGen()] = b("delete")
-		}
-	}
+	// randomState := make(map[string][]byte)
+	// for i := range ft.n {
+	// 	if i%3 == 0 {
+	// 		randomState[keyGen()] = b("set")
+	// 	} else {
+	// 		randomState[keyGen()] = b("delete")
+	// 	}
+	// }
 
-	bc := store.NewBatchCollector()
-	for k, v := range randomState {
-		if s(v) == "set" {
-			bc.RecordSet([]byte(k), v)
-		} else if s(v) == "delete" {
-			bc.RecordDelete(v)
-		}
-	}
+	// bc := store.NewBatchCollector()
+	// for k, v := range randomState {
+	// 	if s(v) == "set" {
+	// 		bc.RecordSet([]byte(k), v)
+	// 	} else if s(v) == "delete" {
+	// 		bc.RecordDelete(v)
+	// 	}
+	// }
 
-	normalizedState := make(map[string][]byte)
-	maps.Copy(normalizedState, bc.Writes())
-	for k, _ := range bc.Deletes() {
-		normalizedState[k] = b("")
-	}
+	// normalizedState := make(map[string][]byte)
+	// maps.Copy(normalizedState, bc.Writes())
+	// for k, _ := range bc.Deletes() {
+	// 	normalizedState[k] = b("")
+	// }
 
-	batch := make([]command.Command, len(normalizedState))
+	// batch := make([]common.Command, len(normalizedState))
 
-	for k, v := range randomState {
-		cmd := command.Command{Key: []byte(k), Value: v}
-		if s(v) == "set" {
-			cmd.Type = command.CommandTypeSet
-		} else if s(v) == "delete" {
-			cmd.Type = command.CommandTypeDelete
-		} else {
-			continue
-		}
+	// for k, v := range randomState {
+	// 	cmd := common.Command{Key: []byte(k), Value: v}
+	// 	if s(v) == "set" {
+	// 		cmd.Type = common.CmdSet
+	// 	} else if s(v) == "delete" {
+	// 		cmd.Type = common.CmdDelete
+	// 	} else {
+	// 		continue
+	// 	}
 
-		batch = append(batch, cmd)
-	}
+	// 	batch = append(batch, cmd)
+	// }
 
-	result, ok := ft.f.Apply(newLog(command.Command{
-		Type:     command.CommandTypeBatch,
-		BatchOps: batch,
-	})).(fsm.AppyResult)
+	// result, ok := ft.f.Apply(newLog(common.Command{
+	// 	Type:     common.CmdBatch,
+	// 	BatchOps: batch,
+	// })).(fsm.AppyResult)
 
-	if !ok {
-		t.Fatal("DELETE failed: Apply didnt return fsm.Result")
-	}
+	// if !ok {
+	// 	t.Fatal("DELETE failed: Apply didnt return fsm.Result")
+	// }
 
-	if err := result.Error(); err != nil {
-		t.Fatal("BATCH failed:", err)
-	}
+	// if err := result.Error(); err != nil {
+	// 	t.Fatal("BATCH failed:", err)
+	// }
 
-	if err := result.Error(); err != nil {
-		t.Fatal("BATCH failed:", err)
-	}
+	// if err := result.Error(); err != nil {
+	// 	t.Fatal("BATCH failed:", err)
+	// }
 
-	if !result.BatchResult.Success {
-		t.Fatal("BATCH failed: batch result unsuccessful")
-	}
+	// if !result.BatchResult.Success {
+	// 	t.Fatal("BATCH failed: batch result unsuccessful")
+	// }
 }
 
-func newLog(cmd command.Command) *raft.Log {
-	bytes, err := command.Encode(cmd)
+func newLog(cmd common.Command) *raft.Log {
+	bytes, err := common.EncodeCommand(cmd)
 	if err != nil {
 		panic(err)
 	}

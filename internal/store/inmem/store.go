@@ -2,61 +2,71 @@ package inmem
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"sync"
 
-	"github.com/balits/thesis/internal/metrics"
-	"github.com/balits/thesis/internal/store"
-	"github.com/balits/thesis/internal/util"
+	"github.com/balits/kave/internal/metrics"
+	"github.com/balits/kave/internal/store"
+	"github.com/balits/kave/internal/util"
 	"github.com/google/btree"
 	"github.com/hashicorp/raft"
 )
 
 type Store struct {
 	mu             sync.RWMutex
-	tree           *btree.BTree
+	buckets        map[store.Bucket]*btree.BTree
 	storageMetrics metrics.StorageMetricsAtomic
 }
 
 // NewStore creates a new, empty in-memory key-value store
 func NewStore() store.Storage {
+	buckets := make(map[store.Bucket]*btree.BTree)
+	buckets[store.BucketKV] = btree.New(BtreeDegreeDefault)
+	buckets[store.BucketLease] = btree.New(BtreeDegreeDefault)
+
 	return &Store{
 		mu:             sync.RWMutex{},
-		tree:           btree.New(BtreeDegreeDefault),
+		buckets:        buckets,
 		storageMetrics: metrics.StorageMetricsAtomic{},
 	}
 }
 
 // ========= store.KVStore impl =========
 
-func (s *Store) Get(key []byte) (value []byte, err error) {
+func (s *Store) Get(bucket store.Bucket, key []byte) (value []byte, err error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.doGet(key)
+	return s.doGet(bucket, key)
 }
 
-func (s *Store) Set(key, value []byte) error {
+func (s *Store) Set(bucket store.Bucket, key, value []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.doSet(key, value)
+	return s.doSet(bucket, key, value)
 }
 
-func (s *Store) Delete(key []byte) (value []byte, err error) {
+func (s *Store) Delete(bucket store.Bucket, key []byte) (value []byte, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.doDelete(key)
+	return s.doDelete(bucket, key)
 }
 
-func (s *Store) PrefixScan(prefix []byte) ([]store.KVItem, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *Store) PrefixScan(prefix []byte) ([]store.KV, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	result := make([]store.KVItem, 0)
+	tree, ok := s.buckets[store.BucketKV]
+	if !ok {
+		return nil, store.ErrBucketNotFound
+	}
 
-	s.tree.AscendGreaterOrEqual(KVBtreeItem{Key: prefix}, func(it btree.Item) bool {
+	result := make([]store.KV, 0)
+
+	tree.AscendGreaterOrEqual(KVBtreeItem{Key: prefix}, func(it btree.Item) bool {
 		item := it.(KVBtreeItem)
 		if bytes.HasPrefix(item.Key, prefix) {
-			result = append(result, store.KVItem{Key: item.Key, Value: item.Value})
+			result = append(result, store.KV{Key: item.Key, Value: item.Value})
 		}
 		return true
 	})
@@ -73,7 +83,11 @@ func (s *Store) NewBatch() (store.Batch, error) {
 func (s *Store) Snapshot() (raft.FSMSnapshot, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return Snapshot{s.tree.Clone()}, nil
+	clone := make(map[store.Bucket]*btree.BTree, len(s.buckets))
+	for bucket, tree := range s.buckets {
+		clone[bucket] = tree.Clone()
+	}
+	return Snapshot{clone}, nil
 }
 
 func (s *Store) Restore(snapshot io.ReadCloser) error {
@@ -85,13 +99,17 @@ func (s *Store) Restore(snapshot io.ReadCloser) error {
 	}
 
 	s.mu.Lock()
-	s.tree = tree
+	s.buckets = tree
 	s.mu.Unlock()
 	return nil
 }
 
 func (s *Store) Close() error {
-	s.tree = nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, tree := range s.buckets {
+		tree.Clear(false)
+	}
 	return nil
 }
 
@@ -102,24 +120,33 @@ func (s *Store) StorageMetrics() *metrics.StorageMetrics {
 }
 
 // ========= kv internals =========
-// these functions no nothing about transactions or locks
+// these functions know nothing about transactions or locks
 // they purely perform their logic and do some smetrics
-func (s *Store) doGet(key []byte) (value []byte, err error) {
+func (s *Store) doGet(bucket store.Bucket, key []byte) ([]byte, error) {
 	s.storageMetrics.GetCount.Add(1)
 
-	item := s.tree.Get(KVBtreeItem{Key: []byte(key)})
-	if item == nil {
-		return nil, store.ErrKeyNotFound
+	tree, ok := s.buckets[bucket]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", store.ErrBucketNotFound, string(bucket))
 	}
 
-	value = item.(KVBtreeItem).Value
-	return
+	item := tree.Get(KVBtreeItem{Key: []byte(key)})
+	if item == nil {
+		return nil, fmt.Errorf("%w: %s", store.ErrKeyNotFound, string(key))
+	}
+
+	return item.(KVBtreeItem).Value, nil
 }
 
-func (s *Store) doSet(key, value []byte) error {
+func (s *Store) doSet(bucket store.Bucket, key, value []byte) error {
 	s.storageMetrics.SetCount.Add(1)
 
-	oldItem := s.tree.ReplaceOrInsert(KVBtreeItem{key, value})
+	tree, ok := s.buckets[bucket]
+	if !ok {
+		return store.ErrBucketNotFound
+	}
+
+	oldItem := tree.ReplaceOrInsert(KVBtreeItem{key, value})
 
 	if oldItem != nil {
 		oldValue := oldItem.(KVBtreeItem).Value
@@ -133,16 +160,21 @@ func (s *Store) doSet(key, value []byte) error {
 	return nil
 }
 
-func (s *Store) doDelete(key []byte) (value []byte, err error) {
+func (s *Store) doDelete(bucket store.Bucket, key []byte) ([]byte, error) {
 	s.storageMetrics.DeleteCount.Add(1)
 
-	oldItem := s.tree.Delete(KVBtreeItem{Key: key})
+	tree, ok := s.buckets[bucket]
+	if !ok {
+		return nil, store.ErrBucketNotFound
+	}
+
+	oldItem := tree.Delete(KVBtreeItem{Key: key})
 	if oldItem == nil {
 		return nil, nil
 	}
 
-	value = oldItem.(KVBtreeItem).Value
+	value := oldItem.(KVBtreeItem).Value
 	util.AtomicSubNoUnderflow(&s.storageMetrics.KeyCount, 1)
 	util.AtomicSubNoUnderflow(&s.storageMetrics.ByteSize, uint64(len(key)+len(value)))
-	return
+	return value, nil
 }

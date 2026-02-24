@@ -1,7 +1,7 @@
 package durable
 
 import (
-	"github.com/balits/thesis/internal/store"
+	"github.com/balits/kave/internal/store"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -39,9 +39,10 @@ func (b *batch) Commit() error {
 		return store.ErrBatchClosed
 	}
 
-	bucket := b.tx.Bucket(defaultBucket)
+	bucket := b.tx.Bucket([]byte(store.BucketKV))
+
 	if bucket == nil {
-		return ErrBucketNotFound
+		return store.ErrBucketNotFound
 	}
 
 	for key := range b.bc.Deletes() {

@@ -1,9 +1,5 @@
 package store
 
-import "errors"
-
-var ErrBatchClosed error = errors.New("batch already closed")
-
 type Batch interface {
 	Set(key, value []byte) error
 	Delete(key []byte) error

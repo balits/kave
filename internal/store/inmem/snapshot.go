@@ -2,10 +2,10 @@ package inmem
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"testing"
 
+	"github.com/balits/kave/internal/store"
 	"github.com/google/btree"
 	"github.com/hashicorp/raft"
 )
@@ -14,7 +14,7 @@ import (
 // It is returned FSM.Snapshot() which itself shouldn't do heavy IO work.
 // No mutex needed since snapshots are immutable
 type Snapshot struct {
-	Tree *btree.BTree
+	Buckets map[store.Bucket]*btree.BTree
 }
 
 // Persist should dump all necessary state to the WriteCloser 'sink',
@@ -23,7 +23,7 @@ func (s Snapshot) Persist(sink raft.SnapshotSink) error {
 	if err := Encode(sink, s); err != nil {
 		err2 := sink.Cancel()
 		if err2 != nil {
-			return errors.Join(err, err2)
+			return fmt.Errorf("%v and: %v", err, err2)
 		}
 		return err
 	}
@@ -33,30 +33,35 @@ func (s Snapshot) Persist(sink raft.SnapshotSink) error {
 // Release is invoked when we are finished with the snapshot.
 func (s Snapshot) Release() {
 	//let gc clean it up later automatically
-	s.Tree = nil
+	s.Buckets = nil
 }
 
-// Equals helps us to compare two snapshots
+// Equals helps us to compare two snapshots (only their KV bucket)
 // only used in tests
 func (s Snapshot) Equals(that *btree.BTree) bool {
 	if !testing.Testing() {
-		panic("InmemSnapshot.Equals only works in test environments!")
+		panic("inmem.Snapshot.Equals() only works in test environments!")
 	}
 
-	fmt.Println("tree1 len", s.Tree.Len())
+	this, ok := s.Buckets[store.BucketKV]
+	if !ok {
+		return false
+	}
+
+	fmt.Println("tree1 len", this.Len())
 	fmt.Println("tree2 len", that.Len())
 
-	if s.Tree.Len() != that.Len() {
+	if this.Len() != that.Len() {
 		fmt.Printf("tree sizes differ")
 		return false
 	}
 
 	var (
-		items1 = make([]KVBtreeItem, s.Tree.Len())
+		items1 = make([]KVBtreeItem, this.Len())
 		items2 = make([]KVBtreeItem, that.Len())
 	)
 
-	s.Tree.Ascend(func(item btree.Item) bool {
+	this.Ascend(func(item btree.Item) bool {
 		fmt.Printf("items1: %s - %s \n", string(item.(KVBtreeItem).Key), string(item.(KVBtreeItem).Value))
 		items1 = append(items1, item.(KVBtreeItem))
 		return true

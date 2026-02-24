@@ -4,7 +4,7 @@ import "errors"
 
 var (
 	ErrNotLeader         = errors.New("not leader")
-	ErrKeyNotFound       = errors.New("not leader")
-	ErrStorageError      = errors.New("not leader")
-	ErrStateMachineError = errors.New("not leader")
+	ErrLeaderNotFound    = errors.New("leader not found")
+	ErrStorageError      = errors.New("storage error")
+	ErrStateMachineError = errors.New("fsm error")
 )

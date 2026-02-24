@@ -1,48 +1,6 @@
 {
-    "inmem": false,
+    "storage": "inmemory",
     "log_level": "DEBUG",
-    "data_dir": "data",
-    "cluster_info": [
-        {
-            "id": "node1",
-            "raft_host": "node1",
-            "raft_port": "7000",
-            "http_host": "127.0.0.1",
-            "internal_http_port": "8000",
-            "external_http_port": "8001",
-            "need_bootstrap": true
-        },
-        {
-            "id": "node2",
-            "raft_host": "node2",
-            "raft_port": "7000",
-            "http_host": "127.0.0.1",
-            "internal_http_port": "8000",
-            "external_http_port": "8002"
-        },
-        {
-            "id": "node3",
-            "raft_host": "node3",
-            "raft_port": "7000",
-            "http_host": "127.0.0.1",
-            "internal_http_port": "8000",
-            "external_http_port": "8003"
-        },
-        {
-            "id": "node4",
-            "raft_host": "node4",
-            "raft_port": "7000",
-            "http_host": "127.0.0.1",
-            "internal_http_port": "8000",
-            "external_http_port": "8004"
-        },
-        {
-            "id": "node5",
-            "raft_host": "node5",
-            "raft_port": "7000",
-            "http_host": "127.0.0.1",
-            "internal_http_port": "8000",
-            "external_http_port": "8005"
-        }
-    ]
+    "dir": "data",
+    "peers":"node1:7000:8000,node2:7000:8000,node3:7000:8000,node4:7000:8000,node5:7000:8000"
 }

@@ -1,6 +1,14 @@
 Hello world
 //elmelteti leiras + felhasznali doku + fejlesztesi doku (tesztelesi doksi + vhol template)
 
-# TODO storage:
-- add KVResult type for api response AND storage/fsm layer (so probably put into a shared /types package)
-- copy bytes from bbolt TX
+# Notes
+- eventual consistency -> Leader only GET, no VerfiyLeader()
+- strong consistency -> Leader only GET, VerifyLeader()
+- dirty reads -> Leader, follower GET, no VerifyLeader()
+
+# TODO
+- [ ] fix cluster tests
+- [ ] simplify http server handlers
+- [ ] Transactions
+- [ ] BatchingFSM
+- [ ] lease

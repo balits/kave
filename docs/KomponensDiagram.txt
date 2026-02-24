@@ -1,0 +1,36 @@
+@startuml
+!theme toy
+package "API Layer" {
+  [HTTP Server]
+}
+
+package "Service Layer" {
+  interface KVService
+  interface ClusterService
+  interface OTService
+}
+
+package "Consensus Layer" {
+  [Raft]
+  [FSM]
+}
+
+package "Storage Layer" {
+  interface Storage
+  [DurableStorage]
+  [InMemoryStorage]
+}
+
+[HTTP Server] --> KVService
+[HTTP Server] --> ClusterService
+[HTTP Server] --> OTService
+KVService --> [Raft]
+ClusterService --> [Raft]
+
+[Raft] --> [FSM]
+[FSM] --> Storage
+
+Storage <|.. DurableStorage
+Storage <|.. InMemoryStorage
+
+@enduml

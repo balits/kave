@@ -1,7 +1,7 @@
 package inmem
 
 import (
-	"github.com/balits/thesis/internal/store"
+	"github.com/balits/kave/internal/store"
 )
 
 type batch struct {
@@ -47,7 +47,7 @@ func (b *batch) Commit() error {
 
 	for key := range b.bc.Deletes() {
 		keyb := []byte(key)
-		_, err := b.inner.doDelete(keyb)
+		_, err := b.inner.doDelete(store.BucketKV, keyb)
 		if err != nil {
 			return err
 		}
@@ -55,7 +55,7 @@ func (b *batch) Commit() error {
 
 	for k, v := range b.bc.Writes() {
 		keyb := []byte(k)
-		err := b.inner.doSet(keyb, v)
+		err := b.inner.doSet(store.BucketKV, keyb, v)
 		if err != nil {
 			return err
 		}

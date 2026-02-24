@@ -4,20 +4,29 @@
 package store
 
 import (
-	"fmt"
+	"errors"
 	"io"
 
-	"github.com/balits/thesis/internal/metrics"
+	"github.com/balits/kave/internal/metrics"
 	"github.com/hashicorp/raft"
 )
 
-type KVItem struct {
+type KV struct {
 	Key   []byte
 	Value []byte
 }
 
+type Bucket string
+
+const (
+	BucketKV    Bucket = "kv"    // the default bucket for key-value pairs
+	BucketLease Bucket = "lease" // the bucket for lease-related data
+)
+
 var (
-	ErrKeyNotFound = fmt.Errorf("key not found")
+	ErrKeyNotFound    error = errors.New("key not found")
+	ErrBucketNotFound error = errors.New("bucket not found")
+	ErrBatchClosed    error = errors.New("batch already closed")
 )
 
 // Storage is the key-value storage interface that
@@ -30,11 +39,11 @@ var (
 type Storage interface {
 	metrics.StorageMetricsProvider
 
-	Get(key []byte) (value []byte, err error)
-	Set(key, value []byte) error
-	Delete(key []byte) (value []byte, err error)
+	Get(bucket Bucket, key []byte) (value []byte, err error)
+	Set(bucket Bucket, key, value []byte) error
+	Delete(bucket Bucket, key []byte) (value []byte, err error)
 
-	PrefixScan(prefix []byte) ([]KVItem, error)
+	PrefixScan(prefix []byte) ([]KV, error) // no bucket, only allowed on the default kv bucket
 	NewBatch() (Batch, error)
 
 	Snapshot() (raft.FSMSnapshot, error)

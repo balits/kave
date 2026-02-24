@@ -1,0 +1,98 @@
+@startuml
+interface KVService {
+  +Get(ctx, key) : GetResult
+  +Put(ctx, key, value) : PutResult
+  +Delete(ctx, key) : DeleteResult
+  +Txn(ctx, ops) : TxnResult
+} 
+
+interface ClusterService {
+  +Bootstrap(ctx, id, addr)
+  +Join(ctx, peers)
+  +RemoveNode(ctx, id, addr)
+}
+
+interface OTService {
+ +ObliviousGet(ctx, keys) : OTGetResult
+}
+
+class Node {
+  -raft : Raft
+  -fsm : FSM
+  -kvService : KVService
+  -clusterService : ClusterService
+  -transport: HTTPServer
+}
+
+class Command {
+  +Type: uint8
+  +Key: []byte
+  +Value: []byte
+  +BatchOps: []Command
+  +ExpectedRevision: uint64
+}
+
+class FSM {
+  -storage : Storage
+  +Apply(Command) : any
+  +Snapshot()
+  +Restore()
+}
+
+interface Storage {
+  +Get(key) : []byte, error
+  +Put(key, value) : error
+  +Delete(key) : []byte, error
+  +NewBatch(ops) : Batch
+  +PrefixScan(prefix) : []([]byte, []byte)
+  +Snapshot() : Snapshot, error
+  +Restore(snapshot)
+  +Close() : error
+}
+
+interface Batch {
+ +Put(key, value) : error
+ +Delete(key) : error
+ +Commit() : error
+ +Abort() : error
+}
+
+class Entry {
+  +Key : []byte
+  +Value : []byte
+  +CreateRevision : uint64
+  +ModRevision : uint64
+  +Version : uint64
+}
+
+class HTTPServer {
+  +Start()
+  -handleGet()
+  -handlePut()
+  -handleDelete()
+  -handleTxn()
+  -handleScan()
+  -handleJoin()
+}
+
+class Raft
+
+KVService --> Raft
+ClusterService --> Raft
+Raft --> FSM
+FSM --> Storage
+
+Storage <|.. DurableStore
+Storage <|.. InMemoryStore
+
+Batch <|.. DurableBatch
+Batch <|.. InMemoryBatch
+
+Node --> OTService
+Node --> KVService
+Node --> ClusterService
+Node --> Raft
+Node --> FSM
+Node --> HTTPServer
+
+@enduml

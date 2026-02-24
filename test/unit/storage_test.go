@@ -9,12 +9,11 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/balits/thesis/internal/command"
-	"github.com/balits/thesis/internal/store"
-	"github.com/balits/thesis/internal/store/durable"
-	"github.com/balits/thesis/internal/store/inmem"
-	"github.com/balits/thesis/internal/testx"
-	"github.com/balits/thesis/internal/util"
+	"github.com/balits/kave/internal/common"
+	"github.com/balits/kave/internal/store"
+	"github.com/balits/kave/internal/store/durable"
+	"github.com/balits/kave/internal/store/inmem"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_InMemoryStorage(t *testing.T) {
@@ -72,24 +71,16 @@ func (s *StorageTester) Run(t *testing.T) {
 	t.Run(f("CODEC"), s.testCodec)
 }
 
-// we use store.GetStale in other testcases already, no need to test it on its own
-func (st *StorageTester) testGetStale(_ *testing.T) { util.Todo("test GET_STALE") }
-
 func (st *StorageTester) testSet(t *testing.T) {
 	for key, value := range st.dummyState {
-		err := st.store.Set(b(key), value)
-		if err != nil {
-			t.Fatalf("SET failed: %v", err)
-		}
+		err := st.store.Set(store.BucketKV, b(key), value)
+		require.NoErrorf(t, err, "SET failed for key %s: %v", key, err)
 	}
 
 	for key, expected := range st.dummyState {
-		got, err := st.store.Get(b(key))
-		if err != nil {
-			t.Fatalf("GET_STALE failed: %v", err)
-		}
-
-		testx.AssertEqBytes(t, expected, got)
+		got, err := st.store.Get(store.BucketKV, b(key))
+		require.NoErrorf(t, err, "GET failed for key %s: %v", key, err)
+		require.Equal(t, expected, got)
 	}
 }
 
@@ -97,33 +88,29 @@ func (st *StorageTester) testDelete(t *testing.T) {
 	n := 10
 	for i := range n {
 		key := b(fmt.Sprintf("delete%d", i))
-		err := st.store.Set(key, DEFAULT_VALUE)
-		if err != nil {
-			t.Fatalf("SET failed: %v", err)
-		}
+		err := st.store.Set(store.BucketKV, key, DEFAULT_VALUE)
+		require.NoErrorf(t, err, "SET failed for key %s: %v", key, err)
 	}
 
 	for i := range n {
 		key := b(fmt.Sprintf("delete%d", i))
-		got, err := st.store.Delete(key)
-		if err != nil {
-			t.Fatalf("DELETE failed: %v", err)
-		}
-		testx.AssertEqBytes(t, DEFAULT_VALUE, got)
+		got, err := st.store.Delete(store.BucketKV, key)
+		require.NoErrorf(t, err, "DELETE failed for key %s: %v", key, err)
+		require.Equal(t, DEFAULT_VALUE, got)
 	}
 }
 
 func (st *StorageTester) testBatch(t *testing.T) {
 	prefix := b("batch_")
 	val := slices.Concat(prefix, DEFAULT_VALUE)
-	commands := []command.Command{
-		{Type: command.CommandTypeSet, Key: []byte("batch_set1"), Value: val, BatchOps: nil, ExpectedRevision: nil},
-		{Type: command.CommandTypeSet, Key: []byte("batch_set2"), Value: val, BatchOps: nil, ExpectedRevision: nil},
-		{Type: command.CommandTypeSet, Key: []byte("batch_set3"), Value: val, BatchOps: nil, ExpectedRevision: nil},
-		{Type: command.CommandTypeSet, Key: []byte("batch_set4"), Value: val, BatchOps: nil, ExpectedRevision: nil}, // only this will survice after the batch
-		{Type: command.CommandTypeDelete, Key: []byte("batch_set1"), Value: val, BatchOps: nil, ExpectedRevision: nil},
-		{Type: command.CommandTypeDelete, Key: []byte("batch_set2"), Value: val, BatchOps: nil, ExpectedRevision: nil},
-		{Type: command.CommandTypeDelete, Key: []byte("batch_set3"), Value: val, BatchOps: nil, ExpectedRevision: nil},
+	commands := []common.Command{
+		{Type: common.CmdSet, Key: []byte("batch_set1"), Value: val, ExpectedRevision: nil},
+		{Type: common.CmdSet, Key: []byte("batch_set2"), Value: val, ExpectedRevision: nil},
+		{Type: common.CmdSet, Key: []byte("batch_set3"), Value: val, ExpectedRevision: nil},
+		{Type: common.CmdSet, Key: []byte("batch_set4"), Value: val, ExpectedRevision: nil}, // only this will survice after the batch
+		{Type: common.CmdDelete, Key: []byte("batch_set1"), Value: val, ExpectedRevision: nil},
+		{Type: common.CmdDelete, Key: []byte("batch_set2"), Value: val, ExpectedRevision: nil},
+		{Type: common.CmdDelete, Key: []byte("batch_set3"), Value: val, ExpectedRevision: nil},
 	}
 
 	expectedState := map[string][]byte{
@@ -132,30 +119,25 @@ func (st *StorageTester) testBatch(t *testing.T) {
 
 	// clean up prev matching keys
 	for _, cmd := range commands {
-		if cmd.Type != command.CommandTypeSet {
+		if cmd.Type != common.CmdSet {
 			continue
 		}
-		_, err := st.store.Delete([]byte(cmd.Key))
-		if err != nil {
-			t.Fatalf("DELETE failed: %v", err)
-		}
+		_, err := st.store.Delete(store.BucketKV, []byte(cmd.Key))
+		require.NoErrorf(t, err, "DELETE failed for key %s: %v", cmd.Key, err)
 	}
 
-	if err := applyBatch(st.store, commands); err != nil {
-		t.Fatalf("BATCH failed: %v", err)
-	}
+	err := applyBatch(st.store, commands)
+	require.NoErrorf(t, err, "Failed to apply batch")
 
 	result, err := st.store.PrefixScan(prefix)
-	if err != nil {
-		t.Fatalf("PREFIX_SCAN failed: %v", err)
-	}
+	require.NoErrorf(t, err, "PREFIX_SCAN failed: %v", err)
 
 	for _, kv := range result {
 		v, ok := expectedState[string(kv.Key)]
 		if !ok {
 			t.Fatalf("expected key %s to be in post-batch state", kv.Key)
 		} else {
-			testx.AssertEqBytes(t, v, kv.Value)
+			require.Equalf(t, v, kv.Value, "Expected value for key %s to be %s, got %s", kv.Key, v, kv.Value)
 		}
 	}
 
@@ -166,7 +148,7 @@ func (st *StorageTester) testPrefixScan(t *testing.T) {
 	n := 10
 	for i := range n {
 		key := b(fmt.Sprintf("%dprefix%d", salt, i))
-		err := st.store.Set(key, DEFAULT_VALUE)
+		err := st.store.Set(store.BucketKV, key, DEFAULT_VALUE)
 		if err != nil {
 			t.Fatalf("SET failed: %v", err)
 		}
@@ -182,7 +164,7 @@ func (st *StorageTester) testPrefixScan(t *testing.T) {
 			t.Logf("%s - %s", item.Key, item.Value)
 		}
 
-		testx.AssertEq(t, expectedSize, len(result))
+		require.Equalf(t, expectedSize, len(result), "Expected %d items in prefix scan result, got %d", expectedSize, len(result))
 		for _, item := range result {
 			if !bytes.HasPrefix(item.Key, prefix) {
 				t.Fatalf("SET failed: %s does not have the prefix %s", item.Key, prefix)
@@ -223,7 +205,7 @@ func (st *StorageTester) testPrefixScan(t *testing.T) {
 	// cleanup
 	for i := range n {
 		key := b(fmt.Sprintf("%dprefix%d", salt, i))
-		_, err := st.store.Delete(key)
+		_, err := st.store.Delete(store.BucketKV, key)
 		if err != nil {
 			t.Fatalf("CLEANUP DELETE failed: %v", err)
 		}
@@ -278,10 +260,6 @@ func b(s string) []byte {
 	return []byte(s)
 }
 
-func s(b []byte) string {
-	return string(b)
-}
-
 type sink struct {
 	id        string
 	buf       bytes.Buffer
@@ -325,7 +303,7 @@ func (s *sink) ID() string {
 	return s.id
 }
 
-func applyBatch(store store.Storage, commands []command.Command) (err error) {
+func applyBatch(store store.Storage, commands []common.Command) (err error) {
 	batch, err := store.NewBatch()
 	if err != nil {
 		return
@@ -339,12 +317,12 @@ func applyBatch(store store.Storage, commands []command.Command) (err error) {
 
 	for _, cmd := range commands {
 		switch cmd.Type {
-		case command.CommandTypeSet:
+		case common.CmdSet:
 			err = batch.Set([]byte(cmd.Key), cmd.Value)
 			if err != nil {
 				return
 			}
-		case command.CommandTypeDelete:
+		case common.CmdDelete:
 			err = batch.Delete([]byte(cmd.Key))
 			if err != nil {
 				return

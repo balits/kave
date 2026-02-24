@@ -1,6 +1,6 @@
 services:
   node1:
-    image: thesis_node_image:latest
+    image: kave:latest
     command: "--config=/config/clusterConfig.json"
     ports:
       - "8001:8000"
@@ -13,9 +13,10 @@ services:
       - RAFT_PORT=7000
       - HTTP_PORT=8000
       - BOOTSTRAP=TRUE
+      - PUBLIC_HTTP_HOST=localhost
 
   node2:
-    image: thesis_node_image:latest
+    image: kave:latest
     command: "--config=/config/clusterConfig.json"
     ports:
       - "8002:8000"
@@ -27,9 +28,10 @@ services:
       - NODE_ID=node2
       - RAFT_PORT=7000
       - HTTP_PORT=8000
+      - PUBLIC_HTTP_HOST=localhost
 
   node3:
-    image: thesis_node_image:latest
+    image: kave:latest
     command: "--config=/config/clusterConfig.json"
     ports:
       - "8003:8000"
@@ -41,6 +43,7 @@ services:
       - NODE_ID=node3
       - RAFT_PORT=7000
       - HTTP_PORT=8000
+      - PUBLIC_HTTP_HOST=localhost
 
 networks:
   raftnetwork:
