@@ -6,7 +6,8 @@ import (
 
 	"github.com/balits/kave/internal/common"
 	"github.com/balits/kave/internal/fsm"
-	"github.com/balits/kave/internal/store"
+	"github.com/balits/kave/internal/kv"
+	"github.com/balits/kave/internal/storage"
 	"github.com/hashicorp/raft"
 )
 
@@ -29,7 +30,7 @@ type KVService interface {
 	//Txn(ctx context.Context, req common.TxnRequest) (common.TxnResponse, error)
 }
 
-func NewKVService(raft *raft.Raft, store store.Storage) KVService {
+func NewKVService(raft *raft.Raft, store storage.Storage) KVService {
 	return &raftKvService{
 		raft:  raft,
 		store: store,
@@ -38,7 +39,7 @@ func NewKVService(raft *raft.Raft, store store.Storage) KVService {
 
 type raftKvService struct {
 	raft  *raft.Raft
-	store store.Storage
+	store storage.Storage
 }
 
 func (s *raftKvService) Get(ctx context.Context, req common.GetRequest) (common.GetResponse, error) {
@@ -47,7 +48,7 @@ func (s *raftKvService) Get(ctx context.Context, req common.GetRequest) (common.
 	}
 	// TODO: maybe check manually for raft.ApplyIndex() >= raft.CommitIndex()
 
-	raw, err := s.store.Get(store.BucketKV, req.Key)
+	raw, err := s.store.Get(kv.BucketKeyMeta, req.Key)
 	if err != nil {
 		return common.GetResponse{}, err
 	}
@@ -65,12 +66,11 @@ func (s *raftKvService) Get(ctx context.Context, req common.GetRequest) (common.
 }
 
 func (s *raftKvService) Set(ctx context.Context, req common.SetRequest) (common.SetResponse, error) {
-	cmd, err := common.EncodeCommand(common.Command{
-		Type:             common.CmdSet,
-		Bucket:           store.BucketKV,
-		Key:              req.Key,
-		Value:            req.Value,
-		ExpectedRevision: req.ExpectedRevision,
+	cmd, err := fsm.EncodeCommand(fsm.Command{
+		Type:   fsm.CmdSet,
+		Bucket: kv.BucketKeyMeta,
+		Key:    req.Key,
+		Value:  req.Value,
 	})
 	if err != nil {
 		return common.SetResponse{}, err
@@ -86,16 +86,18 @@ func (s *raftKvService) Set(ctx context.Context, req common.SetRequest) (common.
 		return common.SetResponse{}, fmt.Errorf("%w: %v", common.ErrStateMachineError, result.Error())
 	}
 
-	entry := result.SetResult.Entry
+	entry := result.SetResult
+	if entry == nil {
+		return common.SetResponse{}, fmt.Errorf("%w: nil result from fsm", common.ErrStateMachineError)
+	}
 	return common.SetResponse{Entry: entry}, nil
 }
 
 func (s *raftKvService) Delete(ctx context.Context, req common.DeleteRequest) (common.DeleteResponse, error) {
-	cmd, err := common.EncodeCommand(common.Command{
-		Type:             common.CmdDelete,
-		Bucket:           store.BucketKV,
-		Key:              req.Key,
-		ExpectedRevision: req.ExpectedRevision,
+	cmd, err := fsm.EncodeCommand(fsm.Command{
+		Type:   fsm.CmdDelete,
+		Bucket: kv.BucketKeyMeta,
+		Key:    req.Key,
 	})
 	if err != nil {
 		return common.DeleteResponse{}, err

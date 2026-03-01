@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/balits/kave/internal/store"
+	"github.com/balits/kave/internal/storage"
 	"github.com/google/btree"
 )
 
@@ -22,10 +22,10 @@ func (c codecError) Error() string {
 // to the given writer. It uses a simple, gob backed protocol:
 // first the number of buckets are encoded, then for each bucket, its name and size is encoded,
 // then in order, the key-value elements of the tree are encoded
-func Encode(w io.Writer, snapshot Snapshot) error {
+func Encode(w io.Writer, store *InmemStore) error {
 	enc := gob.NewEncoder(w)
 
-	if err := enc.Encode(len(snapshot.Buckets)); err != nil {
+	if err := enc.Encode(len(store.buckets)); err != nil {
 		return codecError{err: err, field: "buckets count"}
 	}
 
@@ -33,7 +33,7 @@ func Encode(w io.Writer, snapshot Snapshot) error {
 	// - name
 	// - len of items
 	// - items
-	for bucket, tree := range snapshot.Buckets {
+	for bucket, tree := range store.buckets {
 		if err := enc.Encode(bucket); err != nil {
 			return codecError{err: err, field: "bucket name"}
 		}
@@ -49,10 +49,10 @@ func Encode(w io.Writer, snapshot Snapshot) error {
 // Decode is responsible for reading the snapshot from the given reader and reconstructing the in-memory tree
 // It uses the same protocol as Encode, first it reads the number of buckets, then for each bucket, its name is read,
 // then in order, the key-value elements of the tree is read
-func Decode(r io.Reader) (map[store.Bucket]*btree.BTree, error) {
+func Decode(r io.Reader) (map[storage.Bucket]*btree.BTree, error) {
 	var (
 		dec         = gob.NewDecoder(r)
-		buckets     = make(map[store.Bucket]*btree.BTree)
+		buckets     = make(map[storage.Bucket]*btree.BTree)
 		bucketCount int
 	)
 
@@ -61,7 +61,7 @@ func Decode(r io.Reader) (map[store.Bucket]*btree.BTree, error) {
 	}
 
 	for i := 0; i < bucketCount; i++ {
-		var bucket store.Bucket
+		var bucket storage.Bucket
 		if err := dec.Decode(&bucket); err != nil {
 			return nil, codecError{err: err, field: "bucket name"}
 		}

@@ -6,11 +6,13 @@ import (
 	"testing"
 
 	"github.com/balits/kave/internal/fsm"
-	"github.com/balits/kave/internal/store"
-	"github.com/balits/kave/internal/store/inmem"
+	"github.com/balits/kave/internal/storage"
+	"github.com/balits/kave/internal/storage/inmem"
 	"github.com/balits/kave/internal/util"
 	"github.com/hashicorp/raft"
 )
+
+const BucketTest storage.Bucket = "test_bucket"
 
 func LogLevel() slog.Level {
 	if testing.Verbose() {
@@ -27,10 +29,14 @@ func NewTestLogger(t testing.TB) *slog.Logger {
 }
 
 func NewTestRaft(t testing.TB) *raft.Raft {
-	return NewTestRaftWithStore(t, inmem.NewStore())
+	return NewTestRaftWithStore(t, inmem.NewStore(storage.StorageOptions{
+		InitialBuckets: []storage.Bucket{
+			BucketTest,
+		},
+	}))
 }
 
-func NewTestRaftWithStore(t testing.TB, st store.Storage) *raft.Raft {
+func NewTestRaftWithStore(t testing.TB, st storage.Storage) *raft.Raft {
 	id := raft.ServerID("dummy")
 	_f := fsm.New(st)
 

@@ -34,6 +34,7 @@ import (
 	"github.com/balits/kave/internal/common"
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/node"
+	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/util"
 	"github.com/stretchr/testify/require"
 )
@@ -65,12 +66,12 @@ func NewTestCluster(t testing.TB, numNodes int) *Cluster {
 	for i := range numNodes {
 		dir := t.TempDir()
 		cfg := &config.Config{
-			Bootstrap: i == 0,
-			Dir:       dir,
-			Me:        peers[i],
-			Storage:   config.StorageKindInMemory,
-			Peers:     peers,
-			LogLevel:  slog.LevelDebug,
+			Bootstrap:   i == 0,
+			Dir:         dir,
+			Me:          peers[i],
+			StorageKind: storage.StorageKindInMemory,
+			Peers:       peers,
+			LogLevel:    slog.LevelDebug,
 		}
 		logger := util.NewLoggerWithKind(cfg.LogLevel, os.Stdout, util.TextLoggerKind)
 		n, err := node.New(cfg, logger)

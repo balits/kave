@@ -7,7 +7,8 @@ import (
 
 	"github.com/balits/kave/internal/common"
 	s "github.com/balits/kave/internal/service"
-	"github.com/balits/kave/internal/store/inmem"
+	"github.com/balits/kave/internal/storage"
+	"github.com/balits/kave/internal/storage/inmem"
 	"github.com/balits/kave/test"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +23,11 @@ func Test_KVService(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	st := inmem.NewStore()
+	st := inmem.NewStore(storage.StorageOptions{
+		InitialBuckets: []storage.Bucket{
+			test.BucketTest,
+		},
+	})
 	r := test.NewTestRaftWithStore(t, st)
 	kv := s.NewKVService(r, st)
 

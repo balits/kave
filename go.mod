@@ -7,7 +7,9 @@ require (
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/raft v1.7.3
 	github.com/hashicorp/raft-boltdb v0.0.0-20250701115049-6cdf087e85ed
-	github.com/neilotoole/slogt v1.1.0
+	github.com/stretchr/testify v1.11.1
+	go.etcd.io/bbolt v1.4.3
+	golang.org/x/sync v0.19.0
 )
 
 require (
@@ -23,9 +25,6 @@ require (
 	github.com/mattn/go-colorable v0.1.12 // indirect
 	github.com/mattn/go-isatty v0.0.14 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
-	go.etcd.io/bbolt v1.4.3 // indirect
-	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.29.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

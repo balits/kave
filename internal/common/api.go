@@ -13,7 +13,6 @@ type GetResponse struct {
 type SetRequest struct {
 	Key              []byte  `json:"key"`
 	Value            []byte  `json:"value"`
-	ExpectedRevision *uint64 `json:"revision,omitempty"`
 }
 
 type SetResponse struct {
@@ -33,36 +32,4 @@ type DeleteResponse struct {
 type JoinRequest struct {
 	NodeID   raft.ServerID      `json:"node_id"`
 	RaftAddr raft.ServerAddress `json:"raftaddr"`
-}
-
-type TxnRequest struct {
-	Ops []TxnOp `json:"ops"`
-}
-
-type TxnOpType string
-
-const (
-	TxnOpSet    TxnOpType = "set"
-	TxnOpDelete TxnOpType = "delete"
-)
-
-type TxnOp struct {
-	Type  TxnOpType `json:"type"`
-	Key   []byte    `json:"key"`
-	Value []byte    `json:"value"`
-}
-
-type TxnResponse struct {
-	Success bool `json:"success"`
-}
-
-func TxnTypeToCommandType(txnType TxnOpType) CommandType {
-	switch txnType {
-	case TxnOpSet:
-		return CmdSet
-	case TxnOpDelete:
-		return CmdDelete
-	default:
-		panic("unknown transaction operation type")
-	}
 }

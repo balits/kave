@@ -9,20 +9,28 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/balits/kave/internal/common"
-	"github.com/balits/kave/internal/store"
-	"github.com/balits/kave/internal/store/durable"
-	"github.com/balits/kave/internal/store/inmem"
+	"github.com/balits/kave/internal/fsm"
+	"github.com/balits/kave/internal/storage"
+	"github.com/balits/kave/internal/storage/durable"
+	"github.com/balits/kave/internal/storage/inmem"
+	"github.com/balits/kave/test"
 	"github.com/stretchr/testify/require"
 )
 
 func Test_InMemoryStorage(t *testing.T) {
-	NewStorageTester(inmem.NewStore(), "InMemoryStorage", nil).Run(t)
+	NewStorageTester(inmem.NewStore(storage.StorageOptions{
+		InitialBuckets: []storage.Bucket{
+			test.BucketTest,
+		},
+	}), "InMemoryStorage", nil).Run(t)
 }
 
 func Test_InDurableStorage(t *testing.T) {
 	path := t.TempDir() + "/bolt.db"
-	store, err := durable.NewStore(path)
+	store, err := durable.NewStore(storage.StorageOptions{
+		Path:           path,
+		InitialBuckets: []storage.Bucket{test.BucketTest},
+	})
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
@@ -32,14 +40,14 @@ func Test_InDurableStorage(t *testing.T) {
 var DEFAULT_VALUE = b("default_value")
 
 type StorageTester struct {
-	store      store.Storage
+	store      storage.Storage
 	id         string
 	dummyState map[string][]byte
 	path       string
 	t          *testing.T
 }
 
-func NewStorageTester(store store.Storage, id string, path *string) *StorageTester {
+func NewStorageTester(store storage.Storage, id string, path *string) *StorageTester {
 	n := 100
 	m := make(map[string][]byte, n)
 	for i := range n {
@@ -73,12 +81,12 @@ func (s *StorageTester) Run(t *testing.T) {
 
 func (st *StorageTester) testSet(t *testing.T) {
 	for key, value := range st.dummyState {
-		err := st.store.Set(store.BucketKV, b(key), value)
+		err := st.store.Put(test.BucketTest, b(key), value)
 		require.NoErrorf(t, err, "SET failed for key %s: %v", key, err)
 	}
 
 	for key, expected := range st.dummyState {
-		got, err := st.store.Get(store.BucketKV, b(key))
+		got, err := st.store.Get(test.BucketTest, b(key))
 		require.NoErrorf(t, err, "GET failed for key %s: %v", key, err)
 		require.Equal(t, expected, got)
 	}
@@ -88,13 +96,13 @@ func (st *StorageTester) testDelete(t *testing.T) {
 	n := 10
 	for i := range n {
 		key := b(fmt.Sprintf("delete%d", i))
-		err := st.store.Set(store.BucketKV, key, DEFAULT_VALUE)
+		err := st.store.Put(test.BucketTest, key, DEFAULT_VALUE)
 		require.NoErrorf(t, err, "SET failed for key %s: %v", key, err)
 	}
 
 	for i := range n {
 		key := b(fmt.Sprintf("delete%d", i))
-		got, err := st.store.Delete(store.BucketKV, key)
+		got, err := st.store.Delete(test.BucketTest, key)
 		require.NoErrorf(t, err, "DELETE failed for key %s: %v", key, err)
 		require.Equal(t, DEFAULT_VALUE, got)
 	}
@@ -103,14 +111,14 @@ func (st *StorageTester) testDelete(t *testing.T) {
 func (st *StorageTester) testBatch(t *testing.T) {
 	prefix := b("batch_")
 	val := slices.Concat(prefix, DEFAULT_VALUE)
-	commands := []common.Command{
-		{Type: common.CmdSet, Key: []byte("batch_set1"), Value: val, ExpectedRevision: nil},
-		{Type: common.CmdSet, Key: []byte("batch_set2"), Value: val, ExpectedRevision: nil},
-		{Type: common.CmdSet, Key: []byte("batch_set3"), Value: val, ExpectedRevision: nil},
-		{Type: common.CmdSet, Key: []byte("batch_set4"), Value: val, ExpectedRevision: nil}, // only this will survice after the batch
-		{Type: common.CmdDelete, Key: []byte("batch_set1"), Value: val, ExpectedRevision: nil},
-		{Type: common.CmdDelete, Key: []byte("batch_set2"), Value: val, ExpectedRevision: nil},
-		{Type: common.CmdDelete, Key: []byte("batch_set3"), Value: val, ExpectedRevision: nil},
+	commands := []fsm.Command{
+		{Type: fsm.CmdSet, Key: []byte("batch_set1"), Value: val},
+		{Type: fsm.CmdSet, Key: []byte("batch_set2"), Value: val},
+		{Type: fsm.CmdSet, Key: []byte("batch_set3"), Value: val},
+		{Type: fsm.CmdSet, Key: []byte("batch_set4"), Value: val}, // only this will survice after the batch
+		{Type: fsm.CmdDelete, Key: []byte("batch_set1"), Value: val},
+		{Type: fsm.CmdDelete, Key: []byte("batch_set2"), Value: val},
+		{Type: fsm.CmdDelete, Key: []byte("batch_set3"), Value: val},
 	}
 
 	expectedState := map[string][]byte{
@@ -119,17 +127,17 @@ func (st *StorageTester) testBatch(t *testing.T) {
 
 	// clean up prev matching keys
 	for _, cmd := range commands {
-		if cmd.Type != common.CmdSet {
+		if cmd.Type != fsm.CmdSet {
 			continue
 		}
-		_, err := st.store.Delete(store.BucketKV, []byte(cmd.Key))
+		_, err := st.store.Delete(test.BucketTest, []byte(cmd.Key))
 		require.NoErrorf(t, err, "DELETE failed for key %s: %v", cmd.Key, err)
 	}
 
 	err := applyBatch(st.store, commands)
 	require.NoErrorf(t, err, "Failed to apply batch")
 
-	result, err := st.store.PrefixScan(prefix)
+	result, err := st.store.PrefixScan(test.BucketTest, prefix)
 	require.NoErrorf(t, err, "PREFIX_SCAN failed: %v", err)
 
 	for _, kv := range result {
@@ -148,14 +156,14 @@ func (st *StorageTester) testPrefixScan(t *testing.T) {
 	n := 10
 	for i := range n {
 		key := b(fmt.Sprintf("%dprefix%d", salt, i))
-		err := st.store.Set(store.BucketKV, key, DEFAULT_VALUE)
+		err := st.store.Put(test.BucketTest, key, DEFAULT_VALUE)
 		if err != nil {
 			t.Fatalf("SET failed: %v", err)
 		}
 	}
 
-	test := func(prefix []byte, expectedSize int) {
-		result, err := st.store.PrefixScan(prefix)
+	testPrefix := func(prefix []byte, expectedSize int) {
+		result, err := st.store.PrefixScan(test.BucketTest, prefix)
 		if err != nil {
 			t.Fatalf("PREFIX_SCAN failed: %v", err)
 		}
@@ -180,32 +188,32 @@ func (st *StorageTester) testPrefixScan(t *testing.T) {
 	prefix = b(fmt.Sprintf("%dp", salt))
 	expectedSize = n
 	t.Logf("prefix %s, expecting %d number of result", prefix, expectedSize)
-	test(prefix, expectedSize)
+	testPrefix(prefix, expectedSize)
 
 	prefix = b(fmt.Sprintf("%dpre", salt))
 	expectedSize = n
 	t.Logf("prefix %s, expecting %d number of result", prefix, expectedSize)
-	test(prefix, expectedSize)
+	testPrefix(prefix, expectedSize)
 
 	prefix = b(fmt.Sprintf("%dprefix", salt))
 	expectedSize = n
 	t.Logf("prefix %s, expecting %d number of result", prefix, expectedSize)
-	test(prefix, expectedSize)
+	testPrefix(prefix, expectedSize)
 
 	prefix = b(fmt.Sprintf("%d_prefix", salt))
 	expectedSize = 0
 	t.Logf("prefix %s, expecting %d number of result", prefix, expectedSize)
-	test(prefix, expectedSize)
+	testPrefix(prefix, expectedSize)
 
 	prefix = b(fmt.Sprintf("%dprefix0", salt))
 	expectedSize = 1
 	t.Logf("prefix %s, expecting %d number of result", prefix, expectedSize)
-	test(prefix, expectedSize)
+	testPrefix(prefix, expectedSize)
 
 	// cleanup
 	for i := range n {
 		key := b(fmt.Sprintf("%dprefix%d", salt, i))
-		_, err := st.store.Delete(store.BucketKV, key)
+		_, err := st.store.Delete(test.BucketTest, key)
 		if err != nil {
 			t.Fatalf("CLEANUP DELETE failed: %v", err)
 		}
@@ -216,7 +224,7 @@ func (st *StorageTester) testCodec(t *testing.T) {
 	items1 := make([]string, 0)
 	items2 := make([]string, 0)
 
-	kvitems1, err := st.store.PrefixScan([]byte(""))
+	kvitems1, err := st.store.PrefixScan(test.BucketTest, []byte(""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +235,7 @@ func (st *StorageTester) testCodec(t *testing.T) {
 	sink := newSink("test_sink")
 	snap, err := st.store.Snapshot()
 	if err != nil {
-		t.Fatalf("store.Snapshot(): %v", err)
+		t.Fatalf("storage.Snapshot(): %v", err)
 	}
 
 	err = snap.Persist(sink)
@@ -238,10 +246,10 @@ func (st *StorageTester) testCodec(t *testing.T) {
 	err = st.store.Restore(io.NopCloser(bytes.NewBuffer(sink.Bytes())))
 
 	if err != nil {
-		t.Fatalf("store.Restore(): %v", err)
+		t.Fatalf("storage.Restore(): %v", err)
 	}
 
-	kvitems2, err := st.store.PrefixScan([]byte(""))
+	kvitems2, err := st.store.PrefixScan(test.BucketTest, []byte(""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,8 +311,8 @@ func (s *sink) ID() string {
 	return s.id
 }
 
-func applyBatch(store store.Storage, commands []common.Command) (err error) {
-	batch, err := store.NewBatch()
+func applyBatch(st storage.Storage, commands []fsm.Command) (err error) {
+	batch, err := st.NewBatch()
 	if err != nil {
 		return
 	}
@@ -317,13 +325,13 @@ func applyBatch(store store.Storage, commands []common.Command) (err error) {
 
 	for _, cmd := range commands {
 		switch cmd.Type {
-		case common.CmdSet:
-			err = batch.Set([]byte(cmd.Key), cmd.Value)
+		case fsm.CmdSet:
+			err = batch.Put(test.BucketTest, []byte(cmd.Key), cmd.Value)
 			if err != nil {
 				return
 			}
-		case common.CmdDelete:
-			err = batch.Delete([]byte(cmd.Key))
+		case fsm.CmdDelete:
+			err = batch.Delete(test.BucketTest, []byte(cmd.Key))
 			if err != nil {
 				return
 			}

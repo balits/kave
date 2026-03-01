@@ -1,13 +1,13 @@
-package common
+package fsm
 
 import (
 	"bytes"
 	"encoding/gob"
 
-	"github.com/balits/kave/internal/store"
+	"github.com/balits/kave/internal/storage"
 )
 
-type CommandType uint8
+type CommandType int
 
 const (
 	CmdSet CommandType = iota
@@ -30,16 +30,14 @@ func (t CommandType) String() string {
 
 type Command struct {
 	Type   CommandType
-	Bucket store.Bucket
+	Bucket storage.Bucket
 	Key    []byte
 
 	// for SET operations
 	Value []byte
 
 	// for TXN operations
-
-	// for CAS operations
-	ExpectedRevision *uint64
+	Txn *Txn
 }
 
 func EncodeCommand(cmd Command) ([]byte, error) {

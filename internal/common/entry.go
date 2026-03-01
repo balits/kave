@@ -13,9 +13,12 @@ type Entry struct {
 	Key            []byte `json:"key"`
 	Value          []byte `json:"value"`
 	CreateRevision uint64 `json:"create_revision"` // revision of the creation
-	ModifyRevision uint64 `json:"mod_revision"`    // revision the latest modification
+	ModRevision    uint64 `json:"mod_revision"`    // revision the latest modification
 	Version        uint64 `json:"version"`         // the amount of times this entry has been changed
 }
+
+// TODO: use encoding/binary, since Entry is fairly simple
+// and we dont want to do any reflection based codec
 
 func EncodeEntry(e *Entry) ([]byte, error) {
 	if e == nil {

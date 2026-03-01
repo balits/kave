@@ -9,10 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/balits/kave/internal/common"
 	"github.com/balits/kave/internal/fsm"
-	"github.com/balits/kave/internal/store"
-	"github.com/balits/kave/internal/store/inmem"
+	"github.com/balits/kave/internal/storage"
+	"github.com/balits/kave/internal/storage/inmem"
 	"github.com/balits/kave/internal/util"
 	"github.com/balits/kave/test"
 	"github.com/hashicorp/raft"
@@ -26,8 +25,14 @@ type fsmTester struct {
 }
 
 func Test_FSM(t *testing.T) {
+	f := fsm.New(inmem.NewStore(storage.StorageOptions{
+		InitialBuckets: []storage.Bucket{
+			test.BucketTest,
+		},
+	}))
+
 	t.Run("with_inmemory_storage", func(t *testing.T) {
-		tester := fsmTester{fsm.New(inmem.NewStore()), 10}
+		tester := fsmTester{f: f, n: 10}
 		t.Run("SET", tester.testSet)
 		t.Run("DELETE", tester.testDelete)
 		t.Run("BATCH", tester.testBatch)
@@ -36,7 +41,11 @@ func Test_FSM(t *testing.T) {
 
 func TestFSM_ApplyThroughRaft(t *testing.T) {
 	id := raft.ServerID("dummy")
-	_f := fsm.New(inmem.NewStore())
+	_f := fsm.New(inmem.NewStore(storage.StorageOptions{
+		InitialBuckets: []storage.Bucket{
+			test.BucketTest,
+		},
+	}))
 
 	conf := raft.DefaultConfig()
 	conf.Logger = util.NewHcLogAdapter(test.NewTestLogger(t), test.LogLevel())
@@ -66,9 +75,9 @@ func TestFSM_ApplyThroughRaft(t *testing.T) {
 	<-node.LeaderCh() // wait until node becomes leader (pre voting, voting election etc)
 
 	t.Run("FSM Apply Set through Raft", func(t *testing.T) {
-		cmd := common.Command{
-			Type:   common.CmdSet,
-			Bucket: store.BucketKV,
+		cmd := fsm.Command{
+			Type:   fsm.CmdSet,
+			Bucket: test.BucketTest,
 			Key:    []byte("foo"),
 			Value:  []byte("bar"),
 		}
@@ -78,9 +87,9 @@ func TestFSM_ApplyThroughRaft(t *testing.T) {
 	})
 
 	t.Run("FSM Apply Delete through Raft", func(t *testing.T) {
-		cmd := common.Command{
-			Bucket: store.BucketKV,
-			Type:   common.CmdDelete,
+		cmd := fsm.Command{
+			Bucket: test.BucketTest,
+			Type:   fsm.CmdDelete,
 			Key:    []byte("foo"),
 		}
 		if err = doRaftApply(node, cmd); err != nil {
@@ -89,7 +98,7 @@ func TestFSM_ApplyThroughRaft(t *testing.T) {
 	})
 }
 
-func doRaftApply(node *raft.Raft, cmd common.Command) error {
+func doRaftApply(node *raft.Raft, cmd fsm.Command) error {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	err := gob.NewEncoder(buf).Encode(&cmd)
 	if err != nil {
@@ -113,9 +122,9 @@ func (ft *fsmTester) testSet(t *testing.T) {
 	}
 
 	for k, v := range state {
-		result, ok := ft.f.Apply(newLog(common.Command{
-			Bucket: store.BucketKV,
-			Type:   common.CmdSet,
+		result, ok := ft.f.Apply(newLog(fsm.Command{
+			Bucket: test.BucketTest,
+			Type:   fsm.CmdSet,
 			Key:    []byte(k),
 			Value:  v,
 		})).(fsm.AppyResult)
@@ -130,7 +139,7 @@ func (ft *fsmTester) testSet(t *testing.T) {
 
 		stored := result.SetResult
 
-		if stored.ModifyRevision != raftIndex.Load() {
+		if stored.ModRevision != raftIndex.Load() {
 			t.Fatal("SET failed: ModifyRevisions did not match")
 		}
 
@@ -147,9 +156,9 @@ func (ft *fsmTester) testDelete(t *testing.T) {
 	}
 
 	for k, oldValue := range state {
-		result, ok := ft.f.Apply(newLog(common.Command{
-			Bucket: store.BucketKV,
-			Type:   common.CmdDelete,
+		result, ok := ft.f.Apply(newLog(fsm.Command{
+			Bucket: test.BucketTest,
+			Type:   fsm.CmdDelete,
 			Key:    []byte(k),
 		})).(fsm.AppyResult)
 
@@ -238,8 +247,8 @@ func (ft *fsmTester) testBatch(t *testing.T) {
 	// }
 }
 
-func newLog(cmd common.Command) *raft.Log {
-	bytes, err := common.EncodeCommand(cmd)
+func newLog(cmd fsm.Command) *raft.Log {
+	bytes, err := fsm.EncodeCommand(cmd)
 	if err != nil {
 		panic(err)
 	}

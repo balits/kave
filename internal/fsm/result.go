@@ -14,23 +14,19 @@ type AppyResult struct {
 	SetResult    SetResult
 	DeleteResult *DeleteResult
 	BatchResult  *BatchResult
-	CASResult    *SetResult
+	TxnResult    *TxnResult
 }
 
 func (ar AppyResult) Error() error {
 	return ar.err
 }
 
-type SetResult struct {
-	*common.Entry
-}
+type SetResult *common.Entry
 
-type GetResult struct {
-	*common.Entry
-}
+type GetResult *common.Entry
 
 type DeleteResult struct {
-	Deleted   bool      `json:"deleted"`
+	Deleted   bool          `json:"deleted"`
 	PrevEntry *common.Entry `json:"prev_kv,omitempty"`
 }
 

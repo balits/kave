@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -13,16 +14,25 @@ import (
 	"github.com/balits/kave/internal/common"
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/fsm"
+	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/service"
-	"github.com/balits/kave/internal/store"
-	"github.com/balits/kave/internal/store/durable"
-	"github.com/balits/kave/internal/store/inmem"
+	"github.com/balits/kave/internal/storage"
+	"github.com/balits/kave/internal/storage/durable"
+	"github.com/balits/kave/internal/storage/inmem"
 	transport "github.com/balits/kave/internal/transport/http"
 	"github.com/balits/kave/internal/util"
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
 	"golang.org/x/sync/errgroup"
 )
+
+var InitBuckets = []storage.Bucket{
+	kv.BucketMeta,
+	kv.BucketKeyMeta,
+	kv.BucketKeyHistory,
+	kv.BucketKV,
+	kv.BucketLeaseWIP,
+}
 
 type Node struct {
 	bootstrap      bool
@@ -35,6 +45,43 @@ type Node struct {
 	peerService    service.PeerService
 	clusterService service.ClusterService
 	httpServer     *transport.HttpServer
+}
+
+func New(cfg *config.Config, logger *slog.Logger) (*Node, error) {
+	fsm, err := newFsm(storage.StorageOptions{
+		Path:           cfg.Dir,
+		Kind:           cfg.StorageKind,
+		InitialBuckets: InitBuckets,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	raftCfg := newRaftConfig(cfg.Me.NodeID, logger, cfg.LogLevel)
+	raftDeps, err := newRaftDeps(cfg.Me.GetRaftAddress(), cfg.StorageKind, cfg.Dir)
+	if err != nil {
+		return nil, err
+	}
+
+	n := &Node{
+		bootstrap: cfg.Bootstrap,
+		logger:    logger.With("component", "node"),
+		cfg:       cfg,
+		fsm:       fsm,
+		raftDeps:  raftDeps,
+	}
+
+	r, err := raft.NewRaft(raftCfg, n.fsm, raftDeps.logs, raftDeps.stable, raftDeps.snapshots, raftDeps.transport)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup raft: %v", err)
+	}
+
+	n.raft = r
+	n.kvService = service.NewKVService(n.raft, n.fsm.Store)
+	n.clusterService = service.NewClusterService(n.raft, cfg, logger)
+	n.peerService = service.NewPeerService(n.raft, cfg)
+	n.httpServer = transport.NewHTTPServer(cfg.Me.GetInternalHttpAddress(), n.kvService, n.clusterService, n.peerService, cfg, logger)
+	return n, nil
 }
 
 func (n *Node) Run(ctx context.Context) error {
@@ -116,53 +163,24 @@ func (n *Node) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func New(cfg *config.Config, logger *slog.Logger) (*Node, error) {
-	fsm, err := newFsm(cfg.Storage, cfg.Dir)
+func newFsm(opts storage.StorageOptions) (*fsm.FSM, error) {
+	s, err := newStorage(opts)
 	if err != nil {
 		return nil, err
 	}
-
-	raftCfg := newRaftConfig(cfg.Me.NodeID, logger, cfg.LogLevel)
-	raftDeps, err := newRaftDeps(cfg.Me.GetRaftAddress(), cfg.Storage, cfg.Dir)
-	if err != nil {
-		return nil, err
-	}
-
-	n := &Node{
-		bootstrap: cfg.Bootstrap,
-		logger:    logger.With("component", "node"),
-		cfg:       cfg,
-		fsm:       fsm,
-		raftDeps:  raftDeps,
-	}
-
-	r, err := raft.NewRaft(raftCfg, n.fsm, raftDeps.logs, raftDeps.stable, raftDeps.snapshots, raftDeps.transport)
-	if err != nil {
-		return nil, fmt.Errorf("failed to setup raft: %v", err)
-	}
-
-	n.raft = r
-	n.kvService = service.NewKVService(n.raft, n.fsm.Store)
-	n.clusterService = service.NewClusterService(n.raft, cfg, logger)
-	n.peerService = service.NewPeerService(n.raft, cfg)
-	n.httpServer = transport.NewHTTPServer(cfg.Me.GetInternalHttpAddress(), n.kvService, n.clusterService, n.peerService, cfg, logger)
-	return n, nil
+	return fsm.New(s), nil
 }
 
-func newFsm(kind config.StorageKind, dataDir string) (*fsm.FSM, error) {
-	var s store.Storage
-	switch kind {
-	case config.StorageKindBolt:
-		durable, err := durable.NewStore(dataDir + "/kvbolt.db")
-		if err != nil {
-			return nil, err
-		}
-		s = durable
-	case config.StorageKindInMemory:
-		s = inmem.NewStore()
+func newStorage(opts storage.StorageOptions) (s storage.Storage, err error) {
+	switch opts.Kind {
+	case storage.StorageKindInMemory:
+		s = inmem.NewStore(opts)
+	case storage.StorageKindBoltdb:
+		s, err = durable.NewStore(opts)
+	default:
+		err = errors.New("invalid storage kind")
 	}
-
-	return fsm.New(s), nil
+	return
 }
 
 func newRaftConfig(nodeID string, logger *slog.Logger, level slog.Level) *raft.Config {
@@ -188,7 +206,7 @@ type raftDeps struct {
 	transport raft.Transport
 }
 
-func newRaftDeps(addr raft.ServerAddress, storageKind config.StorageKind, dataDir string) (*raftDeps, error) {
+func newRaftDeps(addr raft.ServerAddress, storageKind storage.StorageKind, dataDir string) (*raftDeps, error) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", string(addr))
 	if err != nil {
 		return nil, fmt.Errorf("transport: %w", err)
@@ -205,7 +223,7 @@ func newRaftDeps(addr raft.ServerAddress, storageKind config.StorageKind, dataDi
 		snapshots raft.SnapshotStore
 	)
 
-	if storageKind == config.StorageKindInMemory {
+	if storageKind == storage.StorageKindInMemory {
 		logs = raft.NewInmemStore()
 		stable = raft.NewInmemStore()
 		snapshots = raft.NewInmemSnapshotStore()
