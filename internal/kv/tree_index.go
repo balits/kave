@@ -59,18 +59,18 @@ func (ti *treeIndex) unsafeGet(key []byte, targetRev int64) (rev, created Revisi
 }
 
 func (ti *treeIndex) Put(key []byte, rev Revision) error {
-	inserKI := &keyIndex{key: key}
+	insertKi := &keyIndex{key: key}
 	ti.mu.Lock()
 	defer ti.mu.Unlock()
 
-	oldKi, ok := ti.tree.Get(inserKI)
+	oldKi, ok := ti.tree.Get(insertKi)
 	if !ok {
-		err := inserKI.put(rev.Main, rev.Sub)
+		err := insertKi.put(rev.Main, rev.Sub)
 		if err != nil {
 			return err
 		}
 
-		ti.tree.ReplaceOrInsert(inserKI)
+		ti.tree.ReplaceOrInsert(insertKi)
 		return nil
 	}
 
@@ -136,7 +136,7 @@ func (ti *treeIndex) Revisions(key, end []byte, targetRev int64, limit int) (rev
 // from key(included) to end(excluded) at the given rev.
 func (ti *treeIndex) CountRevisions(key, end []byte, targetRev int64) int {
 	ti.mu.RLock()
-	defer ti.mu.Unlock()
+	defer ti.mu.RUnlock()
 
 	if end == nil {
 		_, _, _, err := ti.unsafeGet(key, targetRev)
@@ -206,6 +206,7 @@ func (ti *treeIndex) Keep(rev int64) map[Revision]struct{} {
 }
 
 func (ti *treeIndex) Compact(rev int64) (avail map[Revision]struct{}, err error) {
+	avail = make(map[Revision]struct{})
 	ti.logger.Info("compacting tree index", "revision", rev)
 	ti.mu.Lock()
 	clone := ti.tree.Clone()

@@ -1,7 +1,9 @@
 package kv
 
 import (
-	"github.com/balits/kave/internal/storage"
+	"fmt"
+
+	"github.com/balits/kave/internal/backend"
 )
 
 type TransactionExecutor interface {
@@ -48,13 +50,13 @@ type TransactionExecutor interface {
 }
 
 type executor struct {
-	store     storage.Storage
+	bck       backend.Backend
 	treeIndex index
 }
 
-func NewExecutor(store storage.Storage, treeIndex index) TransactionExecutor {
+func NewExecutor(b backend.Backend, treeIndex index) TransactionExecutor {
 	return &executor{
-		store:     store,
+		bck:       b,
 		treeIndex: treeIndex,
 	}
 }
@@ -65,7 +67,6 @@ func (ex *executor) Execute(cmd Command, txRev Revision) (result *Result, err er
 		result, err = ex.ExecutePut(cmd.Key, cmd.Value, txRev)
 	case CmdDelete:
 		result, err = ex.ExecuteDelete(cmd.Key, txRev)
-		return result, nil
 	case CmdTxn:
 		txres, err := ex.ExecuteTxn(*cmd.Txn, txRev)
 		if err == nil && txres != nil {
@@ -77,135 +78,9 @@ func (ex *executor) Execute(cmd Command, txRev Revision) (result *Result, err er
 }
 
 func (ex *executor) ExecutePut(key, value []byte, rev Revision) (*Result, error) {
-	// update key_history
-	newCompositeKey := CompositeKey{
-		Key: key,
-		Rev: rev,
-	}
-	err := UpdateKeyHistory(ex.store, newCompositeKey, value)
-	if err != nil {
-		return nil, err
-	}
-
-	// update key_meta metadata
-	meta, err := FetchFromKeyMeta(ex.store, key)
-	if err != nil {
-		return nil, err
-	}
-	var newMeta *Meta
-	if meta != nil {
-		// if key was previously deleted, start a "new generation" with new CreateRev and Version
-		// otherwise just increment the version
-		if meta.Tombstone {
-			newMeta = &Meta{
-				CreateRev: rev.Main,
-				ModRev:    rev.Main,
-				Version:   1,
-			}
-		} else {
-			// else keep it as is
-			newMeta = &Meta{
-				CreateRev: meta.CreateRev,
-				ModRev:    rev.Main,
-				Version:   meta.Version + 1,
-			}
-		}
-	} else {
-		newMeta = &Meta{
-			CreateRev: rev.Main,
-			ModRev:    rev.Main,
-			Version:   1,
-		}
-	}
-
-	err = UpdateKeyMeta(ex.store, key, *newMeta)
-	if err != nil {
-		return nil, err
-	}
-
-	resultEntry := &Entry{
-		Key:   key,
-		Value: value,
-		Meta:  *newMeta,
-	}
-
-	return &Result{SetResult: resultEntry}, nil
 }
 
 func (ex *executor) ExecuteDelete(key []byte, rev Revision) (*Result, error) {
-	// fetch meta cache, return early if nil
-	meta, err := FetchFromKeyMeta(ex.store, key)
-	if err != nil {
-		return nil, err
-	}
-	if meta == nil {
-		return &Result{
-			DeleteResult: &DeleteResult{Deleted: false, PrevEntry: nil},
-		}, nil
-	}
-
-	// already deleted, return early
-	if meta.Tombstone {
-		return &Result{
-			DeleteResult: &DeleteResult{Deleted: false, PrevEntry: nil},
-		}, nil
-	}
-
-	// if value existed before, fetch prev entry to inclide in DeleteResult.PrevEntry
-	prevValue, err := FetchFromKeyHistory(ex.store, CompositeKey{
-		Key: key,
-		Rev: Revision{
-			Main: meta.ModRev,
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// append tombstone to history
-	newKey := CompositeKey{
-		Key: key,
-		Rev: Revision{
-			Main: rev.Main,
-		},
-	}
-
-	if err = UpdateKeyHistory(ex.store, newKey, TombstoneMarker); err != nil {
-		return nil, err
-	}
-
-	prevMeta := *meta // copy old metadata
-	meta.ModRev = rev.Main
-	meta.Version++
-	meta.Tombstone = true
-
-	// update key_meta
-	if err := UpdateKeyMeta(ex.store, key, *meta); err != nil {
-		return nil, err
-	}
-
-	var prevEntry *Entry
-	if prevValue != nil {
-		prevEntry = &Entry{
-			Key: key,
-			Meta: Meta{
-				CreateRev: prevMeta.CreateRev,
-				ModRev:    prevMeta.ModRev,
-				Version:   prevMeta.Version,
-				Tombstone: true,
-			},
-			Value: prevValue,
-		}
-	}
-
-	result := &Result{
-		DeleteResult: &DeleteResult{
-			Deleted:   true,
-			PrevEntry: prevEntry,
-		},
-	}
-
-	return result, nil
 }
 
 func (ex *executor) ExecuteTxn(cmd TxnCommand, rev Revision) (*TxnResult, error) {
@@ -303,7 +178,7 @@ func noWriteOps(ops []TxnOp) bool {
 func (ex *executor) applyOps(ops []TxnOp, rev Revision) ([]Result, error) {
 	results := make([]Result, 0, len(ops))
 
-	for i, op := range ops {
+	for _, op := range ops {
 		var (
 			res *Result
 			err error
@@ -321,7 +196,7 @@ func (ex *executor) applyOps(ops []TxnOp, rev Revision) ([]Result, error) {
 		if err != nil {
 			return nil, err
 		}
-		results[i] = *res
+		results = append(results, *res)
 		rev.Sub++
 	}
 

@@ -27,8 +27,7 @@ func FetchFromKeyHistory(store storage.Storage, key CompositeKey) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	valueBytes, err := store.Get(BucketKeyHistory, newKeyBytes)
-	return valueBytes, nil
+	return store.Get(BucketKeyHistory, newKeyBytes)
 
 }
 

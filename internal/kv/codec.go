@@ -8,6 +8,7 @@ import (
 var (
 	ErrEncodingFailed  = fmt.Errorf("codec error: encoding failed")
 	ErrBufTooSmall     = fmt.Errorf("codec error: buffer too small")
+	ErrSrcBufNil       = fmt.Errorf("codec error: source buffer was nil")
 	ErrSliceCopyFailed = fmt.Errorf("codec error: slice copy failed")
 )
 
@@ -15,36 +16,49 @@ var (
 // so we need to constantly cast between uint64 <-> int64
 // but its fine cuz no allocations happen, we just mix the bit interpretation of the bytes
 
-func EncodeMeta(meta Meta) ([]byte, error) {
+func EncodeEntry(e Entry) []byte {
 	// CreateRev int64  8
 	// ModRev    int64  8
 	// Version   int64  8
-	// Tombstone bool    1
-	buf := make([]byte, 8+8+8+1)
-	binary.BigEndian.PutUint64(buf[0:8], uint64(meta.CreateRev))
-	binary.BigEndian.PutUint64(buf[8:16], uint64(meta.ModRev))
-	binary.BigEndian.PutUint64(buf[16:24], uint64(meta.Version))
+	buf := make([]byte, 8+8+8+4+len(e.Key)+4+len(e.Value))
+	binary.BigEndian.PutUint64(buf[0:8], uint64(e.CreateRev))
+	binary.BigEndian.PutUint64(buf[8:16], uint64(e.ModRev))
+	binary.BigEndian.PutUint64(buf[16:24], uint64(e.Version))
 
-	if meta.Tombstone {
-		buf[24] = 1
-	} else {
-		buf[24] = 0
-	}
-
-	return buf, nil
+	// key
+	binary.BigEndian.PutUint32(buf[24:28], uint32(len(e.Key)))
+	copy(buf[28:len(e.Key)], e.Key)
+	return buf
 }
 
-func DecodeMeta(src []byte) (Meta, error) {
-	if len(src) < 8+8+8+1 {
-		return Meta{}, ErrBufTooSmall
+func DecodeMeta(src []byte) (*Entry, error) {
+	if src == nil {
+		return nil, ErrSrcBufNil
+	}
+	primitiveFieldsSize := 8+8+8
+	if len(src) < primitiveFieldsSize {
+		return nil, ErrBufTooSmall
 	}
 
-	meta := Meta{
+	e := Entry{
 		CreateRev: int64(binary.BigEndian.Uint64(src[0:8])),
 		ModRev:    int64(binary.BigEndian.Uint64(src[8:16])),
 		Version:   int64(binary.BigEndian.Uint64(src[16:24])),
-		Tombstone: src[24] == 1,
 	}
+
+	keyLen := int(binary.BigEndian.Uint32(src[0:4]))
+	if len(src) < primitiveFieldsSize + 4 + keyLen {
+		return nil, ErrBufTooSmall
+	}
+	key := make([]byte, keyLen)
+	copy(key, src[primitiveFieldsSize+4:primitiveFieldsSize+4+keyLen])
+
+	valueLen := int(binary.BigEndian.Uint32(src[0:4]))
+	if len(src) < primitiveFieldsSize + keyLen {
+		return nil, ErrBufTooSmall
+	}
+	key := make([]byte, keyLen)
+	copy(key, src[4:4+keyLen])
 
 	return meta, nil
 }
@@ -64,6 +78,9 @@ func EncodeCompositeKey(key CompositeKey) ([]byte, error) {
 }
 
 func DecodeCompositeKey(src []byte) (CompositeKey, error) {
+	if src == nil {
+		return CompositeKey{}, ErrSrcBufNil
+	}
 	if len(src) < 4 {
 		return CompositeKey{}, ErrBufTooSmall
 	}
@@ -86,12 +103,15 @@ func DecodeCompositeKey(src []byte) (CompositeKey, error) {
 
 func EncodeRevision(rev Revision) ([]byte, error) {
 	buf := make([]byte, 16)
-	binary.BigEndian.PutUint64(buf, uint64(rev.Main))
-	binary.BigEndian.PutUint64(buf, uint64(rev.Sub))
+	binary.BigEndian.PutUint64(buf[0:8], uint64(rev.Main))
+	binary.BigEndian.PutUint64(buf[8:16], uint64(rev.Sub))
 	return buf, nil
 }
 
 func DecodeRevision(src []byte) (rev Revision, err error) {
+	if src == nil {
+		return Revision{}, ErrSrcBufNil
+	}
 	if len(src) < 16 {
 		err = ErrBufTooSmall
 		return

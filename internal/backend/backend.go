@@ -48,12 +48,15 @@ func (b *backend) ReadTx() ReadTx {
 }
 
 func (b *backend) WriteTx() WriteTx {
-	return &writetx{b: b}
+	return &writetx{
+		b:      b,
+		readtx: &readtx{b},
+	}
 }
 
 func (b *backend) Snapshot(w io.Writer) error {
 	b.rwlock.RLock()
-	defer b.rwlock.RUnlock()	
+	defer b.rwlock.RUnlock()
 	_, err := b.store.WriteTo(w)
 	return err
 }
@@ -99,21 +102,14 @@ func (b *backend) Close() error {
 	b.rwlock.Lock()
 	defer b.rwlock.Unlock()
 
-	var err error
 	if b.batch != nil {
-		e := b.batch.Abort()
-		if e != nil {
-			err = e
-		}
+		b.batch.Abort()
 		b.batch = nil
 	}
 
-	// Close the underlying storage
+	var err error
 	if b.store != nil {
-		e := b.store.Close()
-		if e != nil && err == nil {
-			err = e
-		}
+		err = b.store.Close()
 		b.store = nil
 	}
 	return err

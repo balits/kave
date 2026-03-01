@@ -14,7 +14,6 @@ import (
 	"github.com/balits/kave/internal/common"
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/fsm"
-	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/service"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/durable"
@@ -25,14 +24,6 @@ import (
 	raftboltdb "github.com/hashicorp/raft-boltdb"
 	"golang.org/x/sync/errgroup"
 )
-
-var InitBuckets = []storage.Bucket{
-	kv.BucketMeta,
-	kv.BucketKeyMeta,
-	kv.BucketKeyHistory,
-	kv.BucketKV,
-	kv.BucketLeaseWIP,
-}
 
 type Node struct {
 	bootstrap      bool

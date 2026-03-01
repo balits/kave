@@ -14,8 +14,8 @@ type durableBatch struct {
 
 func newBatch(tx *bolt.Tx, bucketMap map[storage.Bucket][]byte) storage.Batch {
 	return &durableBatch{
-		tx: tx,
-		wc: storage.NewWriteCollector(),
+		tx:        tx,
+		wc:        storage.NewWriteCollector(),
 		bucketMap: bucketMap,
 	}
 }
@@ -80,12 +80,12 @@ func (b *durableBatch) Commit() error {
 	return b.tx.Commit()
 }
 
-func (b *durableBatch) Abort() error {
+func (b *durableBatch) Abort() {
 	if b.closed {
-		return storage.ErrBatchClosed
+		return
 	}
 
 	b.closed = true
 	b.wc.Reset()
-	return b.tx.Rollback()
+	b.tx.Rollback()
 }

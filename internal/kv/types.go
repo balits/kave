@@ -21,18 +21,12 @@ type CompositeKey struct {
 
 var EmptyEntry Entry // zero values, for non existent keys
 
-// Metadata about a key, containing revisions, version count and tombstone flag
-type Meta struct {
-	CreateRev int64 `json:"create_revision"`
-	ModRev    int64 `json:"mod_revision"`
-	Version   int64 `json:"version"`
-	Tombstone bool  `json:"tombstone"`
-}
-
 type Entry struct {
-	Key   []byte `json:"key"`
-	Value []byte `json:"value"`
-	Meta
+	Key       []byte `json:"key"`
+	Value     []byte `json:"value"`
+	CreateRev int64  `json:"create_revision"`
+	ModRev    int64  `json:"mod_revision"`
+	Version   int64  `json:"version"`
 }
 
 // ========= command =========

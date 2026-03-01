@@ -66,8 +66,10 @@ func (b *inmemBatch) Commit() error {
 	return nil
 }
 
-func (b *inmemBatch) Abort() error {
+func (b *inmemBatch) Abort() {
+	if b.closed {
+		return
+	}
 	b.closed = true
 	b.wc.Reset()
-	return nil
 }

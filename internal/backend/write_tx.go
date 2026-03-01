@@ -7,17 +7,21 @@ import (
 )
 
 type WriteTx interface {
-	//ReadTx
+	ReadTx
+
 	Lock()
 	Unlock()
+
 	UnsafePut(bucket storage.Bucket, key, value []byte) error
 	UnsafeDelete(bucket storage.Bucket, key []byte) error
+
 	Commit() error
-	Abort() error
+	Abort()
 }
 
 // TODO: impl batching to reduce fsyncs in the future
 type writetx struct {
+	*readtx
 	b *backend
 }
 
@@ -53,9 +57,9 @@ func (w *writetx) Commit() error {
 	return w.b.batch.Commit()
 }
 
-func (w *writetx) Abort() error {
+func (w *writetx) Abort() {
 	defer func() {
 		w.b.batch = nil
 	}()
-	return w.b.batch.Abort()
+	w.b.batch.Abort()
 }

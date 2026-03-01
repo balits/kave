@@ -10,7 +10,7 @@ type Batch interface {
 	// Commmit applies all recorded mutations to the underlying store atomically. After Commit is called, the batch is closed and cannot be used anymore.
 	Commit() error
 	// Abort discards all recorded mutations and closes the batch. After Abort is called, the batch cannot be used anymore.
-	Abort() error
+	Abort()
 }
 
 type deleteMarker struct{}
