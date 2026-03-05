@@ -8,16 +8,52 @@ import (
 var ErrRevNotFound = fmt.Errorf("revision not found")
 var ErrKeyIndexError = fmt.Errorf("key index error")
 
+// keyIndex tracks the complete revision history of a single user key.
+//
+// It is stored as a pointer in the treeIndex B-tree, sorted by `key` bytes.
+// The B-tree never stores the user key as a bucket key — it only uses it
+// for in-memory lookups. The actual data lives in BucketMain, keyed by
+// BucketKey (main, sub, tombstone).
+//
+// Structure:
+//
+//	keyIndex{
+//	  key:         []byte("mykey"),      // the user's key, used for B-tree ordering
+//	  modRev:      {Main: 5, Sub: 0},    // most recent revision (across all generations)
+//	  generations: []generation{         // one generation per create-delete cycle
+//	    {created: {1,0}, version: 3, revs: [{1,0}, {3,0}, {5,0}]},  // active
+//	  },
+//	}
+//
+// Lifecycle of a key:
+//
+//	PUT "foo"  → generation[0] created, rev {1,0} appended
+//	PUT "foo"  → rev {3,0} appended to generation[0], version bumped
+//	DEL "foo"  → rev {5,0} appended as tombstone, new empty generation[1] started
+//	PUT "foo"  → generation[1] gets its first rev, key is "re-created"
+//
+// Why generations?
+//
+//	A key can be created, deleted, and re-created multiple times.
+//	Each create-to-delete cycle is one generation. Compaction can remove
+//	entire old generations once they're fully below the compaction revision.
 type keyIndex struct {
-	key         []byte
-	modRev      Revision
-	generations []generation
+	key         []byte       // user key
+	modRev      Revision     // latest modRev
+	generations []generation // ordered list of create-delete cycles
 }
 
-func (ki *keyIndex) Less(bki *keyIndex) bool {
-	return bytes.Compare(ki.key, bki.key) == -1
+func (this *keyIndex) Less(that *keyIndex) bool {
+	return bytes.Compare(this.key, that.key) == -1
 }
 
+// put appends a new revision to the current (latest) generation.
+//
+// If there are no generations yet (brand new key), a new generation is created.
+// The revision must be strictly greater than modRev — revisions are monotonically increasing.
+//
+// This is called for both PUT and DELETE operations. For DELETE, tombstone()
+// calls put() first, then starts a new empty generation.
 func (ki *keyIndex) put(main, sub int64) error {
 	rev := Revision{
 		Main: main,
@@ -42,7 +78,9 @@ func (ki *keyIndex) put(main, sub int64) error {
 	return nil
 }
 
-// get retrieves the createRev, modRev and version of the key
+// get retrieves the state of the key at a given revision.
+// It finds the generation the revision is from, then walk back nutil it
+// finds the biggest revision <= targetRev
 func (ki *keyIndex) get(targetRev int64) (createRev Revision, modRev Revision, version int64, err error) {
 	if ki.isEmpty() {
 		panic("get: getting empty key index")
@@ -50,10 +88,10 @@ func (ki *keyIndex) get(targetRev int64) (createRev Revision, modRev Revision, v
 
 	g := ki.findGen(targetRev)
 	if g.isEmpty() {
-		return Revision{}, Revision{}, 0, fmt.Errorf("%w: get: generation is empty", ErrKeyIndexError)
+		return Revision{}, Revision{}, 0, fmt.Errorf("%w: get: generation is empty", ErrKeyNotFound)
 	}
 
-	n := g.walk(func(rev Revision) bool {
+	n := g.walkBackwards(func(rev Revision) bool {
 		return rev.Main > targetRev
 	})
 
@@ -63,6 +101,11 @@ func (ki *keyIndex) get(targetRev int64) (createRev Revision, modRev Revision, v
 	return Revision{}, Revision{}, 0, ErrRevNotFound
 }
 
+// tombstone marks the key as deleted at the given revision
+// by appending the current revision to the current gen, then creating an empty generation
+// marking the end of the keys life
+//
+// in the main bucket the tombstone marked by a [T] appended after the key like [8 bytes][8 bytes][T]
 func (ki *keyIndex) tombstone(main, sub int64) error {
 	if ki.isEmpty() {
 		return fmt.Errorf("%w: delete: placing tombstone on empty key index", ErrKeyIndexError)
@@ -80,11 +123,11 @@ func (ki *keyIndex) tombstone(main, sub int64) error {
 	return nil
 }
 
-// reviveTombstone restores a tombstone value which is the only
+// restoreTombstone restores a tombstone value which is the only
 // revision so far for a key. We dont know the createRev and version of the generation,
 // so we just set them to 0 . The modRev is set to the given main and sub revision.
-func (ki *keyIndex) reviveTombstone(main, sub int64) error {
-	err := ki.doRevive(Revision{}, Revision{Main: main, Sub: sub}, 1)
+func (ki *keyIndex) restoreTombstone(main, sub int64) error {
+	err := ki.doRestore(Revision{}, Revision{Main: main, Sub: sub}, 1)
 	if err != nil {
 		return err
 	}
@@ -92,7 +135,8 @@ func (ki *keyIndex) reviveTombstone(main, sub int64) error {
 	return nil
 }
 
-func (ki *keyIndex) doRevive(createRev, modRev Revision, version int64) error {
+// doRestore creates a generation with a singe rev
+func (ki *keyIndex) doRestore(createRev, modRev Revision, version int64) error {
 	if len(ki.generations) != 0 {
 		return fmt.Errorf("revive: placing tombstone on non-empty key index")
 	}
@@ -111,24 +155,24 @@ func (ki *keyIndex) doRevive(createRev, modRev Revision, version int64) error {
 // given rev belongs to. If the given rev is at the gap of two generations,
 // which means that the key does not exist at the given rev, it returns nil.
 func (ki *keyIndex) findGen(rev int64) *generation {
-	lastg := len(ki.generations) - 1
-	cg := lastg
+	lastGen := len(ki.generations) - 1
+	currentGen := lastGen
 
-	for cg >= 0 {
-		if len(ki.generations[cg].revs) == 0 {
-			cg--
+	for currentGen >= 0 {
+		if len(ki.generations[currentGen].revs) == 0 {
+			currentGen--
 			continue
 		}
-		g := ki.generations[cg]
-		if cg != lastg {
+		g := ki.generations[currentGen]
+		if currentGen != lastGen {
 			if tomb := g.revs[len(g.revs)-1].Main; tomb <= rev {
 				return nil
 			}
 		}
 		if g.revs[0].Main <= rev {
-			return &ki.generations[cg]
+			return &ki.generations[currentGen]
 		}
-		cg--
+		currentGen--
 	}
 	return nil
 }
@@ -145,10 +189,10 @@ func (ki *keyIndex) since(rev int64) ([]Revision, error) {
 		return nil, fmt.Errorf("'since' got an unexpected empty keyIndex: %s", string(ki.key))
 	}
 	since := Revision{Main: rev}
-	var gi int
+	var idxGen int
 	// find the generations to start checking
-	for gi = len(ki.generations) - 1; gi > 0; gi-- {
-		g := ki.generations[gi]
+	for idxGen = len(ki.generations) - 1; idxGen > 0; idxGen-- {
+		g := ki.generations[idxGen]
 		if g.isEmpty() {
 			continue
 		}
@@ -159,8 +203,8 @@ func (ki *keyIndex) since(rev int64) ([]Revision, error) {
 
 	var revs []Revision
 	var last int64
-	for ; gi < len(ki.generations); gi++ {
-		for _, r := range ki.generations[gi].revs {
+	for ; idxGen < len(ki.generations); idxGen++ {
+		for _, r := range ki.generations[idxGen].revs {
 			if since.GreaterThan(r) {
 				continue
 			}
@@ -223,7 +267,7 @@ func (ki *keyIndex) doCompact(atRev int64, available map[Revision]struct{}) (gen
 		g = &ki.generations[genIdx]
 	}
 
-	revIndex = g.walk(f)
+	revIndex = g.walkBackwards(f)
 
 	return genIdx, revIndex
 }
@@ -275,15 +319,15 @@ type generation struct {
 }
 
 func (g *generation) isEmpty() bool {
-	return len(g.revs) == 0
+	return g == nil || len(g.revs) == 0
 }
 
-// walk walks through the revisions in the generation in descending order.
+// walkBackwards walks through the revisions in the generation in descending order.
 // It passes the revision to the given function.
-// walk returns until: 1. it finishes walking all pairs 2. the function returns false.
-// walk returns the position at where it stopped. If it stopped after
+// walkBackwards returns until: 1. it finishes walking all pairs 2. the function returns false.
+// walkBackwards returns the position at where it stopped. If it stopped after
 // finishing walking, -1 will be returned.
-func (g *generation) walk(f func(rev Revision) bool) int {
+func (g *generation) walkBackwards(f func(rev Revision) bool) int {
 	l := len(g.revs)
 	for i := range g.revs {
 		ok := f(g.revs[l-i-1])

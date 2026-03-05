@@ -10,29 +10,21 @@ type FsmMetricsProvider interface {
 }
 
 type FsmMetrics struct {
-	Term          uint64
-	ApplyIndex    uint64
-	LastApplyTime time.Time
+	Term       uint64
+	ApplyIndex uint64
+	//LastApplyTime time.Time
 }
 
-type FsmMetricsAtomic struct {
-	Term               atomic.Uint64
-	ApplyIndex         atomic.Uint64
-	LastApplyTimeNanos atomic.Int64
-}
-
-func (a *FsmMetricsAtomic) FsmMetrics() *FsmMetrics {
+func (m *FsmMetrics) FsmMetrics() *FsmMetrics {
 	return &FsmMetrics{
-		Term:          a.Term.Load(),
-		ApplyIndex:    a.ApplyIndex.Load(),
-		LastApplyTime: atomicNanosToTime(&a.LastApplyTimeNanos),
+		Term:       atomic.LoadUint64(&m.Term),
+		ApplyIndex: atomic.LoadUint64(&m.ApplyIndex),
 	}
 }
 
-func atomicNanosToTime(n *atomic.Int64) time.Time {
-	inner := n.Load()
-	if inner == 0 {
+func atomicNanosToTime(n int64) time.Time {
+	if n == 0 {
 		return time.Time{}
 	}
-	return time.Unix(0, inner)
+	return time.Unix(0, n)
 }

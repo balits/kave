@@ -8,25 +8,28 @@ Hello world
 
 # TODO
 - [ ] fix cluster tests
-- [ ] simplify http server handlers
+- [x] simplify http server handlers
 - [ ] BatchingFSM
 - [ ] lease
 - [ ] Snapshot metrics too
 - [ ] prune random string(bytes) and []byte(string)
+- [ ] bytestrore.Defragment
 - [ ] raft index -> mvcc 
-    - [ ] Global monotonic revision
-    - [ ] Snapshot isolation
-    - [ ] Deterministic txn executor
+    - [x] Global monotonic revision
+    - ~~[] Snapshot isolation~~
+        - snapshot isolation is achieved by atomic reads at certain revisions
+    - [x] Deterministic txn ~~executor~~ mvcc.Engine
     - [ ] Watch event log
         - refactor delete into emmiting phantom delete events, instead of noop if meta wasnt found in key_index
-    - [ ] Raft-triggered compaction
+    - ~~[ ] Raft-triggered compaction~~
+        - gonna be either periodic or retention window
     - [ ] Linearizable read path
-    - [ ] DELETE -> tombstone marker
+    - [x] DELETE -> tombstone marker
     - [ ] Transactions
-        - [ ] applyTxnOp
+        - [x] applyTxnOp
             - distinguishing between txn ending errors and regural errors that should be converted into TxnOpResult
             - encode/decode should use binary so it doesnt return errors
-        - [ ] add TxnOpTypeGet = "GET" (if no writes chosen ops then then return early, no new rev needed)
+        - [x] add TxnOpTypeGet = ~~"GET"~~ "RANGE" (if no writes chosen ops then then return early, no new rev needed)
     - [ ] Compaction
         - automatic retention window: currentRev - compactedRev > THRESHOLD
         - deterministic
@@ -52,19 +55,22 @@ Hello world
             - process 10K entries or so
             - return and let raft do the rest of the commands
             - prevents fsm stalls, lateny spikes or leader blocking
-    - [ ] Snapshot
+    - [x] Snapshot
         - Storage layer already handles this
         - on restore, load _meta keys into RevisionManager
     - [ ] BUCKETS
-        - [ ] "_meta/"
+        - [x] "_meta/"
             - current_revision
             - consistent_index
                 - after apply log at raft log index i: store consistent_index = i
             - compacted_revision
-        - [x] "key_index/":
-	        - Latest metadata about each key. Stores key -> (createRevision uint64, modRevision uint64, version uint64, tombstone bool)
-        - [x] "key_history/":
-	        - Append only historical log of all version of a key. Stores (key, mainRevision) -> value
+        - ~~[x] "key_index/":~~
+            - key index is gonna be inmemory, sort of like a cache
+                so we dont have to store redundant data on disk, and dont have to do additional roundtrips
+            - it stores all the revisions per key, handles deleted but revived keys via generations (list of revisions)
+	        - ~~Latest metadata about each key. Stores key -> (createRevision uint64, modRevision uint64, version uint64, tombstone bool)~~
+        - [x] ~~"key_history/"~~ "main/":
+	        - Append only historical log of all version of a key. Stores (mainRev, subRev) -> Entry{key, value, createRev, modRev, version, tombstone, leaseID}
     - [ ] Ops:
         - [ ] GET:
             - Case 1: Read latest

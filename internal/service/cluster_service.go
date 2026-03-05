@@ -30,7 +30,7 @@ type ClusterService interface {
 func NewClusterService(raft *raft.Raft, cfg *config.Config, logger *slog.Logger) ClusterService {
 	return &clusterService{
 		raft:   raft,
-		logger: logger.With("component", "cluster_service"),
+		logger: logger.With("component", "cluster-service"),
 		me:     cfg.Me,
 	}
 }

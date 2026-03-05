@@ -12,29 +12,57 @@ var ErrCompactionFailed = fmt.Errorf("treeIndex: compaction failed")
 
 // taken from etcd.io/etcd/server/storage/mvcc/index.go
 
-type index interface {
-	Get(key []byte, atRev int64) (rev, created Revision, ver int64, err error)
+//	key -> {
+//		key,
+//		{key, modRev, []revs},
+//	}
+type Index interface {
+	// Get looks up a single user key at a target revision.
+	// Returns the matching revision, the create revision, and the version counter.
+	// Returns ErrRevNotFound if the key doesn't exist at that revision.
+	Get(key []byte, atRev int64) (createRev, modRev Revision, ver int64, err error)
+
+	// Put records that a user key was written at the given revision.
+	// Creates a new keyIndex if the key has never been seen before.
 	Put(key []byte, rev Revision) error
-	Range(key, end []byte, atRev int64) ([][]byte, []Revision)
-	Revisions(key, end []byte, atRev int64, limit int) ([]Revision, int)
-	CountRevisions(key, end []byte, atRev int64) int
+
+	// Range returns all user keys in [key, end) that are live at targetRev.
+	// If end is nil, returns only the exact key match.
+	Range(key, end []byte, targetRev int64) ([][]byte, []Revision)
+
+	// Revisions returns up to `limit` revisions for keys in [key, end) at targetRev.
+	// The second return value is the total count (ignoring limit).
+	Revisions(key, end []byte, targetRev int64, limit int) ([]Revision, int)
+
+	// CountRevisions counts how many keys in [key, end) are live at targetRev.
+	CountRevisions(key, end []byte, targetRev int64) int
+
+	// Tombstone marks a user key as deleted at the given revision.
+	// This ends the current generation and starts a new empty one.
 	Tombstone(key []byte, rev Revision) error
+
+	// Compact removes all revision history at or below `rev` that is superseded.
+	// Returns the set of revisions that must be KEPT in BucketMain (the latest
+	// revision per generation that is <= rev). Everything else below rev can be
+	// deleted from the backend.
 	Compact(rev int64) (map[Revision]struct{}, error)
+
+	// Clear removes all entries. Used during Restore() before rebuilding.
+	Clear()
+
+	// Keep is like Compact but read-only — it computes which revisions would
+	// be kept without actually modifying the index.
 	Keep(rev int64) map[Revision]struct{}
-	Equal(b index) bool
 
+	// Equal checks structural equality with another Index. Used in tests.
+	Equal(b Index) bool
+
+	// Insert directly inserts a keyIndex. Used during Restore() to rebuild
+	// the index from BucketMain entries.
 	Insert(ki *keyIndex)
-	KeyIndex(ki *keyIndex) *keyIndex
-}
 
-func newTreeIndex(logger *slog.Logger) index {
-	tree := btree.NewG[*keyIndex](32, func(a, b *keyIndex) bool {
-		return a.Less(b)
-	})
-	return &treeIndex{
-		tree:   tree,
-		logger: logger.With("component", "treeIndex"),
-	}
+	// KeyIndex looks up a keyIndex by key. Returns nil if not found.
+	KeyIndex(ki *keyIndex) *keyIndex
 }
 
 type treeIndex struct {
@@ -43,14 +71,24 @@ type treeIndex struct {
 	logger *slog.Logger
 }
 
-func (ti *treeIndex) Get(key []byte, targetRev int64) (rev, created Revision, version int64, err error) {
+func NewTreeIndex(logger *slog.Logger) Index {
+	tree := btree.NewG(32, func(a, b *keyIndex) bool {
+		return a.Less(b)
+	})
+	return &treeIndex{
+		tree:   tree,
+		logger: logger.With("component", "tree_index"),
+	}
+}
+
+func (ti *treeIndex) Get(key []byte, targetRev int64) (createRev, modRev Revision, version int64, err error) {
 	ti.mu.RLock()
 	defer ti.mu.RUnlock()
 	return ti.unsafeGet(key, targetRev)
 }
 
 // unsafeGet does not lock the resouce while reading it
-func (ti *treeIndex) unsafeGet(key []byte, targetRev int64) (rev, created Revision, version int64, err error) {
+func (ti *treeIndex) unsafeGet(key []byte, targetRev int64) (createRev, modRev Revision, version int64, err error) {
 	ki := &keyIndex{key: key}
 	if ki = ti.keyIndex(ki); ki == nil {
 		return Revision{}, Revision{}, 0, ErrRevNotFound
@@ -113,17 +151,22 @@ func (ti *treeIndex) Revisions(key, end []byte, targetRev int64, limit int) (rev
 	ti.mu.RLock()
 	defer ti.mu.RUnlock()
 
-	if end == nil {
-		rev, _, _, err := ti.unsafeGet(key, targetRev)
+	if end == nil && len(key) != 0 {
+		_, modRev, _, err := ti.unsafeGet(key, targetRev)
 		if err != nil {
 			return nil, 0
 		}
-		return []Revision{rev}, 1
+		return []Revision{modRev}, 1
 	}
+
+	if key == nil {
+		key = []byte{}
+	}
+
 	ti.unsafeVisit(key, end, func(ki *keyIndex) bool {
-		if rev, _, _, err := ki.get(targetRev); err == nil {
+		if _, modRev, _, err := ki.get(targetRev); err == nil {
 			if limit <= 0 || len(revs) < limit {
-				revs = append(revs, rev)
+				revs = append(revs, modRev)
 			}
 			total++
 		}
@@ -149,7 +192,7 @@ func (ti *treeIndex) CountRevisions(key, end []byte, targetRev int64) int {
 	total := 0
 	ti.unsafeVisit(key, end, func(ki *keyIndex) bool {
 		_, _, _, err := ki.get(targetRev)
-		if err != nil {
+		if err == nil {
 			total++
 		}
 		return true
@@ -159,7 +202,7 @@ func (ti *treeIndex) CountRevisions(key, end []byte, targetRev int64) int {
 
 func (ti *treeIndex) Range(key, end []byte, targetRev int64) (keys [][]byte, revs []Revision) {
 	ti.mu.RLock()
-	defer ti.mu.Unlock()
+	defer ti.mu.RUnlock()
 
 	if end == nil {
 		createRev, _, _, err := ti.unsafeGet(key, targetRev)
@@ -231,7 +274,7 @@ func (ti *treeIndex) Compact(rev int64) (avail map[Revision]struct{}, err error)
 	return avail, err
 }
 
-func (this *treeIndex) Equal(i index) bool {
+func (this *treeIndex) Equal(i Index) bool {
 	that := i.(*treeIndex)
 
 	if this.tree.Len() != that.tree.Len() {
@@ -255,4 +298,10 @@ func (ti *treeIndex) Insert(ki *keyIndex) {
 	ti.mu.Lock()
 	defer ti.mu.Unlock()
 	ti.tree.ReplaceOrInsert(ki)
+}
+
+func (ti *treeIndex) Clear() {
+	ti.mu.Lock()
+	defer ti.mu.Unlock()
+	ti.tree.Clear(false)
 }

@@ -17,6 +17,7 @@ func main() {
 	cfg, err := config.LoadConfig()
 	fatal(err, nil)
 
+	// change TextLogger to JsonLogger in prod
 	logger := util.NewLoggerWithKind(cfg.LogLevel, os.Stdout, util.TextLoggerKind).
 		With("node_id", cfg.Me.NodeID)
 
