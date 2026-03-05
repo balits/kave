@@ -5,19 +5,20 @@ import (
 	"fmt"
 
 	"github.com/balits/kave/internal/config"
-	"github.com/balits/kave/internal/common"
 	"github.com/hashicorp/raft"
 )
 
+var ErrLeaderNotFound = fmt.Errorf("leader not found")
+
 type PeerService interface {
-	Me() common.Peer
-	GetPeers() map[string]common.Peer
-	GetLeader() (common.Peer, error)
+	Me() config.Peer
+	GetPeers() map[string]config.Peer
+	GetLeader() (config.Peer, error)
 	VerifyLeader(ctx context.Context) error
 }
 
 func NewPeerService(raft *raft.Raft, cfg *config.Config) PeerService {
-	peers := make(map[string]common.Peer)
+	peers := make(map[string]config.Peer)
 	for _, peer := range cfg.Peers {
 		peers[peer.NodeID] = peer
 	}
@@ -31,16 +32,16 @@ func NewPeerService(raft *raft.Raft, cfg *config.Config) PeerService {
 
 type peerService struct {
 	r     *raft.Raft
-	peers map[string]common.Peer
-	me    common.Peer
+	peers map[string]config.Peer
+	me    config.Peer
 }
 
-func (p *peerService) Me() common.Peer {
+func (p *peerService) Me() config.Peer {
 	return p.me
 }
 
-func (p *peerService) GetPeers() map[string]common.Peer {
-	m := make(map[string]common.Peer)
+func (p *peerService) GetPeers() map[string]config.Peer {
+	m := make(map[string]config.Peer)
 	for id, peer := range p.peers {
 		if p.me.NodeID == id {
 			continue
@@ -50,16 +51,16 @@ func (p *peerService) GetPeers() map[string]common.Peer {
 	return m
 }
 
-func (p *peerService) GetLeader() (common.Peer, error) {
+func (p *peerService) GetLeader() (config.Peer, error) {
 	leaderAddr, leaderID := p.r.LeaderWithID()
 	fmt.Println("GetLeader leaderID:", leaderID, "leaderAddr:", leaderAddr, "peers:", p.peers)
 	if string(leaderID) == "" {
-		return common.Peer{}, fmt.Errorf("%w: %v", common.ErrLeaderNotFound, "empty leaderID")
+		return config.Peer{}, fmt.Errorf("%w: %v", ErrLeaderNotFound, "empty leaderID")
 	}
 
 	leader, ok := p.peers[string(leaderID)]
 	if !ok {
-		return common.Peer{}, fmt.Errorf("%w: %v", common.ErrLeaderNotFound, "leader not in peer map")
+		return config.Peer{}, fmt.Errorf("%w: %v", ErrLeaderNotFound, "leader not in peer map")
 	}
 	return leader, nil
 }

@@ -36,6 +36,3 @@ data/
 
 # compiled go code
 bin/
-
-# local cluster configs
-config/

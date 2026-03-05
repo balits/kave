@@ -12,6 +12,7 @@ import (
 	"github.com/balits/kave/internal/service"
 	"github.com/balits/kave/internal/storage/backend"
 	transport "github.com/balits/kave/internal/transport/http"
+	"github.com/balits/kave/internal/util"
 	"github.com/hashicorp/raft"
 	"golang.org/x/sync/errgroup"
 )
@@ -34,8 +35,9 @@ func New(cfg *config.Config, logger *slog.Logger) (*Node, error) {
 	kvstore := mvcc.NewKVStore(logger, backend)
 	fsm := fsm.NewFsm(logger, kvstore, cfg.Me.NodeID)
 
-	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, logger, cfg.LogLevel)
-	raftDeps, err := config.NewRaftDeps(cfg.Me.GetRaftAddress(), cfg.StorageOpts.Kind, cfg.StorageOpts.Dir)
+	hclogger := util.NewHcLogAdapter(logger, cfg.LogLevel)
+	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, hclogger, cfg.LogLevel)
+	raftDeps, err := config.NewRaftDependencies(cfg.Me.GetRaftAddress(), cfg.StorageOpts.Dir, hclogger)
 	if err != nil {
 		return nil, err
 	}

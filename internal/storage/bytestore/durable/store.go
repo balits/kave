@@ -13,9 +13,12 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
+const dbFileName = "bolt.db"
+
 type boltStore struct {
 	db   *bolt.DB
-	path string
+	file string
+	
 	// mapping from string buckets to byte buckets
 	// very low overhead since there isnt a bunch of buckes anyways
 	// but this way dont gotta cast (allocate) on every operation
@@ -28,7 +31,7 @@ func NewStore(opts storage.StorageOptions) (bytestore.ByteStore, error) {
 		panic("failed to create boltdb store: option 'Kind' was not StorageKindBoltdb")
 	}
 
-	dbpath := filepath.Join(opts.Dir, "bolt.db")
+	dbpath := filepath.Join(opts.Dir, dbFileName)
 	db, err := bolt.Open(dbpath, 0600, nil)
 	if err != nil {
 		return nil, err
@@ -52,7 +55,7 @@ func NewStore(opts storage.StorageOptions) (bytestore.ByteStore, error) {
 
 	return &boltStore{
 		db:             db,
-		path:           dbpath,
+		file:           dbpath,
 		bucketMap:      bucketMap,
 		storageMetrics: metrics.StorageMetricsAtomic{},
 	}, nil
@@ -244,25 +247,27 @@ func (s *boltStore) NewBatch() (bytestore.Batch, error) {
 	return newBatch(tx, s.bucketMap), nil
 }
 
+// we dont really know how many bytes were written, and it doesnt matter for us, so we just return 0
 func (s *boltStore) WriteTo(w io.Writer) (int64, error) {
-	return 0, encode(w, s) // we dont really know how many bytes were written, and it doesnt matter for us, so we just return 0
+	return 0, encode(w, s)
 }
 
+// we dont really know how many bytes were written, and it doesnt matter for us, so we just return 0
 func (s *boltStore) ReadFrom(r io.Reader) (int64, error) {
-	db, err := decode(r, s.path)
+	db, err := decode(r, s.file)
 	if err != nil {
-		return 0, err // we dont really know how many bytes were read, and it doesnt matter for us, so we just return 0
+		return 0, fmt.Errorf("failed to decode reader: %v", err)
 	}
 
 	s.db = db
-	return 0, nil // we dont really know how many bytes were read, and it doesnt matter for us, so we just return 0
+	return 0, nil
 }
 
 func (s *boltStore) Defragment() error {
-	newPath := s.path + ".defrag"
+	newPath := s.file + ".defrag"
 
 	// use BoltDB built-in copy to compact
-	db, err := bolt.Open(s.path, 0600, nil)
+	db, err := bolt.Open(s.file, 0600, nil)
 	if err != nil {
 		return err
 	}

@@ -11,8 +11,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/balits/kave/internal/common"
 	"github.com/balits/kave/internal/config"
+	"github.com/balits/kave/internal/transport"
 	"github.com/hashicorp/raft"
 )
 
@@ -20,11 +20,10 @@ import (
 // Ez a szolgáltatás segít a klaszterhez való csatlakozásban, a klaszterből való kilépésben, és a klaszter állapotának lekérdezésében.
 type ClusterService interface {
 	Bootstrap(ctx context.Context) error
-	JoinCluster(ctx context.Context, peers map[string]common.Peer) error
-	AddToCluster(ctx context.Context, req common.JoinRequest) error
+	JoinCluster(ctx context.Context, peers map[string]config.Peer) error
+	AddToCluster(ctx context.Context, req transport.JoinRequest) error
 
 	Stats() (map[string]string, error)
-	Meta() common.Meta
 }
 
 func NewClusterService(raft *raft.Raft, cfg *config.Config, logger *slog.Logger) ClusterService {
@@ -38,7 +37,7 @@ func NewClusterService(raft *raft.Raft, cfg *config.Config, logger *slog.Logger)
 type clusterService struct {
 	raft   *raft.Raft
 	logger *slog.Logger
-	me     common.Peer
+	me     config.Peer
 }
 
 func (s *clusterService) Bootstrap(ctx context.Context) error {
@@ -58,7 +57,7 @@ func (s *clusterService) Bootstrap(ctx context.Context) error {
 	return s.raft.BootstrapCluster(cfg).Error()
 }
 
-func (s *clusterService) AddToCluster(ctx context.Context, req common.JoinRequest) error {
+func (s *clusterService) AddToCluster(ctx context.Context, req transport.JoinRequest) error {
 	//TODO Info -> Debug
 	s.logger.Info("Adding peer to cluster", "peer_id", req.NodeID, "peer_addr", req.RaftAddr)
 
@@ -74,7 +73,7 @@ func (s *clusterService) AddToCluster(ctx context.Context, req common.JoinReques
 
 	raftConfig := fut.Configuration()
 	for _, node := range raftConfig.Servers {
-		if node.ID == req.NodeID {
+		if string(node.ID) == req.NodeID {
 			s.logger.Info("Peer is already a member", "peer_id", req.NodeID, "peer_addr", req.RaftAddr)
 			return nil // already memeber
 		}
@@ -88,16 +87,16 @@ func (s *clusterService) AddToCluster(ctx context.Context, req common.JoinReques
 	return nil
 }
 
-func (s *clusterService) JoinCluster(ctx context.Context, peers map[string]common.Peer) error {
+func (s *clusterService) JoinCluster(ctx context.Context, peers map[string]config.Peer) error {
 	var urls []string
 	for _, p := range peers {
-		urls = append(urls, "http://"+p.GetInternalHttpAddress()+common.UriCluster+"/join")
+		urls = append(urls, "http://"+p.GetInternalHttpAddress()+transport.UriCluster+"/join")
 	}
 	s.logger.Info("Attempting to join cluster", "peers", urls)
 
-	body := common.JoinRequest{
-		NodeID:   raft.ServerID(s.me.NodeID),
-		RaftAddr: s.me.GetRaftAddress(),
+	body := transport.JoinRequest{
+		NodeID:   string(s.me.NodeID),
+		RaftAddr: string(s.me.GetRaftAddress()),
 	}
 
 	jsonBody, err := json.Marshal(body)
@@ -121,16 +120,6 @@ func (s *clusterService) Stats() (map[string]string, error) {
 	return s.raft.Stats(), nil
 }
 
-func (s *clusterService) Meta() common.Meta {
-	leaderID, _ := s.raft.LeaderWithID()
-	return common.Meta{
-		ApplyIndex: s.raft.AppliedIndex(),
-		LastIndex:  s.raft.LastIndex(),
-		Term:       s.raft.CurrentTerm(),
-		LeaderID:   string(leaderID),
-	}
-}
-
 func (s *clusterService) joinWithBackoff(urls []string, attempts int, jsonBody []byte) error {
 	var lastError error
 	for a := range attempts {
@@ -145,7 +134,7 @@ func (s *clusterService) joinWithBackoff(urls []string, attempts int, jsonBody [
 		}
 
 		backoff := (2 << a) * time.Second
-		jitter := rand.Int64N(1000) * time.Hour.Milliseconds()
+		jitter := time.Duration(rand.Int64N(1000)) * time.Millisecond
 		time.Sleep(backoff + time.Duration(jitter)/2)
 	}
 

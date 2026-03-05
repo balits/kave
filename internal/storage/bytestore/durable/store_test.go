@@ -3,22 +3,29 @@ package durable
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
+	"time"
 
-	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/storage"
-	bolt "go.etcd.io/bbolt"
 )
 
 const testBucket storage.Bucket = "test"
 const metaBucket storage.Bucket = "_meta"
 
 func newTestStore(t *testing.T) *boltStore {
+	seed := time.Now().UnixNano()
+	tmp := filepath.Join("./testdata", strconv.Itoa(int(seed)), "durable_bytestore_test")
+	err := os.MkdirAll(tmp, 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
 	s, err := NewStore(storage.StorageOptions{
 		Kind:           storage.StorageKindBoltdb,
-		Dir:            t.TempDir(),
+		Dir:            tmp,
 		InitialBuckets: []storage.Bucket{"test", "_meta"},
 	})
 	if err != nil {
@@ -254,7 +261,7 @@ func TestWriteToReadFromRoundTrip(t *testing.T) {
 		t.Fatalf("WriteTo: %v", err)
 	}
 
-	s2, err := newTestBoltdb(t, "other.db")
+	s2 := newTestStore(t)
 
 	_, err = s2.ReadFrom(&buf)
 	if err != nil {
@@ -417,42 +424,13 @@ func TestManyKeys(t *testing.T) {
 	}
 }
 
-// alternative ctor
-func newTestBoltdb(t *testing.T, path string) (*boltStore, error) {
-	opts := storage.StorageOptions{
-		Kind:           storage.StorageKindBoltdb,
-		Dir:            t.TempDir(),
-		InitialBuckets: []storage.Bucket{"test", "_meta"},
-	}
-	if opts.Kind != storage.StorageKindBoltdb {
-		panic("failed to create boltdb store: option 'Kind' was not StorageKindBoltdb")
-	}
-	dbpath := filepath.Join(opts.Dir, path)
-	db, err := bolt.Open(dbpath, 0600, nil)
+func Test_NoTest_JustRemoving_Testdata_files(t *testing.T) {
+	err := os.RemoveAll("./testdata")
 	if err != nil {
-		return nil, err
+		t.Fatal(err)
 	}
-
-	tx, err := db.Begin(true)
+	err = os.Mkdir("./testdata", 0o755)
 	if err != nil {
-		return nil, err
+		t.Fatal(err)
 	}
-
-	bucketMap := make(map[storage.Bucket][]byte, len(opts.InitialBuckets))
-	for _, bucket := range opts.InitialBuckets {
-		tx.CreateBucket([]byte(bucket))
-		bucketMap[bucket] = []byte(bucket)
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		return nil, err
-	}
-
-	return &boltStore{
-		db:             db,
-		path:           opts.Dir,
-		bucketMap:      bucketMap,
-		storageMetrics: metrics.StorageMetricsAtomic{},
-	}, nil
 }

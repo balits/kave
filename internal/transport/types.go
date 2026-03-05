@@ -1,4 +1,4 @@
-package common
+package transport
 
 type URI string
 
@@ -7,3 +7,8 @@ const (
 	UriKvUri      = UriApiVersion + "/kv"
 	UriCluster    = UriApiVersion + "/cluster"
 )
+
+type JoinRequest struct {
+	NodeID   string `json:"node_id"`
+	RaftAddr string `json:"raft_addr"`
+}

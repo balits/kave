@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/balits/kave/internal/common"
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/fsm"
 	"github.com/balits/kave/internal/kv"
@@ -34,7 +33,7 @@ func newTestKVService(t *testing.T) *testKVService {
 	port := fmt.Sprintf("%d", 19100+time.Now().UnixNano()%10000)
 
 	cfg := config.Config{
-		Me: common.Peer{
+		Me: config.Peer{
 			NodeID:   "testnode",
 			RaftPort: port,
 			Hostname: "127.0.0.1",
@@ -52,8 +51,10 @@ func newTestKVService(t *testing.T) *testKVService {
 	kvstore := mvcc.NewKVStore(logger, b)
 	fsmInst := fsm.NewFsm(logger, kvstore, cfg.Me.NodeID)
 
-	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, logger, cfg.LogLevel)
-	raftDeps, err := config.NewRaftDeps(cfg.Me.GetRaftAddress(), cfg.StorageOpts.Kind, cfg.StorageOpts.Dir)
+
+	hclogger := util.NewHcLogAdapter(logger, cfg.LogLevel)
+	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, hclogger, cfg.LogLevel)
+	raftDeps, err := config.NewRaftDependencies(cfg.Me.GetRaftAddress(), cfg.StorageOpts.Dir, hclogger)
 	require.NoError(t, err, "failed to create raft deps")
 
 	r, err := raft.NewRaft(raftCfg, fsmInst, raftDeps.LogStore, raftDeps.StableStore, raftDeps.SnapshotStore, raftDeps.Transport)

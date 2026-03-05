@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/balits/kave/internal/common"
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/service"
+	"github.com/balits/kave/internal/transport"
 )
 
 const (
@@ -54,12 +54,12 @@ func NewHTTPServer(
 	}
 
 	// kv
-	mux.HandleFunc("GET "+common.UriKvUri+"/get", s.handleRange)
-	mux.HandleFunc("POST "+common.UriKvUri+"/put", s.handlePut)
-	mux.HandleFunc("DELETE "+common.UriKvUri+"/delete", s.handleDelete)
+	mux.HandleFunc("GET "+transport.UriKvUri+"/get", s.handleRange)
+	mux.HandleFunc("POST "+transport.UriKvUri+"/put", s.handlePut)
+	mux.HandleFunc("DELETE "+transport.UriKvUri+"/delete", s.handleDelete)
 
 	// cluster
-	mux.HandleFunc("POST "+common.UriCluster+"/join", s.handleJoin)
+	mux.HandleFunc("POST "+transport.UriCluster+"/join", s.handleJoin)
 
 	mux.HandleFunc("GET /stats", s.handleStats)
 
@@ -219,7 +219,7 @@ func (s *HttpServer) handleJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req common.JoinRequest
+	var req transport.JoinRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.logger.Error("Failed to decode request body", "error", err)
 		bytes, _ := json.Marshal(map[string]string{"error": fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)})
@@ -284,20 +284,19 @@ func writeError(w http.ResponseWriter, err string, status int) {
 	w.Write(bytes)
 }
 
-func (s *HttpServer) redirectToLeader(w http.ResponseWriter, r *http.Request, leader common.Peer) {
+// TODO: need kubernetes for this to progress
+func (s *HttpServer) redirectToLeader(w http.ResponseWriter, r *http.Request, leader config.Peer) {
 	me := s.peerSvc.Me()
 	if leader.NodeID == me.NodeID {
-		s.logger.Debug("Redirecting to leader failed: we are the leader", "leader_id", leader.NodeID, "leader_http_addr", leader.GetPublicHttpAddress())
+		s.logger.Debug("Redirecting to leader failed: we are the leader", "leader_id", leader.NodeID)
 		return
 	}
 
-	s.logger.Debug("Redirecting to leader", "leader_id", leader.NodeID, "leader_http_addr", leader.GetPublicHttpAddress())
-	w.Header().Set("Location", "http://"+leader.GetPublicHttpAddress()+r.RequestURI)
+	s.logger.Debug("Redirecting to leader", "leader_id", leader.NodeID)
 	w.WriteHeader(http.StatusTemporaryRedirect)
 	bytes, _ := json.Marshal(map[string]string{
-		"message":          "redirecting to leader",
-		"leader_id":        leader.NodeID,
-		"leader_http_addr": leader.GetPublicHttpAddress(),
+		"message":   "redirecting to leader",
+		"leader_id": leader.NodeID,
 	})
 	w.Write(bytes)
 }
