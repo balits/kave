@@ -55,8 +55,9 @@ func Test_EngineApplyPutMultiple(t *testing.T) {
 	if result.Header.Revision != 3 {
 		t.Errorf("rev = %d, want 3", result.Header.Revision)
 	}
-	if s.Revision().Main != 3 {
-		t.Errorf("store rev = %d, want 3", s.Revision().Main)
+	currRev, _ := s.Revisions()
+	if currRev.Main != 3 {
+		t.Errorf("store rev = %d, want 3", currRev.Main)
 	}
 }
 
@@ -346,8 +347,6 @@ func Test_EngineApplyTxn_FailureBranch(t *testing.T) {
 	}
 }
 
-// ==================== Engine.Apply TXN — no comparisons ====================
-
 func Test_EngineApplyTxn_NoComparisonsAlwaysSuccess(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.backend.Close()
@@ -377,8 +376,6 @@ func Test_EngineApplyTxn_NoComparisonsAlwaysSuccess(t *testing.T) {
 	}
 }
 
-// ==================== Engine.Apply TXN — empty ops ====================
-
 func Test_EngineApplyTxn_EmptyOps(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.backend.Close()
@@ -403,8 +400,6 @@ func Test_EngineApplyTxn_EmptyOps(t *testing.T) {
 	}
 	_ = s
 }
-
-// ==================== Engine.Apply TXN — delete op inside txn ====================
 
 func Test_EngineApplyTxn_WithDeleteOp(t *testing.T) {
 	e, s := newTestEngine()
@@ -444,8 +439,6 @@ func Test_EngineApplyTxn_WithDeleteOp(t *testing.T) {
 		t.Error("k3 should exist")
 	}
 }
-
-// ==================== Engine.Apply TXN — compare non-existent key ====================
 
 func Test_EngineApplyTxn_CompareNonExistentKey(t *testing.T) {
 	e, s := newTestEngine()
@@ -634,8 +627,6 @@ func Test_EngineApplyTxn_DeleteWithPrevEntries(t *testing.T) {
 	_ = s
 }
 
-// ==================== Engine.Apply TXN — mixed put and delete ====================
-
 func Test_EngineApplyTxn_MixedOps(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.backend.Close()
@@ -687,8 +678,6 @@ func Test_EngineApplyTxn_MixedOps(t *testing.T) {
 		t.Error("d should be created")
 	}
 }
-
-// ==================== Engine.Apply TXN — compare value ====================
 
 func Test_EngineApplyTxn_CompareValue(t *testing.T) {
 	e, s := newTestEngine()
@@ -759,8 +748,6 @@ func Test_EngineApplyTxn_CompareValueMismatch(t *testing.T) {
 	}
 	_ = s
 }
-
-// ==================== Engine.Apply TXN — compare createRev and modRev ====================
 
 func Test_EngineApplyTxn_CompareCreateRev(t *testing.T) {
 	e, s := newTestEngine()
@@ -838,8 +825,6 @@ func Test_EngineApplyTxn_CompareModRev(t *testing.T) {
 	_ = s
 }
 
-// ==================== Engine unknown command ====================
-
 func Test_EngineApplyUnknownCommandError(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.backend.Close()
@@ -848,8 +833,6 @@ func Test_EngineApplyUnknownCommandError(t *testing.T) {
 		t.Error("expected error for unknown command type")
 	}
 }
-
-// ==================== Engine.Apply TXN — result count ====================
 
 func Test_EngineApplyTxn_ResultCount(t *testing.T) {
 	e, s := newTestEngine()

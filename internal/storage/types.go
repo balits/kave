@@ -46,7 +46,7 @@ const (
 
 type StorageOptions struct {
 	// A mappa, ahol megnyílik majd az adatbázis, inmem tárolónál figyelmen kívül van hagyva
-	Dir string `json:"data_dir"`
+	Dir string `json:"storage_data_dir"`
 
 	// Milyen típusú tárolót használjon
 	Kind StorageKind `json:"storage_kind"`

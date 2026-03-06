@@ -22,16 +22,10 @@ func (p *Peer) GetRaftAddress() raft.ServerAddress {
 	return raft.ServerAddress(p.Hostname + ":" + p.RaftPort)
 }
 
-func (p *Peer) GetInternalHttpAddress() string {
+func (p *Peer) GetHttpAddress() string {
 	return p.NodeID + ":" + p.HttpPort
 }
 
-// func (p *Peer) GetPublicHttpAddress() string {
-// 	if p.PublicHttpHost != "" {
-// 		return p.PublicHttpHost + ":" + p.HttpPort
-// 	}
-// 	return p.GetInternalHttpAddress()
-// }
 
 func (p *Peer) validateNodeConfig() error {
 	if p.NodeID == "" {

@@ -11,7 +11,7 @@ type Writer interface {
 	// writer should implement normal read operations too, since we have the exclusive writelock
 	Reader
 	// returns the writers start revision
-	kv.RevisionGetter
+	Revision() kv.Revision
 
 	Put(key, value []byte) kv.Revision
 	DeleteRange(key, end []byte) (count int64, rev kv.Revision)

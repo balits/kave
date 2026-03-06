@@ -71,9 +71,10 @@ func (s *raftKvService) Range(ctx context.Context, cmd kv.RangeCmd) (*kv.Result,
 	}
 
 	raftIndex, raftTerm := s.store.RaftMeta()
+	currRev, _ := s.store.Revisions()
 	return &kv.Result{
 		Header: kv.ResultHeader{
-			Revision:  s.store.Revision().Main,
+			Revision:  currRev.Main,
 			RaftTerm:  raftTerm,
 			RaftIndex: raftIndex,
 			NodeID:    s.peerSvc.Me().NodeID,

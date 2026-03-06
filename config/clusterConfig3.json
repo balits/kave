@@ -1,6 +1,6 @@
 {
-    "storage": "inmemory",
+    "storage_kind": "inmemory",
+    "storage_data_dir": "data",
     "log_level": "debug",
-    "dir": "data",
-    "peers":"node1:7000:8000:localhost,node2:7000:8000:localhost,node3:7000:8000:localhost"
+    "peers":"node1:7000:8000,node2:7000:8000,node3:7000:8000"
 }

@@ -44,8 +44,6 @@ func runForAllKinds(t *testing.T, name string, f func(t *testing.T, kind storage
 	}
 }
 
-// ==================== Backend lifecycle ====================
-
 func Test_NewBackend(t *testing.T) {
 	runForAllKinds(t, "NewBackend", func(t *testing.T, kind storage.StorageKind) {
 		b := newTestBackend(t, kind)
@@ -57,8 +55,6 @@ func Test_NewBackend(t *testing.T) {
 		}
 	})
 }
-
-// ==================== ReadTx ====================
 
 func Test_ReadTxUnsafeGetEmpty(t *testing.T) {
 	runForAllKinds(t, "UnsafeGetEmpty", func(t *testing.T, kind storage.StorageKind) {
@@ -246,7 +242,6 @@ func Test_ReadTxUnsafeRange(t *testing.T) {
 	})
 }
 
-// ==================== WriteTx ====================
 
 func Test_WriteTxPutAndCommit(t *testing.T) {
 	runForAllKinds(t, "PutAndCommit", func(t *testing.T, kind storage.StorageKind) {
@@ -476,7 +471,6 @@ func Test_WriteTxOverwriteValue(t *testing.T) {
 	})
 }
 
-// ==================== WriteTx as ReadTx ====================
 
 func Test_WriteTxCanRead(t *testing.T) {
 	runForAllKinds(t, "WriteTxCanRead", func(t *testing.T, kind storage.StorageKind) {
@@ -537,7 +531,6 @@ func Test_WriteTxUnsafeScan(t *testing.T) {
 	})
 }
 
-// ==================== Snapshot & Restore ====================
 
 func Test_BackendSnapshotAndRestore(t *testing.T) {
 	runForAllKinds(t, "SnapshotAndRestore", func(t *testing.T, kind storage.StorageKind) {
@@ -626,7 +619,6 @@ func Test_BackendRestoreOverwritesExisting(t *testing.T) {
 	})
 }
 
-// ==================== ForceCommit / Commit ====================
 
 func Test_BackendForceCommitNoPendingBatch(t *testing.T) {
 	runForAllKinds(t, "ForceCommitNoBatch", func(t *testing.T, kind storage.StorageKind) {
@@ -650,7 +642,6 @@ func Test_BackendCommitNoPendingBatch(t *testing.T) {
 	})
 }
 
-// ==================== Concurrency ====================
 
 func Test_BackendConcurrentReads(t *testing.T) {
 	runForAllKinds(t, "ConcurrentReads", func(t *testing.T, kind storage.StorageKind) {
@@ -742,7 +733,6 @@ func Test_BackendWriteThenReadConcurrent(t *testing.T) {
 	})
 }
 
-// ==================== Edge cases ====================
 
 func Test_WriteTxRejectsEmptyKey(t *testing.T) {
 	runForAllKinds(t, "RejectsEmptyKey", func(t *testing.T, kind storage.StorageKind) {
@@ -836,7 +826,6 @@ func Test_WriteTxManyKeys(t *testing.T) {
 	})
 }
 
-// ==================== Scan range boundaries ====================
 
 func Test_ScanRangesBoundaryConditions(t *testing.T) {
 	runForAllKinds(t, "ScanBoundaries", func(t *testing.T, kind storage.StorageKind) {
@@ -889,7 +878,6 @@ func Test_ScanRangesBoundaryConditions(t *testing.T) {
 	})
 }
 
-// ==================== Sequential transactions ====================
 
 func Test_SequentialWriteTransactions(t *testing.T) {
 	runForAllKinds(t, "SequentialTxns", func(t *testing.T, kind storage.StorageKind) {

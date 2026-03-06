@@ -17,10 +17,6 @@ type Revision struct {
 	Sub  int64
 }
 
-type RevisionGetter interface {
-	Revision() Revision
-}
-
 func (r Revision) AddMain(delta int64) Revision {
 	return Revision{
 		Main: r.Main + delta,

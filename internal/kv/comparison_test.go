@@ -127,7 +127,6 @@ func Test_ComparisonEvalEqual(t *testing.T) {
 	}
 }
 
-// Test_ComparisonEvalNotEqual tests not-equal comparisons
 func Test_ComparisonEvalNotEqual(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -207,7 +206,6 @@ func Test_ComparisonEvalNotEqual(t *testing.T) {
 	}
 }
 
-// Test_ComparisonEvalGreaterThan tests greater-than comparisons
 func Test_ComparisonEvalGreaterThan(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -317,7 +315,6 @@ func Test_ComparisonEvalGreaterThan(t *testing.T) {
 	}
 }
 
-// Test_ComparisonEvalGreaterOrEqual tests greater-than-or-equal comparisons
 func Test_ComparisonEvalGreaterOrEqual(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -411,7 +408,6 @@ func Test_ComparisonEvalGreaterOrEqual(t *testing.T) {
 	}
 }
 
-// Test_ComparisonEvalLessThan tests less-than comparisons
 func Test_ComparisonEvalLessThan(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -491,7 +487,6 @@ func Test_ComparisonEvalLessThan(t *testing.T) {
 	}
 }
 
-// Test_ComparisonEvalLessOrEqual tests less-than-or-equal comparisons
 func Test_ComparisonEvalLessOrEqual(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -585,7 +580,6 @@ func Test_ComparisonEvalLessOrEqual(t *testing.T) {
 	}
 }
 
-// Test_MatchZeroValue tests comparison against empty/zero entries
 func Test_MatchZeroValue(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -662,7 +656,6 @@ func Test_MatchZeroValue(t *testing.T) {
 	}
 }
 
-// Test_ComparisonOperatorConstants ensures all operators are properly defined
 func Test_ComparisonOperatorConstants(t *testing.T) {
 	operators := []ComparisonOperator{
 		OperatorEqual,
@@ -682,7 +675,6 @@ func Test_ComparisonOperatorConstants(t *testing.T) {
 	}
 }
 
-// Test_CompareTargetFieldConstants ensures all target fields are properly defined
 func Test_CompareTargetFieldConstants(t *testing.T) {
 	targets := []CompareTargetField{
 		FieldValue,
@@ -700,7 +692,6 @@ func Test_CompareTargetFieldConstants(t *testing.T) {
 	}
 }
 
-// Test_InvalidOperator tests handling of invalid operators
 func Test_InvalidOperator(t *testing.T) {
 	comparison := Comparison{
 		Key:         []byte("test_key"),
@@ -714,13 +705,11 @@ func Test_InvalidOperator(t *testing.T) {
 		Value: []byte("test"),
 	})
 
-	// Should return false for invalid operator
 	if result {
 		t.Errorf("expected false for invalid operator, got true")
 	}
 }
 
-// Test_ComplexTransactionComparisons tests multi-field comparisons like etcd transactions
 func Test_ComplexTransactionComparisons(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -797,7 +786,6 @@ func Test_ComplexTransactionComparisons(t *testing.T) {
 	}
 }
 
-// Helper function to create int64 pointers for tests
 func intPtr(v int64) *int64 {
 	return &v
 }

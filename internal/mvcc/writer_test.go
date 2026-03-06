@@ -20,8 +20,10 @@ func Test_WriterPutSingleKey(t *testing.T) {
 	if rev.Main != 1 {
 		t.Errorf("rev.Main = %d, want 1", rev.Main)
 	}
-	if s.Revision().Main != 1 {
-		t.Errorf("store revision = %d, want 1", s.Revision().Main)
+
+	currRev, _ := s.Revisions()
+	if currRev.Main != 1 {
+		t.Errorf("store revision = %d, want 1", currRev.Main)
 	}
 }
 
@@ -35,8 +37,9 @@ func Test_WriterPutMultipleKeys(t *testing.T) {
 	w.Put([]byte("c"), []byte("3"))
 	w.End()
 
-	if s.Revision().Main != 1 {
-		t.Errorf("revision = %d, want 1 (single writer = single main rev)", s.Revision().Main)
+	currRev, _ := s.Revisions()
+	if currRev.Main != 1 {
+		t.Errorf("revision = %d, want 1 (single writer = single main rev)", currRev.Main)
 	}
 
 	changes := w.Changes()
@@ -57,8 +60,9 @@ func Test_WriterPutSameKeyTwice(t *testing.T) {
 	w.Put([]byte("k"), []byte("v2"))
 	w.End()
 
-	if s.Revision().Main != 2 {
-		t.Errorf("revision = %d, want 2", s.Revision().Main)
+	rev, _ := s.Revisions()
+	if rev.Main != 2 {
+		t.Errorf("revision = %d, want 2", rev.Main)
 	}
 }
 
@@ -188,8 +192,9 @@ func Test_WriterDeleteKeyThenReCreate(t *testing.T) {
 	w.Put([]byte("foo"), []byte("v2"))
 	w.End()
 
-	if s.Revision().Main != 3 {
-		t.Errorf("revision = %d, want 3", s.Revision().Main)
+	currRev, _ := s.Revisions()
+	if currRev.Main != 3 {
+		t.Errorf("revision = %d, want 3", currRev.Main)
 	}
 
 	changes := w.Changes()
@@ -290,8 +295,9 @@ func Test_WriterEndNoChangesNoRevBump(t *testing.T) {
 	w := s.NewWriter()
 	w.End()
 
-	if s.Revision().Main != 0 {
-		t.Errorf("revision = %d, want 0 (no changes = no bump)", s.Revision().Main)
+	currRev, _ := s.Revisions()
+	if currRev.Main != 0 {
+		t.Errorf("revision = %d, want 0 (no changes = no bump)", currRev.Main)
 	}
 }
 
@@ -305,12 +311,11 @@ func Test_WriterEndBumpsRevisionOnce(t *testing.T) {
 	w.Put([]byte("c"), []byte("3"))
 	w.End()
 
-	if s.Revision().Main != 1 {
-		t.Errorf("revision = %d, want 1 (one writer = one bump)", s.Revision().Main)
+	currRev, _ := s.Revisions()
+	if currRev.Main != 1 {
+		t.Errorf("revision = %d, want 1 (one writer = one bump)", currRev.Main)
 	}
 }
-
-// ==================== Writer.End raft metadata ====================
 
 func Test_WriterEndPersistsRaftMeta(t *testing.T) {
 	s := newTestKVStore()

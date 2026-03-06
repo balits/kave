@@ -9,7 +9,6 @@ import (
 
 const bucket storage.Bucket = "test"
 
-// ==================== RecordPut ====================
 
 func TestRecordPut(t *testing.T) {
 	wc := NewWriteCollector()
@@ -35,8 +34,6 @@ func TestRecordPutOverwrite(t *testing.T) {
 	}
 }
 
-// ==================== RecordDelete ====================
-
 func TestRecordDelete(t *testing.T) {
 	wc := NewWriteCollector()
 	wc.RecordDelete(bucket, []byte("k"))
@@ -50,7 +47,6 @@ func TestRecordDelete(t *testing.T) {
 	}
 }
 
-// ==================== Put undoes Delete ====================
 
 func TestPutUndoesDelete(t *testing.T) {
 	wc := NewWriteCollector()
@@ -65,7 +61,6 @@ func TestPutUndoesDelete(t *testing.T) {
 	}
 }
 
-// ==================== Delete undoes Put ====================
 
 func TestDeleteUndoesPut(t *testing.T) {
 	wc := NewWriteCollector()
@@ -80,7 +75,6 @@ func TestDeleteUndoesPut(t *testing.T) {
 	}
 }
 
-// ==================== Interleaved Put/Delete ====================
 
 func TestInterleavedPutDelete(t *testing.T) {
 	wc := NewWriteCollector()
@@ -111,7 +105,6 @@ func TestDeletePutDelete(t *testing.T) {
 	}
 }
 
-// ==================== Multiple buckets ====================
 
 func TestMultipleBuckets(t *testing.T) {
 	wc := NewWriteCollector()
@@ -146,7 +139,6 @@ func TestDeleteInOneBucketDoesNotAffectOther(t *testing.T) {
 	}
 }
 
-// ==================== Reset ====================
 
 func TestReset(t *testing.T) {
 	wc := NewWriteCollector()
@@ -163,7 +155,6 @@ func TestReset(t *testing.T) {
 	}
 }
 
-// ==================== Multiple keys ====================
 
 func TestManyKeys(t *testing.T) {
 	wc := NewWriteCollector()

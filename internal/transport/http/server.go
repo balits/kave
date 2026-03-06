@@ -34,13 +34,14 @@ type HttpServer struct {
 }
 
 func NewHTTPServer(
-	addr string,
+	httpPort string,
 	kvService service.KVService,
 	clusterService service.ClusterService,
 	peerService service.PeerService,
 	cfg *config.Config,
 	logger *slog.Logger,
 ) *HttpServer {
+	addr := "0.0.0.0:" + httpPort
 	mux := http.NewServeMux()
 	s := &HttpServer{
 		kvSvc:      kvService,

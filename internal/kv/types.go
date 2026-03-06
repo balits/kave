@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/gob"
 	"errors"
+	"fmt"
 )
 
 var (
-	ErrCompacted   = errors.New("requested revision has been compacted away")
+	ErrCompacted   = errors.New("revision has been compacted away")
 	ErrKeyNotFound = errors.New("key not found")
 )
 
@@ -253,3 +254,8 @@ type Entry struct {
 }
 
 var EmptyEntry Entry // nulla érték, nem létező kulcsokhoz
+
+// for debugging
+func (e Entry) String() string {
+	return fmt.Sprintf("Entry{Key: %s, Value: %s, CreateRev: %d, ModRev: %d, Version: %d, LeaseID: %d}", string(e.Key), string(e.Value), e.CreateRev, e.ModRev, e.Version, e.LeaseID)
+}

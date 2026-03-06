@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// ==================== Reader.Range ====================
-
 func TestReaderRangeSingleKey(t *testing.T) {
 	s := newTestKVStore()
 	defer s.backend.Close()

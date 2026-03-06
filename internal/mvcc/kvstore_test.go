@@ -19,15 +19,13 @@ func newTestKVStore() *KVStore {
 	return NewKVStore(logger, b)
 }
 
-// ==================== KVStore.Revision ====================
-
 func Test_KVStoreRevisionInitial(t *testing.T) {
 	s := newTestKVStore()
 	defer s.backend.Close()
 
-	rev := s.Revision()
-	if rev.Main != 0 || rev.Sub != 0 {
-		t.Errorf("initial revision = %v, want {0,0}", rev)
+	currRev, _ := s.Revisions()
+	if currRev.Main != 0 || currRev.Sub != 0 {
+		t.Errorf("initial revision = %v, want {0,0}", currRev)
 	}
 }
 
@@ -43,12 +41,11 @@ func Test_KVStoreRevisionAfterWrites(t *testing.T) {
 	w.Put([]byte("b"), []byte("2"))
 	w.End()
 
-	if s.Revision().Main != 2 {
-		t.Errorf("revision = %d, want 2", s.Revision().Main)
+	currRev, _ := s.Revisions()
+	if currRev.Main != 2 {
+		t.Errorf("revision = %d, want 2", currRev.Main)
 	}
 }
-
-// ==================== KVStore.UpdateRaftMeta ====================
 
 func Test_KVStoreUpdateRaftMeta(t *testing.T) {
 	s := newTestKVStore()
@@ -63,8 +60,6 @@ func Test_KVStoreUpdateRaftMeta(t *testing.T) {
 	}
 }
 
-// ==================== KVStore.Snapshot ====================
-
 func Test_KVStoreSnapshot(t *testing.T) {
 	s := newTestKVStore()
 	defer s.backend.Close()
@@ -74,8 +69,6 @@ func Test_KVStoreSnapshot(t *testing.T) {
 		t.Error("snapshot should reference the store")
 	}
 }
-
-// ==================== KVStore end-to-end lifecycle ====================
 
 func Test_KVStoreFullLifecycle(t *testing.T) {
 	s := newTestKVStore()
@@ -94,8 +87,9 @@ func Test_KVStoreFullLifecycle(t *testing.T) {
 	w.DeleteKey([]byte("key2"))
 	w.End()
 
-	if s.Revision().Main != 3 {
-		t.Errorf("revision = %d, want 3", s.Revision().Main)
+	currRev, _ := s.Revisions()
+	if currRev.Main != 3 {
+		t.Errorf("revision = %d, want 3", currRev.Main)
 	}
 
 	r := s.NewReader()
@@ -212,8 +206,6 @@ func Test_KVStoreMultipleWritersSameKey(t *testing.T) {
 	}
 }
 
-// ==================== KVStore.Restore ====================
-
 func Test_KVStoreRestore(t *testing.T) {
 	s := newTestKVStore()
 
@@ -234,8 +226,9 @@ func Test_KVStoreRestore(t *testing.T) {
 		t.Fatalf("Restore: %v", err)
 	}
 
-	if s2.Revision().Main != 1 {
-		t.Errorf("restored revision = %d, want 1", s2.Revision().Main)
+	currRev, _ := s2.Revisions()
+	if currRev.Main != 1 {
+		t.Errorf("restored revision = %d, want 1", currRev.Main)
 	}
 
 	r := s2.NewReader()
@@ -255,8 +248,6 @@ func Test_KVStoreRestore(t *testing.T) {
 	}
 }
 
-// ==================== KVStore compacted revision ====================
-
 func Test_KVStoreRangeRejectsCompactedRev(t *testing.T) {
 	s := newTestKVStore()
 	defer s.backend.Close()
@@ -275,8 +266,6 @@ func Test_KVStoreRangeRejectsCompactedRev(t *testing.T) {
 		t.Error("expected compacted error for rev < compactedMainRev")
 	}
 }
-
-// ==================== mockBuffer for snapshot/restore ====================
 
 type mockBuffer struct {
 	data []byte

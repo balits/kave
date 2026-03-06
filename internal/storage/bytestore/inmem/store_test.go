@@ -19,7 +19,6 @@ func newTestStore() *InmemStore {
 	}).(*InmemStore)
 }
 
-// ==================== Get ====================
 
 func TestGetMissingKey(t *testing.T) {
 	s := newTestStore()
@@ -53,7 +52,6 @@ func TestGetAfterPut(t *testing.T) {
 	}
 }
 
-// ==================== Put ====================
 
 func TestPutWrongBucket(t *testing.T) {
 	s := newTestStore()
@@ -89,7 +87,6 @@ func TestPutMultipleBuckets(t *testing.T) {
 	}
 }
 
-// ==================== Delete ====================
 
 func TestDeleteExisting(t *testing.T) {
 	s := newTestStore()
@@ -128,7 +125,6 @@ func TestDeleteWrongBucket(t *testing.T) {
 	}
 }
 
-// ==================== Scan ====================
 
 func TestScanAll(t *testing.T) {
 	s := newTestStore()
@@ -189,7 +185,6 @@ func TestScanOrder(t *testing.T) {
 	}
 }
 
-// ==================== PrefixScan ====================
 
 func TestPrefixScan(t *testing.T) {
 	s := newTestStore()
@@ -232,7 +227,6 @@ func TestPrefixScanWrongBucket(t *testing.T) {
 	}
 }
 
-// ==================== WriteTo / ReadFrom ====================
 
 func TestWriteToReadFromRoundTrip(t *testing.T) {
 	s := newTestStore()
@@ -288,7 +282,6 @@ func TestReadFromOverwrites(t *testing.T) {
 	}
 }
 
-// ==================== Close ====================
 
 func TestClose(t *testing.T) {
 	s := newTestStore()
@@ -300,7 +293,6 @@ func TestClose(t *testing.T) {
 	}
 }
 
-// ==================== Concurrency ====================
 
 func TestConcurrentReadWrite(t *testing.T) {
 	s := newTestStore()
@@ -351,7 +343,6 @@ func TestConcurrentScans(t *testing.T) {
 	wg.Wait()
 }
 
-// ==================== Metrics ====================
 
 func TestMetricsIncrement(t *testing.T) {
 	s := newTestStore()
@@ -375,7 +366,6 @@ func TestMetricsIncrement(t *testing.T) {
 	}
 }
 
-// ==================== Edge cases ====================
 
 func TestLargeValue(t *testing.T) {
 	s := newTestStore()

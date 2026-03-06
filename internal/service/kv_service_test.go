@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testKVService wraps the KVService with convenience methods for testing.
 type testKVService struct {
 	KVService
 	t   *testing.T
@@ -29,7 +28,6 @@ type testKVService struct {
 
 func newTestKVService(t *testing.T) *testKVService {
 	t.Helper()
-	// Use a unique port per test to avoid conflicts
 	port := fmt.Sprintf("%d", 19100+time.Now().UnixNano()%10000)
 
 	cfg := config.Config{
@@ -79,7 +77,6 @@ func newTestKVService(t *testing.T) *testKVService {
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for leadership")
 	}
-	// Small grace period for the leader to be fully ready
 	time.Sleep(10 * time.Millisecond)
 
 	t.Cleanup(func() {
@@ -158,8 +155,6 @@ func (ts *testKVService) mustDelete(key string, end string, prevEntries bool) *k
 	require.NotNil(ts.t, result.Delete)
 	return result
 }
-
-// ==================== PUT tests ====================
 
 func Test_KVService_Put_Single(t *testing.T) {
 	ts := newTestKVService(t)
@@ -256,8 +251,6 @@ func Test_KVService_Put_LargeValue(t *testing.T) {
 	require.Equal(t, largeVal, rangeResult.Range.Entries[0].Value)
 }
 
-// ==================== RANGE tests ====================
-
 func Test_KVService_Range_ExactKey(t *testing.T) {
 	ts := newTestKVService(t)
 
@@ -282,8 +275,6 @@ func Test_KVService_Range_NonExistent(t *testing.T) {
 	require.Empty(t, result.Range.Entries)
 }
 
-// CRITICAL TEST: Verifies that Range with end=nil does NOT do prefix scanning.
-// This is the regression test for the bug where Range("f") returned "f", "f2", "foo" etc.
 func Test_KVService_Range_DoesNotPrefixScan(t *testing.T) {
 	ts := newTestKVService(t)
 
@@ -304,7 +295,6 @@ func Test_KVService_Range_DoesNotPrefixScan(t *testing.T) {
 	require.Equal(t, "exact", string(result.Range.Entries[0].Value))
 }
 
-// More prefix scan regression tests with different key patterns
 func Test_KVService_Range_ExactKeyAmongSimilar(t *testing.T) {
 	ts := newTestKVService(t)
 
@@ -556,8 +546,6 @@ func Test_KVService_Range_ReturnsHeaderRevision(t *testing.T) {
 	require.Equal(t, int64(2), result.Header.Revision, "Header revision should be the store's current revision")
 }
 
-// ==================== RANGE_PREFIX tests ====================
-
 func Test_KVService_RangePrefix_SingleKeyEnd(t *testing.T) {
 	ts := newTestKVService(t)
 	ts.mustPut("f", "1")
@@ -638,8 +626,6 @@ func Test_KVService_RangePrefix_All0xFF_Prefix(t *testing.T) {
 }
 
 //TODO: more prefix edge case tests
-
-// ==================== DELETE tests ====================
 
 func Test_KVService_Delete_Single(t *testing.T) {
 	ts := newTestKVService(t)
@@ -740,8 +726,6 @@ func Test_KVService_Delete_EmptyRange(t *testing.T) {
 
 	require.Equal(t, int64(0), result.Delete.NumDeleted)
 }
-
-// ==================== Lifecycle / Integration tests ====================
 
 func Test_KVService_PutDeletePut(t *testing.T) {
 	ts := newTestKVService(t)
@@ -919,8 +903,6 @@ func Test_KVService_Range_LimitZeroMeansNoLimit(t *testing.T) {
 	require.Equal(t, 20, result.Range.Count)
 	require.Len(t, result.Range.Entries, 20)
 }
-
-// ==================== Error case tests ====================
 
 func Test_KVService_Range_FutureRevision(t *testing.T) {
 	ts := newTestKVService(t)

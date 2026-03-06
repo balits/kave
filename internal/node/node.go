@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/balits/kave/internal/compaction"
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/fsm"
 	"github.com/balits/kave/internal/mvcc"
@@ -22,6 +23,7 @@ type Node struct {
 	logger         *slog.Logger
 	cfg            *config.Config
 	fsm            *fsm.Fsm
+	compactor      compaction.Compactor
 	raftDeps       *config.RaftDependencies // stored bcs raft.HasExistingState() upon Bootstrap requires it
 	raft           *raft.Raft
 	kvService      service.KVService
@@ -42,11 +44,20 @@ func New(cfg *config.Config, logger *slog.Logger) (*Node, error) {
 		return nil, err
 	}
 
+	// TODO: move CompactorOptions fields to config
+	comp := compaction.NewCompactor(logger, kvstore, compaction.CompactorOptions{
+		Kind:         compaction.CompactorWindowRetention,
+		Threshold:    20,
+		WindowSize:   10,
+		PollInterval: 10 * time.Second,
+	})
+
 	n := &Node{
 		bootstrap: cfg.Bootstrap,
 		logger:    logger.With("component", "node"),
 		cfg:       cfg,
 		fsm:       fsm,
+		compactor: comp,
 		raftDeps:  raftDeps,
 	}
 
@@ -59,7 +70,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Node, error) {
 	n.peerService = service.NewPeerService(n.raft, cfg)
 	n.kvService = service.NewKVService(logger, n.raft, kvstore, n.peerService)
 	n.clusterService = service.NewClusterService(n.raft, cfg, logger)
-	n.httpServer = transport.NewHTTPServer(cfg.Me.GetInternalHttpAddress(), n.kvService, n.clusterService, n.peerService, cfg, logger)
+	n.httpServer = transport.NewHTTPServer(cfg.Me.HttpPort, n.kvService, n.clusterService, n.peerService, cfg, logger)
 	return n, nil
 }
 
@@ -78,9 +89,15 @@ func (n *Node) Run(ctx context.Context) error {
 
 	g.Go(n.httpServer.Start)
 
+	g.Go(func() error {
+		n.compactor.Run(ctx)
+		return nil
+	})
+
 	// shutdown watcher
 	g.Go(func() error {
 		<-ctx.Done()
+		n.compactor.Stop()
 		return n.Shutdown(context.Background())
 	})
 

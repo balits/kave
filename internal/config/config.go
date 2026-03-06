@@ -148,9 +148,12 @@ func getEnv(key string) string {
 func LoadConfig() *Config {
 	fs := flag.NewFlagSet("kave", flag.ExitOnError)
 
+	bootstrapMaybe, _ := os.LookupEnv("BOOTSTRAP")
+	bootstrapDefault := bootstrapMaybe == "TRUE" || bootstrapMaybe == "true"
+
 	var (
 		configPath = fs.String("config", "", "path to config file (required)")
-		bootstrap  = fs.Bool("bootstrap", false, "flag to start bootstrap process")
+		bootstrap  = fs.Bool("bootstrap", bootstrapDefault, "flag to start bootstrap process")
 		nodeID     = fs.String("nodeID", getEnv("NODE_ID"), "id of the raft node")
 		raftPort   = fs.String("raft_port", getEnv("RAFT_PORT"), "raft port of the raft node")
 		httpPort   = fs.String("http_port", getEnv("HTTP_PORT"), "http port of the raft node")

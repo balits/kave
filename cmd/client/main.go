@@ -157,7 +157,9 @@ func main() {
 	case "get":
 		if responseBody.Range != nil {
 			fmt.Printf("< Payload: count: %+v\n", responseBody.Range.Count)
-			fmt.Printf("< Payload: entries: %+v\n", responseBody.Range.Entries)
+			for i, entry := range responseBody.Range.Entries {
+				fmt.Printf("< Payload: entry %d: %s\n", i, entry)
+			}
 			return
 		}
 		fmt.Println("< No range result in response")

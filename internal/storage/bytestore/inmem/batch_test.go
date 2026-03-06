@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-// ==================== Batch Put + Commit ====================
 
 func TestBatchPutAndCommit(t *testing.T) {
 	s := newTestStore()
@@ -37,7 +36,6 @@ func TestBatchPutAndCommit(t *testing.T) {
 	}
 }
 
-// ==================== Batch Delete + Commit ====================
 
 func TestBatchDeleteAndCommit(t *testing.T) {
 	s := newTestStore()
@@ -59,7 +57,6 @@ func TestBatchDeleteAndCommit(t *testing.T) {
 	}
 }
 
-// ==================== Batch Abort ====================
 
 func TestBatchAbort(t *testing.T) {
 	s := newTestStore()
@@ -81,7 +78,6 @@ func TestBatchAbort(t *testing.T) {
 	}
 }
 
-// ==================== Batch closed errors ====================
 
 func TestBatchPutAfterCommit(t *testing.T) {
 	s := newTestStore()
@@ -157,7 +153,6 @@ func TestBatchAbortAfterAbort(t *testing.T) {
 	b.Abort()
 }
 
-// ==================== Batch overwrites within same batch ====================
 
 func TestBatchPutOverwritesSameBatch(t *testing.T) {
 	s := newTestStore()
@@ -200,7 +195,6 @@ func TestBatchPutUndoesDelete(t *testing.T) {
 	}
 }
 
-// ==================== Batch multiple buckets ====================
 
 func TestBatchMultipleBuckets(t *testing.T) {
 	s := newTestStore()
@@ -219,7 +213,6 @@ func TestBatchMultipleBuckets(t *testing.T) {
 	}
 }
 
-// ==================== Batch many keys ====================
 
 func TestBatchManyKeys(t *testing.T) {
 	s := newTestStore()
@@ -240,7 +233,6 @@ func TestBatchManyKeys(t *testing.T) {
 	}
 }
 
-// ==================== Batch atomicity ====================
 
 func TestBatchAtomicityOnAbort(t *testing.T) {
 	s := newTestStore()
@@ -268,7 +260,6 @@ func TestBatchAtomicityOnAbort(t *testing.T) {
 	}
 }
 
-// ==================== Sequential batches ====================
 
 func TestSequentialBatches(t *testing.T) {
 	s := newTestStore()

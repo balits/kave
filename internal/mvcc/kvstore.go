@@ -11,6 +11,12 @@ import (
 	"github.com/balits/kave/internal/storage/backend"
 )
 
+// SmartRevisionGetter visszadja a jelenlegi, illetve a kompaktált reviziót
+// így csak egyszer kell lockolni a store-t
+type SmartRevisionGetter interface {
+	Revisions() (currentRev kv.Revision, compacted int64)
+}
+
 const COMPACTION_BATCH_LIMIT int = 100
 
 type KVStore struct {
@@ -33,10 +39,10 @@ func NewKVStore(logger *slog.Logger, b backend.Backend) *KVStore {
 	}
 }
 
-func (s *KVStore) Revision() kv.Revision {
+func (s *KVStore) Revisions() (currentRev kv.Revision, compacted int64) {
 	s.revMu.RLock()
 	defer s.revMu.RUnlock()
-	return s.currentRev
+	return s.currentRev, s.compactedMainRev
 }
 
 // Writer acquires RLock so multiple writers can proceed concurrently
@@ -145,14 +151,15 @@ func (s *KVStore) Snapshot() Snapshot {
 // 2) Execute comapction + Update finished compaction revision
 func (s *KVStore) Compact(rev int64) (<-chan struct{}, error) {
 	s.revMu.Lock()
+	defer s.revMu.Unlock() // lock rev for the whole compaction, so that no other gorutine could schedule a compaction
 	if rev <= 0 {
-		return nil, fmt.Errorf("compaction error: compaction rev must be > 0")
+		return nil, fmt.Errorf("compaction error: compaction target revision cannot be negative")
 	} else if rev > s.currentRev.Main {
-		return nil, fmt.Errorf("compaction error: compaction rev must be <= current revision")
+		return nil, fmt.Errorf("compaction error: compaction target revision cannot be higher than current revision")
 	} else if rev <= s.compactedMainRev {
-		return nil, kv.ErrCompacted
+		return nil, fmt.Errorf("compaction error: %v", kv.ErrCompacted)
 	}
-	s.revMu.Unlock()
+
 	// Persist schedule compaction revision -> crash safe
 	{
 		wtx := s.backend.WriteTx()
@@ -171,6 +178,7 @@ func (s *KVStore) Compact(rev int64) (<-chan struct{}, error) {
 		s.doCompact(rev)
 	}()
 
+	// TODO: return real errors from .doCompact()
 	return c, nil
 }
 

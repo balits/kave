@@ -98,10 +98,10 @@ func (e *Engine) applyTxn(cmd *kv.TxnCommand) (kv.Result, error) {
 	}
 	w.End()
 
-	finalRev := e.store.Revision().Main
+	finalRev, _ := e.store.Revisions()
 	return kv.Result{
 		Header: kv.ResultHeader{
-			Revision: finalRev,
+			Revision: finalRev.Main,
 		},
 		Txn: &kv.TxnResult{
 			Success: cond,

@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// ==================== generation tests ====================
-
 func Test_GenerationIsEmpty(t *testing.T) {
 	tests := []struct {
 		name string
@@ -71,8 +69,6 @@ func Test_GenerationEqual(t *testing.T) {
 		t.Error("different revisions should not be equal")
 	}
 }
-
-// ==================== keyIndex.put tests ====================
 
 func Test_KeyIndexPut(t *testing.T) {
 	ki := &keyIndex{key: []byte("foo")}
@@ -231,8 +227,6 @@ func Test_KeyIndexGetPanicsOnEmpty(t *testing.T) {
 	ki.get(1)
 }
 
-// ==================== keyIndex.tombstone tests ====================
-
 func Test_KeyIndexTombstone(t *testing.T) {
 	ki := &keyIndex{key: []byte("foo")}
 	ki.put(5, 0)
@@ -286,8 +280,6 @@ func Test_KeyIndexTombstoneOnEmptyGeneration(t *testing.T) {
 	}
 }
 
-// ==================== keyIndex.isEmpty tests ====================
-
 func Test_KeyIndexIsEmpty(t *testing.T) {
 	tests := []struct {
 		name string
@@ -322,8 +314,6 @@ func Test_KeyIndexIsEmpty(t *testing.T) {
 	}
 }
 
-// ==================== keyIndex.Less tests ====================
-
 func Test_KeyIndexLess(t *testing.T) {
 	tests := []struct {
 		a, b []byte
@@ -343,8 +333,6 @@ func Test_KeyIndexLess(t *testing.T) {
 		}
 	}
 }
-
-// ==================== keyIndex.findGen tests ====================
 
 func Test_KeyIndexFindGen(t *testing.T) {
 	ki := newTest_KeyIndex()
@@ -381,8 +369,6 @@ func Test_KeyIndexFindGen(t *testing.T) {
 		}
 	}
 }
-
-// ==================== keyIndex.since tests ====================
 
 func Test_KeyIndexSince(t *testing.T) {
 	ki := newTest_KeyIndex()
@@ -484,8 +470,6 @@ func Test_KeyIndexCompactBeyondLastRevision(t *testing.T) {
 	}
 }
 
-// ==================== keyIndex.keep tests ====================
-
 func Test_KeyIndexKeepDoesNotMutate(t *testing.T) {
 	ki := newTest_KeyIndex()
 	clone := cloneKeyIndex(ki)
@@ -511,8 +495,6 @@ func Test_KeyIndexKeepExcludesTombstone(t *testing.T) {
 		t.Error("keep(8) should exclude tombstone revision from available")
 	}
 }
-
-// ==================== keyIndex.restoreTombstone tests ====================
 
 func Test_KeyIndexRestoreTombstone(t *testing.T) {
 	ki := &keyIndex{key: []byte("foo")}
@@ -540,8 +522,6 @@ func Test_KeyIndexRestoreTombstone(t *testing.T) {
 	}
 }
 
-// ==================== keyIndex.equal tests ====================
-
 func Test_KeyIndexEqual(t *testing.T) {
 	a := newTest_KeyIndex()
 	b := newTest_KeyIndex()
@@ -554,8 +534,6 @@ func Test_KeyIndexEqual(t *testing.T) {
 		t.Error("different keyIndexes should not be equal")
 	}
 }
-
-// ==================== helpers ====================
 
 func cloneKeyIndex(ki *keyIndex) *keyIndex {
 	c := &keyIndex{
