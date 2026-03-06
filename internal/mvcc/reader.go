@@ -1,0 +1,85 @@
+package mvcc
+
+import (
+	"fmt"
+
+	"github.com/balits/kave/internal/kv"
+)
+
+type Reader interface {
+	// Range reads entries at the given or current revision.
+	Range(key, end []byte, rev int64, limit int64) (entries []kv.Entry, count int, currRev int64, err error)
+
+	// Get reads a single entry at the given or current revision.
+	Get(key []byte, rev int64) *kv.Entry
+}
+
+type reader struct {
+	store *KVStore
+}
+
+func (r *reader) Range(key, end []byte, rev int64, limit int64) (entries []kv.Entry, count int, currentRev int64, err error) {
+	r.store.rwlock.RLock()
+	defer r.store.rwlock.RUnlock()
+
+	r.store.revMu.RLock()
+	currRevMain := r.store.currentRev.Main
+	compactRev := r.store.compactedMainRev
+	r.store.revMu.RUnlock()
+
+	if rev > currRevMain {
+		return nil, 0, currRevMain, fmt.Errorf("future revision requested")
+	}
+	if rev <= 0 {
+		rev = currRevMain
+	}
+	if rev < compactRev {
+		return nil, 0, 0, kv.ErrCompacted
+	}
+
+	revpairs, total := r.store.kvIndex.Revisions(key, end, rev, int(limit))
+	if len(revpairs) == 0 {
+		return nil, total, currRevMain, nil
+	}
+
+	lim := int(limit)
+	if lim <= 0 || lim > len(revpairs) {
+		lim = len(revpairs)
+	}
+
+	rtx := r.store.backend.ReadTx()
+	rtx.RLock()
+	defer rtx.RUnlock()
+
+	entries = make([]kv.Entry, 0, lim)
+	revBytes := kv.NewRevBytes()
+	for _, rp := range revpairs[:lim] {
+		revBytes = kv.RevToBytes(rp, revBytes)
+		entryBytes, err := rtx.UnsafeGet(kv.BucketMain, revBytes)
+		if err != nil || entryBytes == nil {
+			r.store.logger.Error("range: revision not found in backend", "main", rp.Main, "sub", rp.Sub)
+			continue
+		}
+		entry, err := kv.DecodeEntry(entryBytes)
+		if err != nil {
+			r.store.logger.Error("range: failed to unmarshal entry", "err", err)
+			continue
+		}
+		entries = append(entries, entry)
+	}
+
+	return entries, total, currRevMain, nil
+}
+
+func (r *reader) Get(key []byte, rev int64) *kv.Entry {
+	r.store.rwlock.RLock()
+	defer r.store.rwlock.RUnlock()
+	entries, _, _, err := r.Range(key, nil, rev, 1)
+	if err != nil {
+		return nil
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	return &entries[0]
+}

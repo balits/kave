@@ -2,26 +2,19 @@ package node
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"net"
-	"os"
-	"path"
-	"testing"
 	"time"
 
-	"github.com/balits/kave/internal/common"
+	"github.com/balits/kave/internal/compaction"
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/fsm"
+	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/service"
-	"github.com/balits/kave/internal/storage"
-	"github.com/balits/kave/internal/storage/durable"
-	"github.com/balits/kave/internal/storage/inmem"
+	"github.com/balits/kave/internal/storage/backend"
 	transport "github.com/balits/kave/internal/transport/http"
 	"github.com/balits/kave/internal/util"
 	"github.com/hashicorp/raft"
-	raftboltdb "github.com/hashicorp/raft-boltdb"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -29,8 +22,9 @@ type Node struct {
 	bootstrap      bool
 	logger         *slog.Logger
 	cfg            *config.Config
-	fsm            *fsm.FSM
-	raftDeps       *raftDeps
+	fsm            *fsm.Fsm
+	compactor      compaction.Compactor
+	raftDeps       *config.RaftDependencies // stored bcs raft.HasExistingState() upon Bootstrap requires it
 	raft           *raft.Raft
 	kvService      service.KVService
 	peerService    service.PeerService
@@ -39,39 +33,44 @@ type Node struct {
 }
 
 func New(cfg *config.Config, logger *slog.Logger) (*Node, error) {
-	fsm, err := newFsm(storage.StorageOptions{
-		Path:           cfg.Dir,
-		Kind:           cfg.StorageKind,
-		InitialBuckets: InitBuckets,
-	})
+	backend := backend.NewBackend(cfg.StorageOpts)
+	kvstore := mvcc.NewKVStore(logger, backend)
+	fsm := fsm.NewFsm(logger, kvstore, cfg.Me.NodeID)
+
+	hclogger := util.NewHcLogAdapter(logger, cfg.LogLevel)
+	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, hclogger, cfg.LogLevel)
+	raftDeps, err := config.NewRaftDependencies(cfg.Me.GetRaftAddress(), cfg.StorageOpts.Dir, hclogger)
 	if err != nil {
 		return nil, err
 	}
 
-	raftCfg := newRaftConfig(cfg.Me.NodeID, logger, cfg.LogLevel)
-	raftDeps, err := newRaftDeps(cfg.Me.GetRaftAddress(), cfg.StorageKind, cfg.Dir)
-	if err != nil {
-		return nil, err
-	}
+	// TODO: move CompactorOptions fields to config
+	comp := compaction.NewCompactor(logger, kvstore, compaction.CompactorOptions{
+		Kind:         compaction.CompactorWindowRetention,
+		Threshold:    20,
+		WindowSize:   10,
+		PollInterval: 10 * time.Second,
+	})
 
 	n := &Node{
 		bootstrap: cfg.Bootstrap,
 		logger:    logger.With("component", "node"),
 		cfg:       cfg,
 		fsm:       fsm,
+		compactor: comp,
 		raftDeps:  raftDeps,
 	}
 
-	r, err := raft.NewRaft(raftCfg, n.fsm, raftDeps.logs, raftDeps.stable, raftDeps.snapshots, raftDeps.transport)
+	r, err := raft.NewRaft(raftCfg, n.fsm, raftDeps.LogStore, raftDeps.StableStore, raftDeps.SnapshotStore, raftDeps.Transport)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup raft: %v", err)
 	}
 
 	n.raft = r
-	n.kvService = service.NewKVService(n.raft, n.fsm.Store)
-	n.clusterService = service.NewClusterService(n.raft, cfg, logger)
 	n.peerService = service.NewPeerService(n.raft, cfg)
-	n.httpServer = transport.NewHTTPServer(cfg.Me.GetInternalHttpAddress(), n.kvService, n.clusterService, n.peerService, cfg, logger)
+	n.kvService = service.NewKVService(logger, n.raft, kvstore, n.peerService)
+	n.clusterService = service.NewClusterService(n.raft, cfg, logger)
+	n.httpServer = transport.NewHTTPServer(cfg.Me.HttpPort, n.kvService, n.clusterService, n.peerService, cfg, logger)
 	return n, nil
 }
 
@@ -90,9 +89,15 @@ func (n *Node) Run(ctx context.Context) error {
 
 	g.Go(n.httpServer.Start)
 
+	g.Go(func() error {
+		n.compactor.Run(ctx)
+		return nil
+	})
+
 	// shutdown watcher
 	g.Go(func() error {
 		<-ctx.Done()
+		n.compactor.Stop()
 		return n.Shutdown(context.Background())
 	})
 
@@ -107,9 +112,9 @@ func (n *Node) Run(ctx context.Context) error {
 
 func (n *Node) BootstrapOrJoin(ctx context.Context) error {
 	hasState, err := raft.HasExistingState(
-		n.raftDeps.logs,
-		n.raftDeps.stable,
-		n.raftDeps.snapshots,
+		n.raftDeps.LogStore,
+		n.raftDeps.StableStore,
+		n.raftDeps.SnapshotStore,
 	)
 
 	if err != nil {
@@ -154,186 +159,96 @@ func (n *Node) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func newFsm(opts storage.StorageOptions) (*fsm.FSM, error) {
-	s, err := newStorage(opts)
-	if err != nil {
-		return nil, err
-	}
-	return fsm.New(s), nil
-}
+// testing helpers
 
-func newStorage(opts storage.StorageOptions) (s storage.Storage, err error) {
-	switch opts.Kind {
-	case storage.StorageKindInMemory:
-		s = inmem.NewStore(opts)
-	case storage.StorageKindBoltdb:
-		s, err = durable.NewStore(opts)
-	default:
-		err = errors.New("invalid storage kind")
-	}
-	return
-}
+// func (n *Node) Cfg() *config.Config {
+// 	if !testing.Testing() {
+// 		panic("testing helpers can only be used in go tests")
+// 	}
+// 	return n.cfg
+// }
 
-func newRaftConfig(nodeID string, logger *slog.Logger, level slog.Level) *raft.Config {
-	cfg := raft.DefaultConfig()
-	cfg.LocalID = raft.ServerID(nodeID)
-	cfg.LogLevel = level.String()
-	cfg.Logger = util.NewHcLogAdapter(logger.With("component", "hc_raft"), level)
+// func (n *Node) GetLeader() (string, error) {
+// 	if !testing.Testing() {
+// 		panic("testing helpers can only be used in go tests")
+// 	}
 
-	// configure snapshotting for tests
-	if testing.Testing() {
-		cfg.SnapshotInterval = 1 * time.Second
-		cfg.SnapshotThreshold = 50
-		cfg.TrailingLogs = 10
-	}
+// 	leaderAddr := n.raft.Leader()
+// 	if leaderAddr == "" {
+// 		return "", fmt.Errorf("no leader found")
+// 	}
+// 	return string(leaderAddr), nil
+// }
 
-	return cfg
-}
+// func (n *Node) IsLeader() bool {
+// 	if !testing.Testing() {
+// 		panic("testing helpers can only be used in go tests")
+// 	}
 
-type raftDeps struct {
-	logs      raft.LogStore
-	stable    raft.StableStore
-	snapshots raft.SnapshotStore
-	transport raft.Transport
-}
+// 	return n.raft.State() == raft.Leader
+// }
 
-func newRaftDeps(addr raft.ServerAddress, storageKind storage.StorageKind, dataDir string) (*raftDeps, error) {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", string(addr))
-	if err != nil {
-		return nil, fmt.Errorf("transport: %w", err)
-	}
+// func (n *Node) GetPeers() ([]raft.ServerAddress, error) {
+// 	if !testing.Testing() {
+// 		panic("testing helpers can only be used in go tests")
+// 	}
 
-	transport, err := raft.NewTCPTransport(tcpAddr.String(), tcpAddr, 2, 10*time.Second, os.Stderr)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't build tcp transport: %w", err)
-	}
+// 	servers := n.raft.GetConfiguration().Configuration().Servers
+// 	peers := make([]raft.ServerAddress, len(servers))
+// 	for i, srv := range servers {
+// 		peers[i] = srv.Address
+// 	}
+// 	return peers, nil
+// }
 
-	var (
-		logs      raft.LogStore
-		stable    raft.StableStore
-		snapshots raft.SnapshotStore
-	)
+// func (n *Node) Get(ctx context.Context, key string) (string, error) {
+// 	if !testing.Testing() {
+// 		panic("testing helpers can only be used in go tests")
+// 	}
 
-	if storageKind == storage.StorageKindInMemory {
-		logs = raft.NewInmemStore()
-		stable = raft.NewInmemStore()
-		snapshots = raft.NewInmemSnapshotStore()
-	}
+// 	if err := n.raft.VerifyLeader().Error(); err != nil {
+// 		return "", common.ErrNotLeader
+// 	}
 
-	logPath := path.Join(dataDir, "raft-log.db")
-	logs, err = raftboltdb.NewBoltStore(logPath)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't create raft log store: %w", err)
-	}
+// 	waitForCatchUp(ctx, n.raft)
 
-	stablePath := path.Join(dataDir, "raft-stable.db")
-	stable, err = raftboltdb.NewBoltStore(stablePath)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't create raft stable store: %w", err)
-	}
+// 	resp, err := n.kvService.Get(ctx, common.GetRequest{Key: []byte(key)})
+// 	if err != nil {
+// 		return "", err
+// 	}
+// 	return string(resp.Value), nil
+// }
 
-	snapshots, err = raft.NewFileSnapshotStore(dataDir, 10, os.Stderr)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't create raft snapshot store: %w", err)
-	}
-	return &raftDeps{
-		logs:      logs,
-		stable:    stable,
-		snapshots: snapshots,
-		transport: transport,
-	}, nil
-}
+// func (n *Node) Set(ctx context.Context, key, value string) error {
+// 	if !testing.Testing() {
+// 		panic("testing helpers can only be used in go tests")
+// 	}
 
-// string testing helpers
+// 	if err := n.raft.VerifyLeader().Error(); err != nil {
+// 		return common.ErrNotLeader
+// 	}
 
-func (n *Node) Cfg() *config.Config {
-	if !testing.Testing() {
-		panic("testing helpers can only be used in go tests")
-	}
-	return n.cfg
-}
+// 	_, err := n.kvService.Set(ctx, common.SetRequest{Key: []byte(key), Value: []byte(value)})
+// 	return err
+// }
 
-func (n *Node) GetLeader() (string, error) {
-	if !testing.Testing() {
-		panic("testing helpers can only be used in go tests")
-	}
+// // not used yet
+// func waitForCatchUp(ctx context.Context, r *raft.Raft) {
+// 	if !testing.Testing() {
+// 		panic("testing helpers can only be used in go tests")
+// 	}
 
-	leaderAddr := n.raft.Leader()
-	if leaderAddr == "" {
-		return "", fmt.Errorf("no leader found")
-	}
-	return string(leaderAddr), nil
-}
+// 	for {
+// 		// check if there are any logs that need to be applied
+// 		if r.AppliedIndex() >= r.LastIndex() {
+// 			return
+// 		}
 
-func (n *Node) IsLeader() bool {
-	if !testing.Testing() {
-		panic("testing helpers can only be used in go tests")
-	}
-
-	return n.raft.State() == raft.Leader
-}
-
-func (n *Node) GetPeers() ([]raft.ServerAddress, error) {
-	if !testing.Testing() {
-		panic("testing helpers can only be used in go tests")
-	}
-
-	servers := n.raft.GetConfiguration().Configuration().Servers
-	peers := make([]raft.ServerAddress, len(servers))
-	for i, srv := range servers {
-		peers[i] = srv.Address
-	}
-	return peers, nil
-}
-
-func (n *Node) Get(ctx context.Context, key string) (string, error) {
-	if !testing.Testing() {
-		panic("testing helpers can only be used in go tests")
-	}
-
-	if err := n.raft.VerifyLeader().Error(); err != nil {
-		return "", common.ErrNotLeader
-	}
-
-	waitForCatchUp(ctx, n.raft)
-
-	resp, err := n.kvService.Get(ctx, common.GetRequest{Key: []byte(key)})
-	if err != nil {
-		return "", err
-	}
-	return string(resp.Value), nil
-}
-
-func (n *Node) Set(ctx context.Context, key, value string) error {
-	if !testing.Testing() {
-		panic("testing helpers can only be used in go tests")
-	}
-
-	if err := n.raft.VerifyLeader().Error(); err != nil {
-		return common.ErrNotLeader
-	}
-
-	_, err := n.kvService.Set(ctx, common.SetRequest{Key: []byte(key), Value: []byte(value)})
-	return err
-}
-
-// not used yet
-func waitForCatchUp(ctx context.Context, r *raft.Raft) {
-	if !testing.Testing() {
-		panic("testing helpers can only be used in go tests")
-	}
-
-	for {
-		// check if there are any logs that need to be applied
-		if r.AppliedIndex() >= r.LastIndex() {
-			return
-		}
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(100 * time.Millisecond):
-			continue
-		}
-	}
-}
+// 		select {
+// 		case <-ctx.Done():
+// 			return
+// 		case <-time.After(100 * time.Millisecond):
+// 			continue
+// 		}
+// 	}
+// }

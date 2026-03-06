@@ -7,6 +7,5 @@ import (
 
 var InitBuckets = []storage.Bucket{
 	kv.BucketMain,
-	kv.BucketKV,
 	kv.BucketLeaseWIP,
 }

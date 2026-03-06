@@ -2,117 +2,163 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 
-	"github.com/balits/kave/internal/common"
 	"github.com/balits/kave/internal/fsm"
 	"github.com/balits/kave/internal/kv"
-	"github.com/balits/kave/internal/storage"
+	"github.com/balits/kave/internal/mvcc"
 	"github.com/hashicorp/raft"
 )
 
-// KVService az interfész, amely a kulcs-érték műveleteket definiálja.
-// Ez a szolgáltatás felelős a kv műveletek végrehajtásáért, és a raft konszenzus mechanizmus használatával biztosítja a konzisztenciát
-// Minden művelethez tartozik egy kontextus, amely lehetővé teszi a műveletek időkorlátjának beállítását és a műveletek megszakítását, ha szükséges.
-// Illetve egy request+response struktúra, amely a művelet paramétereit és eredményét tartalmazza.
-//
-// Minden művelet ellenőrzi, hogy a szolgáltatás jelenleg a raft klaszter vezetője-e. Ha nem, akkor egy ErrNotLeader hibát ad vissza.
+var errKvService = errors.New("kv service error")
+
+// TODO: move cmd.Check() to transport layer
+// TODO: return kv.Result instead of subresults <- fill out raft header fields inside fsm
 type KVService interface {
-	// Visszaadja a megadott kulcshoz tartozó értéket.
-	// Először ellenőrzi, hogy vezetők vagyunk-e, viszont tökéletes lineárisítást csak
-	// akkor tudunk garantálni, ha a művelet előtt megvárjuk, hogy apply-oljuk az eddigi logokat ( raft.ApplyIndex == raft.CommitIndex )
-	Get(ctx context.Context, req common.GetRequest) (common.GetResponse, error)
-
-	Set(ctx context.Context, req common.SetRequest) (common.SetResponse, error)
-
-	Delete(ctx context.Context, req common.DeleteRequest) (common.DeleteResponse, error)
-
-	//Txn(ctx context.Context, req common.TxnRequest) (common.TxnResponse, error)
-}
-
-func NewKVService(raft *raft.Raft, store storage.Storage) KVService {
-	return &raftKvService{
-		raft:  raft,
-		store: store,
-	}
+	// NOTE: since reads usually dont go through raft, the resulitng Header.NodeID will be "", the caller should set it themselves
+	Range(ctx context.Context, cmd kv.RangeCmd) (*kv.Result, error)
+	Put(ctx context.Context, subcmd kv.PutCmd) (*kv.Result, error)
+	Delete(ctx context.Context, subcmd kv.DeleteCmd) (*kv.Result, error)
 }
 
 type raftKvService struct {
-	raft  *raft.Raft
-	store storage.Storage
+	raft    *raft.Raft
+	store   *mvcc.KVStore
+	peerSvc PeerService
+	logger  *slog.Logger
 }
 
-func (s *raftKvService) Get(ctx context.Context, req common.GetRequest) (common.GetResponse, error) {
-	if s.raft.VerifyLeader().Error() != nil {
-		return common.GetResponse{}, common.ErrNotLeader
+func NewKVService(logger *slog.Logger, r *raft.Raft, store *mvcc.KVStore, peerSvc PeerService) KVService {
+	return &raftKvService{
+		raft:    r,
+		store:   store,
+		peerSvc: peerSvc,
+		logger:  logger.With("component", "kv_service"),
 	}
-	// TODO: maybe check manually for raft.ApplyIndex() >= raft.CommitIndex()
-
-	raw, err := s.store.Get(kv.BucketKeyMeta, req.Key)
-	if err != nil {
-		return common.GetResponse{}, err
-	}
-
-	entry, err := common.DecodeEntry(raw)
-	if err != nil {
-		return common.GetResponse{}, err
-	}
-
-	if err != nil {
-		return common.GetResponse{}, err
-	}
-
-	return common.GetResponse{Entry: entry}, nil
 }
 
-func (s *raftKvService) Set(ctx context.Context, req common.SetRequest) (common.SetResponse, error) {
-	cmd, err := fsm.EncodeCommand(fsm.Command{
-		Type:   fsm.CmdSet,
-		Bucket: kv.BucketKeyMeta,
-		Key:    req.Key,
-		Value:  req.Value,
-	})
+func (s *raftKvService) Range(ctx context.Context, cmd kv.RangeCmd) (*kv.Result, error) {
+	s.logger.WithGroup("cmd").
+		Debug("Range request received",
+			"key", cmd.Key,
+			"end", cmd.End,
+			"revision", cmd.Revision,
+			"limit", cmd.Limit,
+			"countOnly", cmd.CountOnly,
+			"prefix", cmd.Prefix,
+		)
+	// for now, only allow queries on leader
+	if err := waitFuture(ctx, s.raft.VerifyLeader()); err != nil {
+		return nil, fmt.Errorf("%w: failed to verify leader: %v", errKvService, err)
+	}
+
+	if cmd.Prefix {
+		cmd.End = kv.PrefixEnd(cmd.Key)
+	}
+
+	r := s.store.NewReader()
+	entries, count, _, err := r.Range(cmd.Key, cmd.End, cmd.Revision, cmd.Limit)
 	if err != nil {
-		return common.SetResponse{}, err
+		return nil, fmt.Errorf("%w: range failed: %v", errKvService, err)
 	}
 
-	fut := s.raft.Apply(cmd, 0)
-	if err = waitFuture(ctx, fut); err != nil {
-		return common.SetResponse{}, err
+	res := new(kv.RangeResult)
+	res.Count = count
+	if !cmd.CountOnly {
+		res.Entries = entries
 	}
 
-	result := fut.Response().(fsm.AppyResult)
-	if result.Error() != nil {
-		return common.SetResponse{}, fmt.Errorf("%w: %v", common.ErrStateMachineError, result.Error())
-	}
-
-	entry := result.SetResult
-	if entry == nil {
-		return common.SetResponse{}, fmt.Errorf("%w: nil result from fsm", common.ErrStateMachineError)
-	}
-	return common.SetResponse{Entry: entry}, nil
+	raftIndex, raftTerm := s.store.RaftMeta()
+	currRev, _ := s.store.Revisions()
+	return &kv.Result{
+		Header: kv.ResultHeader{
+			Revision:  currRev.Main,
+			RaftTerm:  raftTerm,
+			RaftIndex: raftIndex,
+			NodeID:    s.peerSvc.Me().NodeID,
+		},
+		Range: res,
+	}, nil
 }
 
-func (s *raftKvService) Delete(ctx context.Context, req common.DeleteRequest) (common.DeleteResponse, error) {
-	cmd, err := fsm.EncodeCommand(fsm.Command{
-		Type:   fsm.CmdDelete,
-		Bucket: kv.BucketKeyMeta,
-		Key:    req.Key,
-	})
+func (s *raftKvService) Put(ctx context.Context, subcmd kv.PutCmd) (*kv.Result, error) {
+	s.logger.WithGroup("cmd").
+		Debug("Put request received",
+			"key", subcmd.Key,
+			"value", subcmd.Value,
+			"prevEntry", subcmd.PrevEntry,
+			"leaseID", subcmd.LeaseID,
+			"ignoreValue", subcmd.IgnoreValue,
+			"renewLease", subcmd.RenewLease,
+		)
+
+	cmd := kv.Command{
+		Type: kv.CmdPut,
+		Put:  &subcmd,
+	}
+
+	cmdBytes, err := kv.EncodeCommand(cmd)
 	if err != nil {
-		return common.DeleteResponse{}, err
+		return nil, err
 	}
 
-	fut := s.raft.Apply(cmd, 0)
-	if err = waitFuture(ctx, fut); err != nil {
-		return common.DeleteResponse{}, err
+	fut := s.raft.Apply(cmdBytes, 0)
+	returned, err := waitApply(ctx, fut)
+	if err != nil {
+		return nil, fmt.Errorf("%w: apply failed: %v", errKvService, err)
 	}
 
-	result := fut.Response().(fsm.AppyResult)
-	if result.Error() != nil {
-		return common.DeleteResponse{}, fmt.Errorf("%w: %v", common.ErrStateMachineError, result.Error())
+	result, ok := returned.(kv.Result)
+	if !ok {
+		return nil, fmt.Errorf("%w: %v: unexpected result type", errKvService, fsm.ErrStateMachineError)
 	}
 
-	response := common.DeleteResponse{Deleted: result.DeleteResult.Deleted, PrevEntry: result.DeleteResult.PrevEntry}
-	return response, nil
+	if result.Error != nil {
+		return nil, fmt.Errorf("%w: %v", errKvService, result.Error)
+	}
+
+	if result.Put == nil {
+		return nil, fmt.Errorf("%w: nil result from fsm", errKvService)
+	}
+	return &result, nil
+}
+
+func (s *raftKvService) Delete(ctx context.Context, subcmd kv.DeleteCmd) (*kv.Result, error) {
+	s.logger.WithGroup("cmd").
+		Debug("Delete request received",
+			"key", subcmd.Key,
+			"end", subcmd.End,
+			"prevEntries", subcmd.PrevEntries,
+		)
+
+	cmd := kv.Command{
+		Type:   kv.CmdDelete,
+		Delete: &subcmd,
+	}
+	cmdBytes, err := kv.EncodeCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	fut := s.raft.Apply(cmdBytes, 0)
+	returned, err := waitApply(ctx, fut)
+	if err != nil {
+		return nil, fmt.Errorf("%w: apply failed: %v", errKvService, err)
+	}
+
+	result, ok := returned.(kv.Result)
+	if !ok {
+		return nil, fmt.Errorf("%w: %v: unexpected result type", errKvService, fsm.ErrStateMachineError)
+	}
+
+	if result.Error != nil {
+		return nil, fmt.Errorf("%w: %v", errKvService, result.Error)
+	}
+
+	if result.Delete == nil {
+		return nil, fmt.Errorf("%w: nil result from fsm", errKvService)
+	}
+	return &result, nil
 }

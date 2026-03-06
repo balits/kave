@@ -1,4 +1,4 @@
-package transport
+package http
 
 import (
 	"context"
@@ -8,8 +8,9 @@ import (
 	"net/http"
 
 	"github.com/balits/kave/internal/config"
-	"github.com/balits/kave/internal/common"
+	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/service"
+	"github.com/balits/kave/internal/transport"
 )
 
 const (
@@ -22,6 +23,8 @@ const (
 	jsonDecodeErrMsg string = "failed to decode JSON body"
 )
 
+// TODO: need to attach valid headers to results on the error path in handlers: maybe add KVStore to ClusterService and call clusterSvc.Meta()
+// also TODO: sometimes http responses have header sometiems no, sometiems they have error sometimes not
 type HttpServer struct {
 	kvSvc      service.KVService
 	clusterSvc service.ClusterService
@@ -31,13 +34,14 @@ type HttpServer struct {
 }
 
 func NewHTTPServer(
-	addr string,
+	httpPort string,
 	kvService service.KVService,
 	clusterService service.ClusterService,
 	peerService service.PeerService,
 	cfg *config.Config,
 	logger *slog.Logger,
 ) *HttpServer {
+	addr := "0.0.0.0:" + httpPort
 	mux := http.NewServeMux()
 	s := &HttpServer{
 		kvSvc:      kvService,
@@ -51,12 +55,12 @@ func NewHTTPServer(
 	}
 
 	// kv
-	mux.HandleFunc("GET "+common.UriKvUri+"/get", s.handleGet)
-	mux.HandleFunc("POST "+common.UriKvUri+"/set", s.handleSet)
-	mux.HandleFunc("DELETE "+common.UriKvUri+"/delete", s.handleDelete)
+	mux.HandleFunc("GET "+transport.UriKvUri+"/get", s.handleRange)
+	mux.HandleFunc("POST "+transport.UriKvUri+"/put", s.handlePut)
+	mux.HandleFunc("DELETE "+transport.UriKvUri+"/delete", s.handleDelete)
 
 	// cluster
-	mux.HandleFunc("POST "+common.UriCluster+"/join", s.handleJoin)
+	mux.HandleFunc("POST "+transport.UriCluster+"/join", s.handleJoin)
 
 	mux.HandleFunc("GET /stats", s.handleStats)
 
@@ -81,24 +85,11 @@ func (s *HttpServer) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (s *HttpServer) handleGet(w http.ResponseWriter, r *http.Request) {
-	var req common.GetRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.logger.Error(jsonDecodeErrMsg, "error", err)
-		err := fmt.Errorf("%s: %v", jsonDecodeErrMsg, err)
-		s.writeJSON(w, Response{Error: err}, http.StatusBadRequest)
-		return
-	}
-
-	var (
-		response Response
-		status   int
-	)
-
+func (s *HttpServer) handleRange(w http.ResponseWriter, r *http.Request) {
 	leader, err := s.peerSvc.GetLeader()
 	if err != nil {
 		s.logger.Error("Failed to get leader info", "error", err)
-		s.writeJSON(w, Response{Error: err}, http.StatusInternalServerError)
+		writeError(w, fmt.Sprintf("failed to get leader info: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -108,26 +99,37 @@ func (s *HttpServer) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.kvSvc.Get(r.Context(), req)
+	var cmd kv.RangeCmd
+	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
+		s.logger.Error(jsonDecodeErrMsg, "error", err)
+		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+
+	if err := cmd.Check(); err != nil {
+		s.logger.Error("Invalid request body", "error", err)
+		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+
+	result, err := s.kvSvc.Range(r.Context(), cmd)
 	if err != nil {
 		s.logger.Error(getErrMsg, "error", err)
-		response = Response{Error: fmt.Errorf("%s: %v", getErrMsg, err)}
-		status = http.StatusInternalServerError
+		writeError(w, fmt.Sprintf("%s: %v", getErrMsg, err), http.StatusInternalServerError)
 		return
-	} else {
-		response = Response{Result: result}
-		status = http.StatusOK
 	}
-
-	s.writeJSON(w, response, status)
+	result.Header.NodeID = s.peerSvc.Me().NodeID // setting nodeID, since some reads may not go through raft (and get their header set perfectly by our fsm)
+	s.writeJSON(w, *result, http.StatusOK)
 }
 
-func (s *HttpServer) handleSet(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("Received SET request")
+func (s *HttpServer) handlePut(w http.ResponseWriter, r *http.Request) {
+	s.logger.Debug("Received PUT request")
 	leader, err := s.peerSvc.GetLeader()
 	if err != nil {
 		s.logger.Error("Failed to get leader info", "error", err)
-		s.writeJSON(w, Response{Error: err}, http.StatusInternalServerError)
+		writeError(w, fmt.Sprintf("failed to get leader info: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -137,39 +139,35 @@ func (s *HttpServer) handleSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req common.SetRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var cmd kv.PutCmd
+	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		s.logger.Error(jsonDecodeErrMsg, "error", err)
-		err := fmt.Errorf("%s: %v", jsonDecodeErrMsg, err)
-		s.writeJSON(w, Response{Error: err}, http.StatusBadRequest)
+		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	if err := cmd.Check(); err != nil {
+		s.logger.Error("Invalid request body", "error", err)
+		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
+		writeError(w, err, http.StatusBadRequest)
 		return
 	}
 
-	var (
-		status   int
-		response Response
-	)
-	result, err := s.kvSvc.Set(r.Context(), req)
-
+	result, err := s.kvSvc.Put(r.Context(), cmd)
 	if err != nil {
 		s.logger.Error(setErrMsg, "error", err)
-		response = Response{Error: err}
-		status = http.StatusInternalServerError
-	} else {
-		response = Response{Result: result}
-		status = http.StatusOK
+		writeError(w, fmt.Sprintf("%s: %v", setErrMsg, err), http.StatusInternalServerError)
+		return
 	}
-
-	s.writeJSON(w, response, status)
+	s.writeJSON(w, *result, http.StatusOK)
 }
 
 func (s *HttpServer) handleDelete(w http.ResponseWriter, r *http.Request) {
 	s.logger.Debug("Received DELETE request")
-
 	leader, err := s.peerSvc.GetLeader()
 	if err != nil {
 		s.logger.Error("Failed to get leader info", "error", err)
-		s.writeJSON(w, Response{Error: err}, http.StatusInternalServerError)
+		writeError(w, fmt.Sprintf("failed to get leader info: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -179,23 +177,29 @@ func (s *HttpServer) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req common.DeleteRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var cmd kv.DeleteCmd
+	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		s.logger.Error("Failed to decode request body", "error", err)
-		err := fmt.Errorf("%s: %v", jsonDecodeErrMsg, err)
-		s.writeJSON(w, Response{Error: err}, http.StatusBadRequest)
+		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	if err := cmd.Check(); err != nil {
+		s.logger.Error("Invalid request body", "error", err)
+		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
+		writeError(w, err, http.StatusBadRequest)
 		return
 	}
 
-	resp, err := s.kvSvc.Delete(r.Context(), req)
+	result, err := s.kvSvc.Delete(r.Context(), cmd)
 	if err != nil {
 		s.logger.Error(deleteErrMsg, "error", err)
-		err := fmt.Errorf("%s: %v", deleteErrMsg, err)
-		s.writeJSON(w, Response{Error: err}, http.StatusInternalServerError)
+		err := fmt.Sprintf("%s: %v", deleteErrMsg, err)
+		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
 
-	s.writeJSON(w, Response{Result: resp}, http.StatusOK)
+	s.writeJSON(w, *result, http.StatusOK)
 }
 
 func (s *HttpServer) handleJoin(w http.ResponseWriter, r *http.Request) {
@@ -203,7 +207,10 @@ func (s *HttpServer) handleJoin(w http.ResponseWriter, r *http.Request) {
 	leader, err := s.peerSvc.GetLeader()
 	if err != nil {
 		s.logger.Error("Failed to get leader info", "error", err)
-		s.writeJSON(w, Response{Error: err}, http.StatusInternalServerError)
+		bytes, _ := json.Marshal(map[string]string{"error": fmt.Sprintf("failed to get leader info: %v", err)})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write(bytes)
 		return
 	}
 
@@ -213,28 +220,30 @@ func (s *HttpServer) handleJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req common.JoinRequest
+	var req transport.JoinRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.logger.Error("Failed to decode request body", "error", err)
-		err := fmt.Errorf("%s: %v", jsonDecodeErrMsg, err)
-		s.writeJSON(w, Response{Error: err}, http.StatusBadRequest)
+		bytes, _ := json.Marshal(map[string]string{"error": fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write(bytes)
 		return
 	}
 
-	var (
-		status   int
-		response Response
-	)
 	err = s.clusterSvc.AddToCluster(r.Context(), req)
 	if err != nil {
 		s.logger.Error(addClusterErrMsg, "error", err)
-		response = Response{Error: err}
-		status = http.StatusInternalServerError
+		bytes, _ := json.Marshal(map[string]string{"error": fmt.Sprintf("%s: %v", addClusterErrMsg, err)})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write(bytes)
 	} else {
-		response = Response{Result: "Peer added to cluster successfully"}
-		status = http.StatusOK
+		s.logger.Info("Peer added to cluster successfully")
+		bytes, _ := json.Marshal(map[string]string{"message": "Peer added to cluster successfully"})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(bytes)
 	}
-	s.writeJSON(w, response, status)
 }
 
 func (s *HttpServer) handleStats(w http.ResponseWriter, r *http.Request) {
@@ -242,16 +251,21 @@ func (s *HttpServer) handleStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := s.clusterSvc.Stats()
 	if err != nil {
 		s.logger.Error("Failed to get stats", "error", err)
-		s.writeJSON(w, Response{Error: err}, http.StatusInternalServerError)
-		return
+		bytes, _ := json.Marshal(map[string]string{"error": fmt.Sprintf("failed to get stats: %v", err)})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write(bytes)
+	} else {
+		bytes, _ := json.Marshal(stats)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(bytes)
 	}
-
-	s.writeJSON(w, Response{Result: stats}, http.StatusOK)
 }
 
-func (s *HttpServer) writeJSON(w http.ResponseWriter, data Response, status int) {
+func (s *HttpServer) writeJSON(w http.ResponseWriter, result kv.Result, status int) {
 	w.Header().Set("Content-Type", "application/json")
-	bytes, err := json.Marshal(data)
+	bytes, err := json.Marshal(result)
 	if err != nil {
 		s.logger.Error("Failed to marshal JSON response", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -259,19 +273,31 @@ func (s *HttpServer) writeJSON(w http.ResponseWriter, data Response, status int)
 		return
 	}
 
-	data.Header = s.clusterSvc.Meta()
 	w.WriteHeader(status)
 	w.Write(bytes)
 }
 
-func (s *HttpServer) redirectToLeader(w http.ResponseWriter, r *http.Request, leader common.Peer) {
+// TODO:
+func writeError(w http.ResponseWriter, err string, status int) {
+	w.Header().Set("Content-Type", "application/json")
+	bytes, _ := json.Marshal(map[string]string{"error": err})
+	w.WriteHeader(status)
+	w.Write(bytes)
+}
+
+// TODO: need kubernetes for this to progress
+func (s *HttpServer) redirectToLeader(w http.ResponseWriter, r *http.Request, leader config.Peer) {
 	me := s.peerSvc.Me()
 	if leader.NodeID == me.NodeID {
-		s.logger.Debug("Redirecting to leader failed: we are the leader", "leader_id", leader.NodeID, "leader_http_addr", leader.GetPublicHttpAddress())
+		s.logger.Debug("Redirecting to leader failed: we are the leader", "leader_id", leader.NodeID)
 		return
 	}
 
-	s.logger.Debug("Redirecting to leader", "leader_id", leader.NodeID, "leader_http_addr", leader.GetPublicHttpAddress())
-	w.Header().Set("Location", "http://"+leader.GetPublicHttpAddress()+r.RequestURI)
-	s.writeJSON(w, Response{Result: leader, Error: fmt.Errorf("redirecting to leader")}, http.StatusTemporaryRedirect)
+	s.logger.Debug("Redirecting to leader", "leader_id", leader.NodeID)
+	w.WriteHeader(http.StatusTemporaryRedirect)
+	bytes, _ := json.Marshal(map[string]string{
+		"message":   "redirecting to leader",
+		"leader_id": leader.NodeID,
+	})
+	w.Write(bytes)
 }
