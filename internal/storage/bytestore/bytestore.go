@@ -4,7 +4,6 @@ package bytestore
 import (
 	"io"
 
-	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/storage"
 )
 
@@ -22,8 +21,6 @@ import (
 // The store should only return ErrBucketNotFound or any errors wrapped in ErrInternalStorageError.
 
 type ByteStore interface {
-	metrics.StorageMetricsProvider
-
 	// Get returns the value for the given bucket and key,
 	// or an error if the bucket is not found.
 	// If the key is not found, it returns nil value and no error.
@@ -33,10 +30,10 @@ type ByteStore interface {
 
 	// Put sets the value for the given bucket and key.
 	// If the bucket is not found, it returns an error.
-	Put(bucket storage.Bucket, key, value []byte) error
+	Put(bucket storage.Bucket, key, value []byte) (old []byte, err error)
 
 	// TODO: remove return value
-	Delete(bucket storage.Bucket, key []byte) (value []byte, err error)
+	Delete(bucket storage.Bucket, key []byte) (old []byte, err error)
 
 	Scan(bucket storage.Bucket, f func(key, value []byte) bool) error
 	PrefixScan(bucket storage.Bucket, prefix []byte, f func(key, value []byte) bool) error
@@ -47,9 +44,11 @@ type ByteStore interface {
 	io.WriterTo
 	io.ReaderFrom
 
-	// ===== lifecycle methods =====
+	// ===== misc =====
+	SizeBytes() int64
 	Defragment() error
 	Close() error
+	Ping() error
 
 	// ====== batching ======
 	NewBatch() (Batch, error)

@@ -20,9 +20,9 @@ func NewEngine(store *KVStore) *Engine {
 func (e *Engine) ApplyWrite(cmd kv.Command) (kv.Result, error) {
 	switch cmd.Type {
 	case kv.CmdPut:
-		return e.applyPut(cmd.Put), nil
+		return e.applyPut(cmd.Put)
 	case kv.CmdDelete:
-		return e.applyDelete(cmd.Delete), nil
+		return e.applyDelete(cmd.Delete)
 	case kv.CmdTxn:
 		return e.applyTxn(cmd.Txn)
 	default:
@@ -30,14 +30,18 @@ func (e *Engine) ApplyWrite(cmd kv.Command) (kv.Result, error) {
 	}
 }
 
-func (e *Engine) applyPut(cmd *kv.PutCmd) kv.Result {
+func (e *Engine) applyPut(cmd *kv.PutCmd) (kv.Result, error) {
 	var prev *kv.Entry
 	if cmd.PrevEntry {
 		prev = e.store.NewReader().Get([]byte(cmd.Key), 0)
 	}
 
 	w := e.store.NewWriter()
-	rev := w.Put([]byte(cmd.Key), []byte(cmd.Value))
+	rev, err := w.Put([]byte(cmd.Key), []byte(cmd.Value))
+	if err != nil {
+		w.Abort()
+		return kv.Result{}, fmt.Errorf("applyPut failed: %w", err)
+	}
 	w.End()
 
 	return kv.Result{
@@ -47,22 +51,24 @@ func (e *Engine) applyPut(cmd *kv.PutCmd) kv.Result {
 		Put: &kv.PutResult{
 			PrevEntry: prev,
 		},
-	}
+	}, nil
 }
 
-func (e *Engine) applyDelete(cmd *kv.DeleteCmd) kv.Result {
+func (e *Engine) applyDelete(cmd *kv.DeleteCmd) (kv.Result, error) {
 	var prevs []kv.Entry
 	if cmd.PrevEntries {
 		var err error
 		prevs, _, _, err = e.store.NewReader().Range([]byte(cmd.Key), []byte(cmd.End), 0, 0)
 		if err != nil {
-			return kv.Result{
-				Error: err,
-			}
+			return kv.Result{}, fmt.Errorf("applyDelete failed: %w", err)
 		}
 	}
 	w := e.store.NewWriter()
-	cnt, rev := w.DeleteRange([]byte(cmd.Key), []byte(cmd.End))
+	cnt, rev, err := w.DeleteRange([]byte(cmd.Key), []byte(cmd.End))
+	if err != nil {
+		w.Abort()
+		return kv.Result{}, fmt.Errorf("applyDelete failed: %w", err)
+	}
 	w.End()
 
 	return kv.Result{
@@ -73,7 +79,7 @@ func (e *Engine) applyDelete(cmd *kv.DeleteCmd) kv.Result {
 			NumDeleted:  cnt,
 			PrevEntries: prevs,
 		},
-	}
+	}, nil
 }
 
 func (e *Engine) applyTxn(cmd *kv.TxnCommand) (kv.Result, error) {
@@ -92,9 +98,7 @@ func (e *Engine) applyTxn(cmd *kv.TxnCommand) (kv.Result, error) {
 	res, err := e.applyTxnOps(w, ops)
 	if err != nil {
 		w.Abort()
-		return kv.Result{
-			Error: err,
-		}, nil
+		return kv.Result{}, fmt.Errorf("applyTxn failed: %w", err)
 	}
 	w.End()
 
@@ -130,6 +134,7 @@ func (e *Engine) evalComparison(w Writer, cmp kv.Comparison) bool {
 	return cmp.Eval(kv.EmptyEntry)
 }
 
+// todo: increment revision.sub on every op in the txn, and return the revision of each op in the result
 func (e *Engine) applyTxnOps(w Writer, ops []kv.TxnOp) ([]kv.TxnOpResult, error) {
 	res := make([]kv.TxnOpResult, 0, len(ops))
 	for _, op := range ops {
@@ -141,7 +146,10 @@ func (e *Engine) applyTxnOps(w Writer, ops []kv.TxnOp) ([]kv.TxnOpResult, error)
 				prev = w.Get([]byte(put.Key), 0)
 			}
 
-			w.Put([]byte(op.Put.Key), []byte(op.Put.Value))
+			_, err := w.Put([]byte(op.Put.Key), []byte(op.Put.Value))
+			if err != nil {
+				return nil, fmt.Errorf("txn failed: error during put op: %w", err)
+			}
 			res = append(res, kv.TxnOpResult{
 				Put: &kv.PutResult{
 					PrevEntry: prev,
@@ -158,7 +166,10 @@ func (e *Engine) applyTxnOps(w Writer, ops []kv.TxnOp) ([]kv.TxnOpResult, error)
 				}
 			}
 
-			cnt, _ := w.DeleteRange([]byte(del.Key), []byte(del.End))
+			cnt, _, err := w.DeleteRange([]byte(del.Key), []byte(del.End))
+			if err != nil {
+				return nil, fmt.Errorf("txn failed: error during delete op: %w", err)
+			}
 			res = append(res, kv.TxnOpResult{
 				Delete: &kv.DeleteResult{
 					NumDeleted:  cnt,

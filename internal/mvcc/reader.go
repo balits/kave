@@ -2,8 +2,10 @@ package mvcc
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/balits/kave/internal/kv"
+	"github.com/balits/kave/internal/metrics"
 )
 
 type Reader interface {
@@ -15,17 +17,22 @@ type Reader interface {
 }
 
 type reader struct {
-	store *KVStore
+	store   *KVStore
+	metrics *metrics.KVMetrics
 }
 
 func (r *reader) Range(key, end []byte, rev int64, limit int64) (entries []kv.Entry, count int, currentRev int64, err error) {
+	start := time.Now()
 	r.store.rwlock.RLock()
-	defer r.store.rwlock.RUnlock()
 
 	r.store.revMu.RLock()
 	currRevMain := r.store.currentRev.Main
 	compactRev := r.store.compactedMainRev
 	r.store.revMu.RUnlock()
+
+	defer r.store.rwlock.RUnlock()
+	r.metrics.ReadsTotal.Inc()
+	defer r.metrics.ReadLatency.Observe(time.Since(start).Seconds())
 
 	if rev > currRevMain {
 		return nil, 0, currRevMain, fmt.Errorf("future revision requested")

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/storage"
 )
 
@@ -27,7 +28,7 @@ func newTestBackend(t *testing.T, kind storage.StorageKind) Backend {
 	switch kind {
 	case storage.StorageKindInMemory, storage.StorageKindBoltdb:
 		//t.Skip("boltdb tests require disk setup — skipping")
-		return NewBackend(opts)
+		return NewBackend(metrics.InitPrometheus(), opts)
 	default:
 		t.Fatalf("unknown storage kind: %s", kind)
 		return nil
@@ -620,27 +621,28 @@ func Test_BackendRestoreOverwritesExisting(t *testing.T) {
 }
 
 
-func Test_BackendForceCommitNoPendingBatch(t *testing.T) {
-	runForAllKinds(t, "ForceCommitNoBatch", func(t *testing.T, kind storage.StorageKind) {
-		b := newTestBackend(t, kind)
-		defer b.Close()
+// NOTE: backend no longer has a Commit() function, thats the writetx responsibility
+// func Test_BackendForceCommitNoPendingBatch(t *testing.T) {
+// 	runForAllKinds(t, "ForceCommitNoBatch", func(t *testing.T, kind storage.StorageKind) {
+// 		b := newTestBackend(t, kind)
+// 		defer b.Close()
 
-		if err := b.ForceCommit(); err != nil {
-			t.Fatalf("ForceCommit with no batch: %v", err)
-		}
-	})
-}
+// 		if err := b.ForceCommit(); err != nil {
+// 			t.Fatalf("ForceCommit with no batch: %v", err)
+// 		}
+// 	})
+// }
 
-func Test_BackendCommitNoPendingBatch(t *testing.T) {
-	runForAllKinds(t, "CommitNoBatch", func(t *testing.T, kind storage.StorageKind) {
-		b := newTestBackend(t, kind)
-		defer b.Close()
+// func Test_BackendCommitNoPendingBatch(t *testing.T) {
+// 	runForAllKinds(t, "CommitNoBatch", func(t *testing.T, kind storage.StorageKind) {
+// 		b := newTestBackend(t, kind)
+// 		defer b.Close()
 
-		if err := b.Commit(); err != nil {
-			t.Fatalf("Commit with no batch: %v", err)
-		}
-	})
-}
+// 		if err := b.Commit(); err != nil {
+// 			t.Fatalf("Commit with no batch: %v", err)
+// 		}
+// 	})
+// }
 
 
 func Test_BackendConcurrentReads(t *testing.T) {

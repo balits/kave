@@ -21,6 +21,8 @@ type KVService interface {
 	Range(ctx context.Context, cmd kv.RangeCmd) (*kv.Result, error)
 	Put(ctx context.Context, subcmd kv.PutCmd) (*kv.Result, error)
 	Delete(ctx context.Context, subcmd kv.DeleteCmd) (*kv.Result, error)
+
+	Ping() error
 }
 
 type raftKvService struct {
@@ -161,4 +163,8 @@ func (s *raftKvService) Delete(ctx context.Context, subcmd kv.DeleteCmd) (*kv.Re
 		return nil, fmt.Errorf("%w: nil result from fsm", errKvService)
 	}
 	return &result, nil
+}
+
+func (s *raftKvService) Ping() error {
+	return s.store.Ping()
 }

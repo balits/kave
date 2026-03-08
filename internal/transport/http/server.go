@@ -11,6 +11,9 @@ import (
 	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/service"
 	"github.com/balits/kave/internal/transport"
+	"github.com/hashicorp/raft"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
@@ -30,6 +33,7 @@ type HttpServer struct {
 	clusterSvc service.ClusterService
 	peerSvc    service.PeerService
 	logger     *slog.Logger
+	reg        *prometheus.Registry
 	server     *http.Server
 }
 
@@ -39,6 +43,7 @@ func NewHTTPServer(
 	clusterService service.ClusterService,
 	peerService service.PeerService,
 	cfg *config.Config,
+	reg *prometheus.Registry,
 	logger *slog.Logger,
 ) *HttpServer {
 	addr := "0.0.0.0:" + httpPort
@@ -47,6 +52,7 @@ func NewHTTPServer(
 		kvSvc:      kvService,
 		clusterSvc: clusterService,
 		peerSvc:    peerService,
+		reg:        reg,
 		logger:     logger.With("component", "http_server", "addr", addr),
 		server: &http.Server{
 			Addr:    addr,
@@ -55,14 +61,24 @@ func NewHTTPServer(
 	}
 
 	// kv
-	mux.HandleFunc("GET "+transport.UriKvUri+"/get", s.handleRange)
+	mux.HandleFunc("GET "+transport.UriKvUri+"/get", s.handleGet)
 	mux.HandleFunc("POST "+transport.UriKvUri+"/put", s.handlePut)
 	mux.HandleFunc("DELETE "+transport.UriKvUri+"/delete", s.handleDelete)
 
 	// cluster
 	mux.HandleFunc("POST "+transport.UriCluster+"/join", s.handleJoin)
 
+	// stats
 	mux.HandleFunc("GET /stats", s.handleStats)
+
+	// prometheus metrics
+	mux.Handle("/metrics", promhttp.HandlerFor(s.reg, promhttp.HandlerOpts{
+		Registry: reg,
+	}))
+
+	// k8s
+	mux.HandleFunc("GET /livez", s.handleLivez)
+	mux.HandleFunc("GET /readyz", s.handleReadyz)
 
 	return s
 }
@@ -85,7 +101,7 @@ func (s *HttpServer) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (s *HttpServer) handleRange(w http.ResponseWriter, r *http.Request) {
+func (s *HttpServer) handleGet(w http.ResponseWriter, r *http.Request) {
 	leader, err := s.peerSvc.GetLeader()
 	if err != nil {
 		s.logger.Error("Failed to get leader info", "error", err)
@@ -261,6 +277,53 @@ func (s *HttpServer) handleStats(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write(bytes)
 	}
+}
+
+func (s *HttpServer) handleLivez(w http.ResponseWriter, r *http.Request) {
+	s.logger.Debug("Received READYZ request")
+	if s.peerSvc.State() == raft.Shutdown {
+		s.logger.Error("Readiness check failed", "error", "raft is shutdown")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte(`{"status": "raft shutdown"}`))
+		return
+	}
+
+	if err := s.kvSvc.Ping(); err != nil {
+		s.logger.Error("Readiness check failed", "error", err)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprintf(w, `{"status": "kv store ping failed: %v"}`, err)
+	} else {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status": "ok"}`))
+	}
+}
+
+func (s *HttpServer) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	s.logger.Debug("Received LIVEZ request")
+	if s.peerSvc.State() == raft.Shutdown {
+		s.logger.Error("Readiness check failed", "error", "raft is shutdown")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte(`{"status": "raft shutdown"}`))
+		return
+	}
+
+	_, err := s.peerSvc.GetLeader()
+	if err != nil {
+		s.logger.Error("Failed to get leader info", "error", err)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprintf(w, `{"status": "failed to get leader info: %v"}`, err)
+		return
+	}
+
+	if err := s.peerSvc.LaggingBehind(); err != nil {
+		s.logger.Error("Readiness check failed", "error", err)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprintf(w, `{"status": "raft is lagging behind: %v"}`, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status": "ok"}`))
 }
 
 func (s *HttpServer) writeJSON(w http.ResponseWriter, result kv.Result, status int) {

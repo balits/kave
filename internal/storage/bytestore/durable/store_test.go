@@ -66,10 +66,9 @@ func TestGetAfterPut(t *testing.T) {
 	}
 }
 
-
 func TestPutWrongBucket(t *testing.T) {
 	s := newTestStore(t)
-	err := s.Put("nonexistent", []byte("k"), []byte("v"))
+	_, err := s.Put("nonexistent", []byte("k"), []byte("v"))
 	if err == nil {
 		t.Fatal("expected error for non-existent bucket")
 	}
@@ -100,7 +99,6 @@ func TestPutMultipleBuckets(t *testing.T) {
 		t.Errorf("meta = %q, want %q", mv, "mv")
 	}
 }
-
 
 func TestDeleteExisting(t *testing.T) {
 	s := newTestStore(t)
@@ -138,7 +136,6 @@ func TestDeleteWrongBucket(t *testing.T) {
 		t.Fatal("expected error for non-existent bucket")
 	}
 }
-
 
 func TestScanAll(t *testing.T) {
 	s := newTestStore(t)
@@ -199,7 +196,6 @@ func TestScanOrder(t *testing.T) {
 	}
 }
 
-
 func TestPrefixScan(t *testing.T) {
 	s := newTestStore(t)
 	s.Put(testBucket, []byte("foo/1"), []byte("a"))
@@ -240,7 +236,6 @@ func TestPrefixScanWrongBucket(t *testing.T) {
 		t.Fatal("expected error for non-existent bucket")
 	}
 }
-
 
 func TestWriteToReadFromRoundTrip(t *testing.T) {
 	s := newTestStore(t)
@@ -297,7 +292,6 @@ func TestReadFromOverwrites(t *testing.T) {
 	}
 }
 
-
 func TestClose(t *testing.T) {
 	s := newTestStore(t)
 	s.Put(testBucket, []byte("k"), []byte("v"))
@@ -307,7 +301,6 @@ func TestClose(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 }
-
 
 func TestConcurrentReadWrite(t *testing.T) {
 	s := newTestStore(t)
@@ -357,30 +350,6 @@ func TestConcurrentScans(t *testing.T) {
 	}
 	wg.Wait()
 }
-
-
-func TestMetricsIncrement(t *testing.T) {
-	s := newTestStore(t)
-	s.Put(testBucket, []byte("a"), []byte("1"))
-	s.Put(testBucket, []byte("b"), []byte("2"))
-	s.Get(testBucket, []byte("a"))
-	s.Delete(testBucket, []byte("a"))
-
-	m := s.StorageMetrics()
-	if m.SetCount != 2 {
-		t.Errorf("SetCount = %d, want 2", m.SetCount)
-	}
-	if m.GetCount != 1 {
-		t.Errorf("GetCount = %d, want 1", m.GetCount)
-	}
-	if m.DeleteCount != 1 {
-		t.Errorf("DeleteCount = %d, want 1", m.DeleteCount)
-	}
-	if m.KeyCount != 1 {
-		t.Errorf("KeyCount = %d, want 1 (one added, one deleted)", m.KeyCount)
-	}
-}
-
 
 func TestLargeValue(t *testing.T) {
 	s := newTestStore(t)

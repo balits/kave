@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"github.com/balits/kave/internal/config"
+	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/node"
 	"github.com/balits/kave/internal/util"
 )
@@ -17,7 +18,9 @@ func main() {
 	logger := util.NewLoggerWithKind(cfg.LogLevel, os.Stdout, util.TextLoggerKind).
 		With("node_id", cfg.Me.NodeID)
 
-	node, err := node.New(cfg, logger)
+	reg := metrics.InitPrometheus()
+
+	node, err := node.New(cfg, logger, reg)
 	if err != nil {
 		logger.Error("fatal: failed to create node", "error", err)
 		os.Exit(1)

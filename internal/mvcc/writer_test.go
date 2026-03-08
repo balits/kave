@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/balits/kave/internal/kv"
+	"github.com/stretchr/testify/require"
 )
 
 // ==================== Writer.Put ====================
@@ -14,7 +15,8 @@ func Test_WriterPutSingleKey(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	rev := w.Put([]byte("foo"), []byte("bar"))
+	rev, err := w.Put([]byte("foo"), []byte("bar"))
+	require.NoError(t, err, "unexpected error from Put()")
 	w.End()
 
 	if rev.Main != 1 {
@@ -149,7 +151,8 @@ func Test_WriterDeleteKey(t *testing.T) {
 	w.End()
 
 	w = s.NewWriter()
-	count, rev := w.DeleteKey([]byte("foo"))
+	count, rev, err := w.DeleteKey([]byte("foo"))
+	require.NoError(t, err, "unexpected error from DeleteKey()")
 	w.End()
 
 	if count != 1 {
@@ -165,7 +168,8 @@ func Test_WriterDeleteKeyNonExistent(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	count, rev := w.DeleteKey([]byte("nope"))
+	count, rev, err := w.DeleteKey([]byte("nope"))
+	require.NoError(t, err, "unexpected error from DeleteKey()")
 	w.End()
 
 	if count != 0 {
@@ -223,7 +227,8 @@ func Test_WriterDeleteRange(t *testing.T) {
 	w.End()
 
 	w = s.NewWriter()
-	count, rev := w.DeleteRange([]byte("b"), []byte("d"))
+	count, rev, err := w.DeleteRange([]byte("b"), []byte("d"))
+	require.NoError(t, err, "unexpected error from DeleteRange()")
 	w.End()
 
 	if count != 2 {
@@ -243,7 +248,8 @@ func Test_WriterDeleteRangeEmpty(t *testing.T) {
 	w.End()
 
 	w = s.NewWriter()
-	count, _ := w.DeleteRange([]byte("x"), []byte("z"))
+	count, _, err := w.DeleteRange([]byte("x"), []byte("z"))
+	require.NoError(t, err, "unexpected error from DeleteRange()")
 	w.End()
 
 	if count != 0 {
