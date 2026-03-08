@@ -5,10 +5,12 @@ import (
 	"io"
 	"sync"
 
+	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/bytestore"
 	"github.com/balits/kave/internal/storage/bytestore/durable"
 	"github.com/balits/kave/internal/storage/bytestore/inmem"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // Backend builds transactions on top of storage providing:
@@ -22,25 +24,28 @@ type Backend interface {
 	Snapshot(w io.Writer) error
 	Restore(io.Reader) error
 
-	// TODO:
-	// SizeHint() int64  // hint of the size of the db
-	// SizeInUse() int64 // size of the db in use
+	// size of the db in use
+	SizeBytes() int64
 
 	// TOOD
 	//Defragment() error
 
-	ForceCommit() error
-	Commit() error
+	//ForceCommit() error
+	// Commit() error // commit should be the responsibility of the write transaction
 	Close() error
+
+	Ping() error
 }
 
 type backend struct {
-	rwlock sync.RWMutex
-	store  bytestore.ByteStore
-	batch  bytestore.Batch
+	rwlock  sync.RWMutex
+	store   bytestore.ByteStore
+	batch   bytestore.Batch
+	metrics *metrics.BackendMetrics
+	obs     BackendObserver
 }
 
-func NewBackend(opts storage.StorageOptions) Backend {
+func NewBackend(reg prometheus.Registerer, opts storage.StorageOptions) Backend {
 	var s bytestore.ByteStore
 	switch opts.Kind {
 	case storage.StorageKindBoltdb:
@@ -53,10 +58,23 @@ func NewBackend(opts storage.StorageOptions) Backend {
 		s = inmem.NewStore(opts)
 	}
 
-	return &backend{
+	b := &backend{
 		store: s,
 		batch: nil,
 	}
+	sizeBytesFn := func() float64 {
+		return float64(b.SizeBytes())
+	}
+	b.metrics = metrics.NewBackendMetrics(reg, sizeBytesFn)
+	b.obs = &observer{metrics: b.metrics}
+
+	return b
+}
+
+func (b *backend) SizeBytes() int64 {
+	b.rwlock.RLock()
+	defer b.rwlock.RUnlock()
+	return b.store.SizeBytes()
 }
 
 func (b *backend) ReadTx() ReadTx {
@@ -82,20 +100,6 @@ func (b *backend) Restore(r io.Reader) error {
 	defer b.rwlock.Unlock()
 	_, err := b.store.ReadFrom(r)
 	return err
-}
-
-func (b *backend) ForceCommit() error {
-	b.rwlock.Lock()
-	defer b.rwlock.Unlock()
-
-	// If there’s a pending batch, commit it
-	if b.batch != nil {
-		err := b.batch.Commit()
-		b.batch = nil
-		return err
-	}
-
-	return nil
 }
 
 func (b *backend) Commit() error {
@@ -124,4 +128,8 @@ func (b *backend) Close() error {
 	}
 
 	return b.store.Close()
+}
+
+func (b *backend) Ping() error {
+	return b.store.Ping()
 }

@@ -13,6 +13,8 @@ import (
 	"github.com/balits/kave/internal/storage"
 )
 
+const ApplyLagReadinessThreshold uint = 10
+
 type Config struct {
 	Me          Peer
 	Bootstrap   bool

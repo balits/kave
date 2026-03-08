@@ -9,33 +9,40 @@ import (
 	"github.com/balits/kave/internal/compaction"
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/fsm"
+	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/service"
 	"github.com/balits/kave/internal/storage/backend"
 	transport "github.com/balits/kave/internal/transport/http"
 	"github.com/balits/kave/internal/util"
 	"github.com/hashicorp/raft"
+	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sync/errgroup"
 )
 
 type Node struct {
-	bootstrap      bool
-	logger         *slog.Logger
-	cfg            *config.Config
-	fsm            *fsm.Fsm
+	bootstrap bool
+	logger    *slog.Logger
+	cfg       *config.Config
+	reg       *prometheus.Registry
+
+	fsm          *fsm.Fsm
+	raft         *raft.Raft
+	raftDeps     *config.RaftDependencies // stored bcs raft.HasExistingState() upon Bootstrap requires it
+	observer     *raft.Observer
+	eventWatcher *fsm.RaftEventWatcher
+
 	compactor      compaction.Compactor
-	raftDeps       *config.RaftDependencies // stored bcs raft.HasExistingState() upon Bootstrap requires it
-	raft           *raft.Raft
 	kvService      service.KVService
 	peerService    service.PeerService
 	clusterService service.ClusterService
 	httpServer     *transport.HttpServer
 }
 
-func New(cfg *config.Config, logger *slog.Logger) (*Node, error) {
-	backend := backend.NewBackend(cfg.StorageOpts)
-	kvstore := mvcc.NewKVStore(logger, backend)
-	fsm := fsm.NewFsm(logger, kvstore, cfg.Me.NodeID)
+func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*Node, error) {
+	backend := backend.NewBackend(reg, cfg.StorageOpts)
+	kvstore := mvcc.NewKVStore(reg, logger, backend)
+	f := fsm.NewFsm(logger, kvstore, cfg.Me.NodeID)
 
 	hclogger := util.NewHcLogAdapter(logger, cfg.LogLevel)
 	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, hclogger, cfg.LogLevel)
@@ -56,7 +63,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*Node, error) {
 		bootstrap: cfg.Bootstrap,
 		logger:    logger.With("component", "node"),
 		cfg:       cfg,
-		fsm:       fsm,
+		reg:       reg,
+		fsm:       f,
 		compactor: comp,
 		raftDeps:  raftDeps,
 	}
@@ -65,12 +73,21 @@ func New(cfg *config.Config, logger *slog.Logger) (*Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup raft: %v", err)
 	}
+	raftMetrics := metrics.NewRaftMetrics(reg, r, config.ApplyLagReadinessThreshold)
+	f.InjectMetrics(raftMetrics)
+	c := make(chan raft.Observation)
+	ew := fsm.NewRaftEventWatcher(c, raftMetrics, raft.ServerID(cfg.Me.NodeID))
+	obs := raft.NewObserver(c, false, ew.FilterFn())
+
+	r.RegisterObserver(obs)
 
 	n.raft = r
+	n.eventWatcher = ew
+	n.observer = obs
 	n.peerService = service.NewPeerService(n.raft, cfg)
 	n.kvService = service.NewKVService(logger, n.raft, kvstore, n.peerService)
 	n.clusterService = service.NewClusterService(n.raft, cfg, logger)
-	n.httpServer = transport.NewHTTPServer(cfg.Me.HttpPort, n.kvService, n.clusterService, n.peerService, cfg, logger)
+	n.httpServer = transport.NewHTTPServer(cfg.Me.HttpPort, n.kvService, n.clusterService, n.peerService, cfg, n.reg, logger)
 	return n, nil
 }
 
@@ -94,10 +111,14 @@ func (n *Node) Run(ctx context.Context) error {
 		return nil
 	})
 
+	g.Go(func() error {
+		n.eventWatcher.Run()
+		return nil
+	})
+
 	// shutdown watcher
 	g.Go(func() error {
 		<-ctx.Done()
-		n.compactor.Stop()
 		return n.Shutdown(context.Background())
 	})
 
@@ -144,6 +165,13 @@ func (n *Node) Shutdown(ctx context.Context) error {
 	n.logger.Info("Shutdown initiated")
 	timeout, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+
+	// 0.1) deregister observer
+	n.raft.DeregisterObserver(n.observer)
+	n.eventWatcher.Stop()
+
+	// 0.2) stop compactor
+	n.compactor.Stop()
 
 	// 1) stop traffic
 	if err := n.httpServer.Shutdown(timeout); err != nil {

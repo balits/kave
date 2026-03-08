@@ -94,6 +94,7 @@ Hello world
             - update key_history (key, newRev) -> tombstone_marker
             - update key_index (key) -> (modRev, tombstone = true, ++version)
             - update _meta/current_revision = newRev
-    - [ ] TODO: remove meta.tombstone -> use meta.version == 0 ? tombstone : no-tombstone
-    - [ ] TODO: snapshot storage metrics too
+    - [x] TODO: ~~snapshot  storage~~ compaction metrics too
     - [ ] LICENSE from etcd: http://www.apache.org/licenses/LICENSE-2.0
+    - [ ] batch kvindex updates, rollback on commit failure
+    - [ ] mvcc.writer: support revision.sub++ on txn ops

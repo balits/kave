@@ -12,6 +12,7 @@ import (
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/fsm"
 	"github.com/balits/kave/internal/kv"
+	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
@@ -44,11 +45,10 @@ func newTestKVService(t *testing.T) *testKVService {
 		LogLevel: slog.LevelDebug,
 	}
 	logger := util.NewLoggerWithKind(cfg.LogLevel, os.Stdout, util.TextLoggerKind)
-
-	b := backend.NewBackend(cfg.StorageOpts)
-	kvstore := mvcc.NewKVStore(logger, b)
+	reg := metrics.InitTestPrometheus()
+	b := backend.NewBackend(reg, cfg.StorageOpts)
+	kvstore := mvcc.NewKVStore(reg, logger, b)
 	fsmInst := fsm.NewFsm(logger, kvstore, cfg.Me.NodeID)
-
 
 	hclogger := util.NewHcLogAdapter(logger, cfg.LogLevel)
 	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, hclogger, cfg.LogLevel)
@@ -57,6 +57,7 @@ func newTestKVService(t *testing.T) *testKVService {
 
 	r, err := raft.NewRaft(raftCfg, fsmInst, raftDeps.LogStore, raftDeps.StableStore, raftDeps.SnapshotStore, raftDeps.Transport)
 	require.NoError(t, err, "failed to create raft")
+	fsmInst.InjectMetrics(metrics.NewRaftMetrics(reg, r, config.ApplyLagReadinessThreshold))
 
 	raftcfg := raft.Configuration{
 		Servers: []raft.Server{

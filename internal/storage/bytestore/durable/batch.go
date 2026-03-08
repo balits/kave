@@ -1,6 +1,8 @@
 package durable
 
 import (
+	"sync/atomic"
+
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/bytestore"
 	bolt "go.etcd.io/bbolt"
@@ -9,14 +11,16 @@ import (
 type durableBatch struct {
 	tx        *bolt.Tx
 	wc        bytestore.WriteCollector
+	sz       *atomic.Int64
 	bucketMap map[storage.Bucket][]byte
 	closed    bool
 }
 
-func newBatch(tx *bolt.Tx, bucketMap map[storage.Bucket][]byte) bytestore.Batch {
+func newBatch(tx *bolt.Tx, bucketMap map[storage.Bucket][]byte, sz *atomic.Int64) bytestore.Batch {
 	return &durableBatch{
 		tx:        tx,
 		wc:        bytestore.NewWriteCollector(),
+		sz: sz,
 		bucketMap: bucketMap,
 	}
 }
@@ -43,10 +47,20 @@ func (b *durableBatch) Delete(bucket storage.Bucket, key []byte) error {
 	return nil
 }
 
-func (b *durableBatch) Commit() error {
+func (b *durableBatch) Commit() (err error) {
 	if b.closed {
 		return storage.ErrBatchClosed
 	}
+
+	totalDelta := int64(0)
+	defer func() {
+		b.closed = true
+		// accumulate potential size difference,
+		// and only update stores sizes if there was no error
+		if err == nil {
+			b.sz.Add(totalDelta)
+		}
+	}()
 
 	for bucketName, keys := range b.wc.Deletes() {
 		bucketBytes, ok := b.bucketMap[bucketName]
@@ -63,6 +77,10 @@ func (b *durableBatch) Commit() error {
 				return storage.ErrEmptyKey
 			}
 			keyb := []byte(key)
+			old := bucket.Get(keyb)
+			if old != nil {
+				totalDelta += int64(-len(old))
+			}
 			if err := bucket.Delete(keyb); err != nil {
 				return err
 			}
@@ -83,13 +101,18 @@ func (b *durableBatch) Commit() error {
 			if len(k) == 0 {
 				return storage.ErrEmptyKey
 			}
+			old := bucket.Get([]byte(k))
+			if old != nil {
+				totalDelta += int64(len(old) - len(v))
+			} else {
+				totalDelta += int64(len(v))
+			}
 			if err := bucket.Put([]byte(k), v); err != nil {
 				return err
 			}
 		}
 	}
 
-	b.closed = true
 	return b.tx.Commit()
 }
 

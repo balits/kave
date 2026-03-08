@@ -6,17 +6,19 @@ import (
 	"testing"
 
 	"github.com/balits/kave/internal/kv"
+	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
 )
 
 func newTestKVStore() *KVStore {
+	reg := metrics.InitTestPrometheus()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	b := backend.NewBackend(storage.StorageOptions{
+	b := backend.NewBackend(reg, storage.StorageOptions{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: kv.AllBuckets,
 	})
-	return NewKVStore(logger, b)
+	return NewKVStore(reg, logger, b)
 }
 
 func Test_KVStoreRevisionInitial(t *testing.T) {
@@ -52,8 +54,8 @@ func Test_KVStoreUpdateRaftMeta(t *testing.T) {
 	defer s.backend.Close()
 
 	s.UpdateRaftMeta(100, 5)
-	if s.raftIndex != 100 {
-		t.Errorf("raftIndex = %d, want 100", s.raftIndex)
+	if s.applyIndex != 100 {
+		t.Errorf("raftIndex = %d, want 100", s.applyIndex)
 	}
 	if s.raftTerm != 5 {
 		t.Errorf("raftTerm = %d, want 5", s.raftTerm)
@@ -240,8 +242,8 @@ func Test_KVStoreRestore(t *testing.T) {
 		t.Errorf("restored value = %v", entries)
 	}
 
-	if s2.raftIndex != 10 {
-		t.Errorf("restored raftIndex = %d, want 10", s2.raftIndex)
+	if s2.applyIndex != 10 {
+		t.Errorf("restored raftIndex = %d, want 10", s2.applyIndex)
 	}
 	if s2.raftTerm != 3 {
 		t.Errorf("restored raftTerm = %d, want 3", s2.raftTerm)

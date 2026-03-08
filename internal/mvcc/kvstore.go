@@ -8,7 +8,9 @@ import (
 	"sync"
 
 	"github.com/balits/kave/internal/kv"
+	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/storage/backend"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // SmartRevisionGetter visszadja a jelenlegi, illetve a kompaktált reviziót
@@ -27,16 +29,21 @@ type KVStore struct {
 	currentRev       kv.Revision     // up to date revision, updated by writers, read by readers, protected by revMu
 	compactedMainRev int64           // main revision up to which the store has been compacted, protected by revMu
 	raftTerm         uint64          // latest applied raft term, protected by rwlock
-	raftIndex        uint64          // latest applied raft index, protected by rwlock
+	applyIndex       uint64          // latest applied raft index, protected by rwlock
 	logger           *slog.Logger
+
+	metrics *metrics.KVMetrics
 }
 
-func NewKVStore(logger *slog.Logger, b backend.Backend) *KVStore {
-	return &KVStore{
+func NewKVStore(reg prometheus.Registerer, logger *slog.Logger, b backend.Backend) *KVStore {
+	s := &KVStore{
 		backend: b,
 		kvIndex: kv.NewTreeIndex(logger),
 		logger:  logger.With("component", "kvstore"),
 	}
+	s.metrics = newKVMetrics(reg, s)
+
+	return s
 }
 
 func (s *KVStore) Revisions() (currentRev kv.Revision, compacted int64) {
@@ -55,30 +62,26 @@ func (s *KVStore) Revisions() (currentRev kv.Revision, compacted int64) {
 func (s *KVStore) NewWriter() Writer {
 	// locks gets released in writer.End()
 	s.rwlock.RLock()
-	w := &writer{
-		store:    s,
-		writeTx:  s.backend.WriteTx(),
-		startRev: s.currentRev,
-	}
+	w := newWriter(s, s.backend.WriteTx(), s.currentRev)
 	w.writeTx.Lock()
 	return w
 }
 
 func (s *KVStore) NewReader() Reader {
-	return &reader{store: s}
+	return &reader{store: s, metrics: s.metrics}
 }
 
 func (s *KVStore) UpdateRaftMeta(logIndex, term uint64) {
 	s.rwlock.Lock()
 	defer s.rwlock.Unlock()
-	s.raftIndex = logIndex
+	s.applyIndex = logIndex
 	s.raftTerm = term
 }
 
 func (s *KVStore) RaftMeta() (logIndex, term uint64) {
 	s.rwlock.RLock()
 	defer s.rwlock.RUnlock()
-	return s.raftIndex, s.raftTerm
+	return s.applyIndex, s.raftTerm
 }
 
 func (s *KVStore) Restore(r io.Reader) error {
@@ -130,7 +133,7 @@ func (s *KVStore) Restore(r io.Reader) error {
 
 	s.rwlock.Lock()
 	s.raftTerm = term
-	s.raftIndex = raftIndex
+	s.applyIndex = raftIndex
 	s.rwlock.Unlock()
 
 	s.revMu.Lock()
@@ -259,4 +262,8 @@ func (s *KVStore) doCompact(rev int64) {
 	s.revMu.Unlock()
 
 	s.logger.Info("finished compaction", "revision", rev, "num_deleted_keys", numDeleted)
+}
+
+func (s *KVStore) Ping() error {
+	return s.backend.Ping()
 }

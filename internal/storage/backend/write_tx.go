@@ -3,6 +3,7 @@ package backend
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/balits/kave/internal/storage"
 )
@@ -24,7 +25,8 @@ type WriteTx interface {
 // TODO: impl batching to reduce fsyncs in the future
 type writetx struct {
 	*readtx
-	b *backend
+	b       *backend
+	opCount int
 }
 
 func (w *writetx) Lock() {
@@ -43,18 +45,26 @@ func (w *writetx) Lock() {
 func (w *writetx) Unlock() { w.b.rwlock.Unlock() }
 
 func (w *writetx) UnsafePut(bucket storage.Bucket, key, value []byte) error {
+	w.opCount++
 	return w.b.batch.Put(bucket, key, value)
 }
 
 func (w *writetx) UnsafeDelete(bucket storage.Bucket, key []byte) error {
+	w.opCount++
 	return w.b.batch.Delete(bucket, key)
 }
 
 func (w *writetx) Commit() error {
+	start := time.Now()
 	defer func() {
 		w.b.batch = nil
+		w.opCount = 0
 	}()
-	return w.b.batch.Commit()
+	err := w.b.batch.Commit()
+	if err != nil && w.b.obs != nil {
+		w.b.obs.ObserveCommit(time.Since(start), w.opCount)
+	}
+	return err
 }
 
 func (w *writetx) Abort() {

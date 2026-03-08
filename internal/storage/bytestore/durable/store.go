@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"sync/atomic"
 
-	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/bytestore"
-	"github.com/balits/kave/internal/util"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -18,12 +17,12 @@ const dbFileName = "bolt.db"
 type boltStore struct {
 	db   *bolt.DB
 	file string
-	
+	sz   atomic.Int64
+
 	// mapping from string buckets to byte buckets
 	// very low overhead since there isnt a bunch of buckes anyways
 	// but this way dont gotta cast (allocate) on every operation
-	bucketMap      map[storage.Bucket][]byte
-	storageMetrics metrics.StorageMetricsAtomic
+	bucketMap map[storage.Bucket][]byte
 }
 
 func NewStore(opts storage.StorageOptions) (bytestore.ByteStore, error) {
@@ -54,10 +53,9 @@ func NewStore(opts storage.StorageOptions) (bytestore.ByteStore, error) {
 	}
 
 	return &boltStore{
-		db:             db,
-		file:           dbpath,
-		bucketMap:      bucketMap,
-		storageMetrics: metrics.StorageMetricsAtomic{},
+		db:        db,
+		file:      dbpath,
+		bucketMap: bucketMap,
 	}, nil
 }
 
@@ -66,7 +64,6 @@ func (s *boltStore) Close() error {
 }
 
 func (s *boltStore) Get(bucket storage.Bucket, key []byte) (value []byte, err error) {
-	s.storageMetrics.GetCount.Add(1)
 	err = s.db.View(func(tx *bolt.Tx) error {
 		bucketBytes, ok := s.bucketMap[bucket]
 		if !ok {
@@ -92,10 +89,9 @@ func (s *boltStore) Get(bucket storage.Bucket, key []byte) (value []byte, err er
 	return
 }
 
-func (s *boltStore) Put(bucket storage.Bucket, key, value []byte) error {
-	s.storageMetrics.SetCount.Add(1)
+func (s *boltStore) Put(bucket storage.Bucket, key, value []byte) ([]byte, error) {
 	if len(key) == 0 {
-		return storage.ErrEmptyKey
+		return nil, storage.ErrEmptyKey
 	}
 
 	var oldValue []byte
@@ -110,30 +106,21 @@ func (s *boltStore) Put(bucket storage.Bucket, key, value []byte) error {
 		}
 
 		oldValue = copyBytes(bucket.Get(key))
+
 		return bucket.Put(key, value)
 	})
 
 	// wrap any non bucket errors into ErrInternalStorageError,
 	// so that the caller can decide if it wants to retry or not based on the error type
 	if err != nil && err != storage.ErrBucketNotFound {
-		return fmt.Errorf("%w: %v", storage.ErrInternalStorageError, err)
+		return oldValue, fmt.Errorf("%w: %v", storage.ErrInternalStorageError, err)
 	} else if err != nil {
-		return err
+		return oldValue, err
 	}
-
-	if oldValue != nil {
-		oldSize := len(oldValue)
-		s.storageMetrics.ByteSize.Add(uint64(len(value) - oldSize))
-	} else {
-		s.storageMetrics.ByteSize.Add(uint64(len(value) + len(key)))
-		s.storageMetrics.KeyCount.Add(1)
-	}
-
-	return nil
+	return oldValue, nil
 }
 
 func (s *boltStore) Delete(bucket storage.Bucket, key []byte) (value []byte, err error) {
-	s.storageMetrics.DeleteCount.Add(1)
 	err = s.db.Update(func(tx *bolt.Tx) error {
 		bucketBytes, ok := s.bucketMap[bucket]
 		if !ok {
@@ -160,9 +147,6 @@ func (s *boltStore) Delete(bucket storage.Bucket, key []byte) (value []byte, err
 		return
 	}
 
-	// only subtract if there was an actual value in the db previously
-	util.AtomicSubNoUnderflow(&s.storageMetrics.KeyCount, 1)
-	util.AtomicSubNoUnderflow(&s.storageMetrics.ByteSize, uint64(len(key)+len(value)))
 	return
 }
 
@@ -244,7 +228,7 @@ func (s *boltStore) NewBatch() (bytestore.Batch, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", storage.ErrInternalStorageError, err)
 	}
-	return newBatch(tx, s.bucketMap), nil
+	return newBatch(tx, s.bucketMap, &s.sz), nil
 }
 
 // we dont really know how many bytes were written, and it doesnt matter for us, so we just return 0
@@ -261,6 +245,10 @@ func (s *boltStore) ReadFrom(r io.Reader) (int64, error) {
 
 	s.db = db
 	return 0, nil
+}
+
+func (s *boltStore) SizeBytes() int64 {
+	return s.sz.Load()
 }
 
 func (s *boltStore) Defragment() error {
@@ -305,9 +293,11 @@ func (s *boltStore) Compact(bucket storage.Bucket, shouldDelete func([]byte) boo
 	})
 }
 
-// ========= metrics.StorageMetricsProvider impl =========
-func (s *boltStore) StorageMetrics() *metrics.StorageMetrics {
-	return s.storageMetrics.StorageMetrics()
+func (s *boltStore) Ping() error {
+	// we need to see if the db is redy to respond to requests, which is especially important for the first few moments after startup, when the db file might exist but not be ready yet
+	return s.db.View(func(tx *bolt.Tx) error {
+		return nil
+	})
 }
 
 func copyBytes(in []byte) (out []byte) {

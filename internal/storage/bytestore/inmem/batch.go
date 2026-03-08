@@ -40,13 +40,20 @@ func (b *inmemBatch) Delete(bucket storage.Bucket, key []byte) error {
 	return nil
 }
 
-func (b *inmemBatch) Commit() error {
+func (b *inmemBatch) Commit() (err error) {
 	if b.closed {
 		return storage.ErrBatchClosed
 	}
 
+	totalDelta := int64(0)
+
 	defer func() {
 		b.closed = true
+		// accumulate potential size difference,
+		// and only update stores sizes if there was no error
+		if err == nil {
+			b.inner.sz.Add(totalDelta)
+		}
 	}()
 
 	b.inner.rwlock.Lock()
@@ -54,18 +61,26 @@ func (b *inmemBatch) Commit() error {
 
 	for bucket, keys := range b.wc.Deletes() {
 		for key := range keys {
-			_, err := b.inner.doDelete(bucket, []byte(key))
+			var old []byte
+			old, err = b.inner.unsafeDelete(bucket, []byte(key))
 			if err != nil {
-				return err
+				return
 			}
+			totalDelta += int64(-len(old))
 		}
 	}
 
 	for bucket, keys := range b.wc.Puts() {
 		for key, value := range keys {
-			err := b.inner.doSet(bucket, []byte(key), value)
+			var old []byte
+			old, err = b.inner.unsafePut(bucket, []byte(key), value)
 			if err != nil {
 				return err
+			}
+			if old != nil {
+				totalDelta += int64(len(old) - len(value))
+			} else {
+				totalDelta += int64(len(value))
 			}
 		}
 	}

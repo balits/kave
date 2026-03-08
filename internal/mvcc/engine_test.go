@@ -151,6 +151,10 @@ func Test_EngineApplyDeleteSingleKey(t *testing.T) {
 	if result.Header.Revision != 2 {
 		t.Errorf("rev = %d, want 2", result.Header.Revision)
 	}
+	entry := e.store.NewReader().Get([]byte("foo"), 0)
+	if entry != nil {
+		t.Error("expected key to be deleted, but it still exists")
+	}
 }
 
 func Test_EngineApplyDeleteNonExistent(t *testing.T) {
