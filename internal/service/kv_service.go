@@ -38,13 +38,13 @@ func NewKVService(logger *slog.Logger, store *mvcc.KVStore, peerSvc PeerService,
 		store:       store,
 		proposeFunc: proposeFunc,
 		peerSvc:     peerSvc,
-		logger:      logger.With("component", "command.service"),
+		logger:      logger.With("component", "kv_service"),
 	}
 }
 
 func (s *raftKvService) Range(ctx context.Context, cmd command.RangeCmd) (*command.Result, error) {
 	s.logger.WithGroup("cmd").
-		Debug("Range request received",
+		Debug("Range command received",
 			"key", cmd.Key,
 			"end", cmd.End,
 			"revision", cmd.Revision,
@@ -88,7 +88,7 @@ func (s *raftKvService) Range(ctx context.Context, cmd command.RangeCmd) (*comma
 
 func (s *raftKvService) Put(ctx context.Context, subcmd command.PutCmd) (*command.Result, error) {
 	s.logger.WithGroup("cmd").
-		Debug("Put request received",
+		Debug("Put command received",
 			"key", subcmd.Key,
 			"value", subcmd.Value,
 			"prevEntry", subcmd.PrevEntry,
@@ -128,7 +128,7 @@ func (s *raftKvService) Put(ctx context.Context, subcmd command.PutCmd) (*comman
 
 func (s *raftKvService) Delete(ctx context.Context, subcmd command.DeleteCmd) (*command.Result, error) {
 	s.logger.WithGroup("cmd").
-		Debug("Delete request received",
+		Debug("Delete command received",
 			"key", subcmd.Key,
 			"end", subcmd.End,
 			"prevEntries", subcmd.PrevEntries,

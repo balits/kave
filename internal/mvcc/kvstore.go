@@ -197,7 +197,7 @@ func (s *KVStore) doCompact(rev int64) {
 	}
 
 	// 2) delete en-masse entries where entry.modRev <= rev
-	start := kv.EncodeRevision(kv.Revision{}, kv.NewRevBytes())
+	start := kv.EncodeRevision(kv.Revision{Main: s.compactedMainRev}, kv.NewRevBytes())
 	endExcluded := kv.EncodeRevision(kv.Revision{Main: rev + 1}, kv.NewRevBytes())
 
 	// batch deletes
@@ -206,26 +206,22 @@ func (s *KVStore) doCompact(rev int64) {
 		numDeleted     int
 		lastRevVisited kv.Revision
 		maxBatchSize   = COMPACTION_BATCH_LIMIT
+		batch          = make([][]byte, 0, maxBatchSize)
 	)
 	for {
 		wtx := s.backend.WriteTx()
 		wtx.Lock()
-		var currBatch = 0
+		clear(batch)
 
 		err := wtx.UnsafeScan(schema.BucketKV, start, endExcluded, func(k, v []byte) error {
-			if currBatch >= maxBatchSize {
+			if len(batch) == maxBatchSize {
 				return fmt.Errorf("maxBatchSize exceeded")
 			}
-			currBatch++
-
 			bk := kv.DecodeKVBucketKey(k)
 			lastRevVisited = bk.Revision
 
 			if _, shouldRetain := retain[bk.Revision]; !shouldRetain {
-				if err := wtx.UnsafeDelete(schema.BucketKV, k); err != nil {
-					return err
-				}
-				numDeleted++
+				batch = append(batch, append([]byte{}, k...))
 			}
 			return nil
 		})
@@ -234,7 +230,15 @@ func (s *KVStore) doCompact(rev int64) {
 			s.logger.Error("compaction error: scanning returned an error", "error", err)
 		}
 
-		if err == nil || currBatch < maxBatchSize {
+		for _, k := range batch {
+			if err := wtx.UnsafeDelete(schema.BucketKV, k); err != nil {
+				s.logger.Error("compaction error: failed to delete key", "error", err)
+			} else {
+				numDeleted++
+			}
+		}
+
+		if err == nil || len(batch) < maxBatchSize {
 			// were finished
 			done = true
 		}
