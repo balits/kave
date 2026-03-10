@@ -98,3 +98,8 @@ Hello world
     - [ ] LICENSE from etcd: http://www.apache.org/licenses/LICENSE-2.0
     - [ ] batch kvindex updates, rollback on commit failure
     - [ ] mvcc.writer: support revision.sub++ on txn ops
+    - [ ] lease:
+        - [ ] type Lease
+        - [ ] type LeaseManager
+        - [ ] type LeaseQueue
+        - [ ] type Checkpoint / CHeckpointScheduler

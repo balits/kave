@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/balits/kave/internal/kv"
+	"github.com/balits/kave/internal/command"
 )
 
 var (
@@ -96,7 +96,7 @@ func main() {
 	case "get":
 		method = "GET"
 		url = url + "/get"
-		payload = kv.RangeCmd{
+		payload = command.RangeCmd{
 			Key:          []byte(key),
 			End:          []byte(end),
 			Limit:        0,
@@ -108,7 +108,7 @@ func main() {
 	case "put":
 		method = "POST"
 		url = url + "/put"
-		payload = kv.PutCmd{
+		payload = command.PutCmd{
 			Key:         []byte(key),
 			Value:       []byte(value),
 			LeaseID:     leaseID,
@@ -119,7 +119,7 @@ func main() {
 	case "del":
 		method = "DELETE"
 		url = url + "/del"
-		payload = kv.DeleteCmd{
+		payload = command.DeleteCmd{
 			Key:         []byte(key),
 			PrevEntries: prevEntries,
 		}
@@ -147,7 +147,7 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Println("< Status: ", response.Status)
-	var responseBody kv.Result
+	var responseBody command.Result
 	if err = json.NewDecoder(response.Body).Decode(&responseBody); err != nil {
 		fmt.Println("failed to parse response (probably error happened, therefore response payload wasn't kv.Result): ", err)
 		os.Exit(1)

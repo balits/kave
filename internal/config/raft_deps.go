@@ -9,7 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/balits/kave/internal/util"
+	"github.com/balits/kave/internal/logutil"
+	util "github.com/balits/kave/internal/logutil"
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
 )
@@ -19,10 +20,10 @@ type RaftDependencies struct {
 	SnapshotStore raft.SnapshotStore
 	StableStore   raft.StableStore
 	Transport     raft.Transport
-	Logger        *util.HcLogAdapter
+	Logger        *logutil.HcLogAdapter
 }
 
-func NewRaftConfig(nodeID string, logger *util.HcLogAdapter, logLevel slog.Level) *raft.Config {
+func NewRaftConfig(nodeID string, logger *logutil.HcLogAdapter, logLevel slog.Level) *raft.Config {
 	// tweak settings for easier testing
 	rc := raft.DefaultConfig()
 	rc.LocalID = raft.ServerID(nodeID)

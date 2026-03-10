@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/balits/kave/internal/config"
+	"github.com/balits/kave/internal/util"
 	"github.com/hashicorp/raft"
 )
 
@@ -79,7 +80,7 @@ func (p *peerService) GetLeader() (config.Peer, error) {
 }
 
 func (p *peerService) VerifyLeader(ctx context.Context) error {
-	return waitFuture(ctx, p.r.VerifyLeader())
+	return util.WaitFuture(ctx, p.r.VerifyLeader())
 }
 
 func (p *peerService) LaggingBehind() error {

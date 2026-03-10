@@ -9,7 +9,9 @@ import (
 
 	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/metrics"
+	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage/backend"
+	"github.com/balits/kave/internal/types"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -94,15 +96,15 @@ func (s *KVStore) Restore(r io.Reader) error {
 	}
 
 	lastRev := kv.Revision{Main: 0, Sub: 0}
-	min := kv.RevToBytes(lastRev, kv.NewRevBytes())
-	max := kv.RevToBytes(kv.Revision{Main: math.MaxInt64, Sub: math.MaxInt64}, kv.NewRevBytes())
+	min := kv.EncodeRevision(lastRev, kv.NewRevBytes())
+	max := kv.EncodeRevision(kv.Revision{Main: math.MaxInt64, Sub: math.MaxInt64}, kv.NewRevBytes())
 
 	s.kvIndex.Clear()
 	rtx := s.backend.ReadTx()
 	rtx.RLock()
-	rtx.UnsafeScan(kv.BucketMain, min, max, func(k, v []byte) error {
-		bk := kv.BytesToBucketKey(k)
-		entry, err := kv.DecodeEntry(v)
+	rtx.UnsafeScan(schema.BucketKV, min, max, func(k, v []byte) error {
+		bk := kv.DecodeKVBucketKey(k)
+		entry, err := types.DecodeEntry(v)
 		if err != nil {
 			s.logger.Error("restore error: failed to decode entry", "error", err)
 		}
@@ -113,20 +115,20 @@ func (s *KVStore) Restore(r io.Reader) error {
 		return nil
 	})
 
-	raftTermBytes, err := rtx.UnsafeGet(kv.BucketMeta, kv.MetaKeyRaftTerm)
+	raftTermBytes, err := rtx.UnsafeGet(schema.BucketMeta, schema.MetaKeyRaftTerm)
 	if err != nil {
 		s.logger.Error("restore error: failed to get raft term", "error", err)
 	}
-	raftIndexBytes, err := rtx.UnsafeGet(kv.BucketMeta, kv.MetaKeyRaftApplyIndex)
+	raftIndexBytes, err := rtx.UnsafeGet(schema.BucketMeta, schema.MetaKeyRaftApplyIndex)
 	if err != nil {
 		s.logger.Error("restore error: failed to get raft index", "error", err)
 	}
 	rtx.RUnlock()
-	term, err := kv.DecodeUint64(raftTermBytes)
+	term, err := types.DecodeUint64(raftTermBytes)
 	if err != nil {
 		s.logger.Error("restore error: failed to decode raft term", "error", err)
 	}
-	raftIndex, err := kv.DecodeUint64(raftIndexBytes)
+	raftIndex, err := types.DecodeUint64(raftIndexBytes)
 	if err != nil {
 		s.logger.Error("restore error: failed to decode raft index", "error", err)
 	}
@@ -167,8 +169,8 @@ func (s *KVStore) Compact(rev int64) (<-chan struct{}, error) {
 	{
 		wtx := s.backend.WriteTx()
 		wtx.Lock()
-		revBytes := kv.RevToBytes(kv.Revision{Main: rev}, kv.NewRevBytes())
-		wtx.UnsafePut(kv.BucketMeta, kv.MetaKeyCompactScheduled, revBytes)
+		revBytes := kv.EncodeRevision(kv.Revision{Main: rev}, kv.NewRevBytes())
+		wtx.UnsafePut(schema.BucketMeta, schema.MetaKeyCompactScheduled, revBytes)
 		wtx.Commit()
 		wtx.Unlock()
 	}
@@ -195,8 +197,8 @@ func (s *KVStore) doCompact(rev int64) {
 	}
 
 	// 2) delete en-masse entries where entry.modRev <= rev
-	start := kv.RevToBytes(kv.Revision{}, kv.NewRevBytes())
-	endExcluded := kv.RevToBytes(kv.Revision{Main: rev + 1}, kv.NewRevBytes())
+	start := kv.EncodeRevision(kv.Revision{}, kv.NewRevBytes())
+	endExcluded := kv.EncodeRevision(kv.Revision{Main: rev + 1}, kv.NewRevBytes())
 
 	// batch deletes
 	var (
@@ -210,17 +212,17 @@ func (s *KVStore) doCompact(rev int64) {
 		wtx.Lock()
 		var currBatch = 0
 
-		err := wtx.UnsafeScan(kv.BucketMain, start, endExcluded, func(k, v []byte) error {
+		err := wtx.UnsafeScan(schema.BucketKV, start, endExcluded, func(k, v []byte) error {
 			if currBatch >= maxBatchSize {
 				return fmt.Errorf("maxBatchSize exceeded")
 			}
 			currBatch++
 
-			bk := kv.BytesToBucketKey(k)
+			bk := kv.DecodeKVBucketKey(k)
 			lastRevVisited = bk.Revision
 
 			if _, shouldRetain := retain[bk.Revision]; !shouldRetain {
-				if err := wtx.UnsafeDelete(kv.BucketMain, k); err != nil {
+				if err := wtx.UnsafeDelete(schema.BucketKV, k); err != nil {
 					return err
 				}
 				numDeleted++
@@ -239,8 +241,8 @@ func (s *KVStore) doCompact(rev int64) {
 
 		if done {
 			// persist meta
-			revBytes := kv.RevToBytes(kv.Revision{Main: rev}, kv.NewRevBytes())
-			wtx.UnsafePut(kv.BucketMeta, kv.MetaKeyCompactFinished, revBytes)
+			revBytes := kv.EncodeRevision(kv.Revision{Main: rev}, kv.NewRevBytes())
+			wtx.UnsafePut(schema.BucketMeta, schema.MetaKeyCompactFinished, revBytes)
 		}
 
 		if err := wtx.Commit(); err != nil {
@@ -254,7 +256,7 @@ func (s *KVStore) doCompact(rev int64) {
 			break
 		}
 
-		start = kv.RevToBytes(lastRevVisited.AddSub(1), kv.NewRevBytes())
+		start = kv.EncodeRevision(lastRevVisited.AddSub(1), kv.NewRevBytes())
 	}
 
 	s.revMu.Lock()
@@ -266,4 +268,11 @@ func (s *KVStore) doCompact(rev int64) {
 
 func (s *KVStore) Ping() error {
 	return s.backend.Ping()
+}
+
+// NOTE: this is just a hack to use in tests
+// it just closes the backend
+// Doesnt clear the index or anything
+func (s *KVStore) Close() error {
+	return s.backend.Close()
 }

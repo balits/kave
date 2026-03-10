@@ -9,11 +9,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/balits/kave/internal/command"
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/fsm"
 	"github.com/balits/kave/internal/kv"
+	"github.com/balits/kave/internal/logutil"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
+	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
 	"github.com/balits/kave/internal/util"
@@ -39,18 +42,18 @@ func newTestKVService(t *testing.T) *testKVService {
 		},
 		StorageOpts: storage.StorageOptions{
 			Kind:           storage.StorageKindInMemory,
-			InitialBuckets: kv.AllBuckets,
+			InitialBuckets: schema.AllBuckets,
 			Dir:            t.TempDir(),
 		},
 		LogLevel: slog.LevelDebug,
 	}
-	logger := util.NewLoggerWithKind(cfg.LogLevel, os.Stdout, util.TextLoggerKind)
+	logger := logutil.NewLoggerWithKind(cfg.LogLevel, os.Stdout, logutil.TextLoggerKind)
 	reg := metrics.InitTestPrometheus()
 	b := backend.NewBackend(reg, cfg.StorageOpts)
 	kvstore := mvcc.NewKVStore(reg, logger, b)
-	fsmInst := fsm.NewFsm(logger, kvstore, cfg.Me.NodeID)
+	fsmInst := fsm.NewFsm(logger, kvstore, nil, cfg.Me.NodeID)
 
-	hclogger := util.NewHcLogAdapter(logger, cfg.LogLevel)
+	hclogger := logutil.NewHcLogAdapter(logger, cfg.LogLevel)
 	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, hclogger, cfg.LogLevel)
 	raftDeps, err := config.NewRaftDependencies(cfg.Me.GetRaftAddress(), cfg.StorageOpts.Dir, hclogger)
 	require.NoError(t, err, "failed to create raft deps")
@@ -86,12 +89,12 @@ func newTestKVService(t *testing.T) *testKVService {
 		_ = b.Close()
 	})
 
-	svc := &raftKvService{
-		raft:    r,
-		store:   kvstore,
-		logger:  logger,
-		peerSvc: NewPeerService(r, &cfg),
-	}
+	svc := NewKVService(
+		logger,
+		kvstore,
+		NewPeerService(r, &cfg),
+		util.NewProposeFunc(r),
+	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
@@ -104,9 +107,9 @@ func newTestKVService(t *testing.T) *testKVService {
 }
 
 // mustPut inserts a key-value pair and asserts no error.
-func (ts *testKVService) mustPut(key, value string) *kv.Result {
+func (ts *testKVService) mustPut(key, value string) *command.Result {
 	ts.t.Helper()
-	result, err := ts.Put(ts.ctx, kv.PutCmd{
+	result, err := ts.Put(ts.ctx, command.PutCmd{
 		Key:   []byte(key),
 		Value: []byte(value),
 	})
@@ -117,9 +120,9 @@ func (ts *testKVService) mustPut(key, value string) *kv.Result {
 }
 
 // mustPutWithPrev inserts a key-value pair with PrevEntry=true and asserts no error.
-func (ts *testKVService) mustPutWithPrev(key, value string) *kv.Result {
+func (ts *testKVService) mustPutWithPrev(key, value string) *command.Result {
 	ts.t.Helper()
-	result, err := ts.Put(ts.ctx, kv.PutCmd{
+	result, err := ts.Put(ts.ctx, command.PutCmd{
 		Key:       []byte(key),
 		Value:     []byte(value),
 		PrevEntry: true,
@@ -131,7 +134,7 @@ func (ts *testKVService) mustPutWithPrev(key, value string) *kv.Result {
 }
 
 // mustRange performs a range query and asserts no error.
-func (ts *testKVService) mustRange(cmd kv.RangeCmd) *kv.Result {
+func (ts *testKVService) mustRange(cmd command.RangeCmd) *command.Result {
 	ts.t.Helper()
 	result, err := ts.Range(ts.ctx, cmd)
 	require.NoError(ts.t, err, "Range failed")
@@ -141,9 +144,9 @@ func (ts *testKVService) mustRange(cmd kv.RangeCmd) *kv.Result {
 }
 
 // mustDelete performs a delete and asserts no error.
-func (ts *testKVService) mustDelete(key string, end string, prevEntries bool) *kv.Result {
+func (ts *testKVService) mustDelete(key string, end string, prevEntries bool) *command.Result {
 	ts.t.Helper()
-	cmd := kv.DeleteCmd{
+	cmd := command.DeleteCmd{
 		Key:         []byte(key),
 		PrevEntries: prevEntries,
 	}
@@ -187,7 +190,7 @@ func Test_KVService_Put_Overwrite(t *testing.T) {
 	require.Equal(t, int64(2), r2.Header.Revision)
 
 	// Verify the value was updated
-	rangeResult := ts.mustRange(kv.RangeCmd{Key: []byte("key")})
+	rangeResult := ts.mustRange(command.RangeCmd{Key: []byte("key")})
 	require.Len(t, rangeResult.Range.Entries, 1)
 	require.Equal(t, "v2", string(rangeResult.Range.Entries[0].Value))
 }
@@ -240,14 +243,14 @@ func Test_KVService_Put_LargeValue(t *testing.T) {
 		largeVal[i] = byte(i % 256)
 	}
 
-	result, err := ts.Put(ts.ctx, kv.PutCmd{
+	result, err := ts.Put(ts.ctx, command.PutCmd{
 		Key:   []byte("bigkey"),
 		Value: largeVal,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, result.Put)
 
-	rangeResult := ts.mustRange(kv.RangeCmd{Key: []byte("bigkey")})
+	rangeResult := ts.mustRange(command.RangeCmd{Key: []byte("bigkey")})
 	require.Len(t, rangeResult.Range.Entries, 1)
 	require.Equal(t, largeVal, rangeResult.Range.Entries[0].Value)
 }
@@ -257,7 +260,7 @@ func Test_KVService_Range_ExactKey(t *testing.T) {
 
 	ts.mustPut("foo", "bar")
 
-	result := ts.mustRange(kv.RangeCmd{Key: []byte("foo")})
+	result := ts.mustRange(command.RangeCmd{Key: []byte("foo")})
 
 	require.Equal(t, 1, result.Range.Count)
 	require.Len(t, result.Range.Entries, 1)
@@ -270,7 +273,7 @@ func Test_KVService_Range_NonExistent(t *testing.T) {
 
 	ts.mustPut("foo", "bar")
 
-	result := ts.mustRange(kv.RangeCmd{Key: []byte("missing")})
+	result := ts.mustRange(command.RangeCmd{Key: []byte("missing")})
 
 	require.Equal(t, 0, result.Range.Count)
 	require.Empty(t, result.Range.Entries)
@@ -288,7 +291,7 @@ func Test_KVService_Range_DoesNotPrefixScan(t *testing.T) {
 	ts.mustPut("g", "nope")
 
 	// Range with end=nil should return ONLY the exact key "f"
-	result := ts.mustRange(kv.RangeCmd{Key: []byte("f")})
+	result := ts.mustRange(command.RangeCmd{Key: []byte("f")})
 
 	require.Equal(t, 1, result.Range.Count, "point query must return exactly 1 key")
 	require.Len(t, result.Range.Entries, 1, "point query must return exactly 1 entry")
@@ -305,7 +308,7 @@ func Test_KVService_Range_ExactKeyAmongSimilar(t *testing.T) {
 	ts.mustPut("app1", "wrong")
 	ts.mustPut("ap", "wrong")
 
-	result := ts.mustRange(kv.RangeCmd{Key: []byte("app")})
+	result := ts.mustRange(command.RangeCmd{Key: []byte("app")})
 	require.Len(t, result.Range.Entries, 1)
 	require.Equal(t, "app", string(result.Range.Entries[0].Key))
 	require.Equal(t, "correct", string(result.Range.Entries[0].Value))
@@ -321,7 +324,7 @@ func Test_KVService_Range_WithEnd(t *testing.T) {
 	ts.mustPut("e", "5")
 
 	// Range [b, d) should return b, c
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key: []byte("b"),
 		End: []byte("d"),
 	})
@@ -339,7 +342,7 @@ func Test_KVService_Range_WithEnd_Empty(t *testing.T) {
 	ts.mustPut("d", "4")
 
 	// Range [b, d) should return nothing (no keys in that range)
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key: []byte("b"),
 		End: []byte("d"),
 	})
@@ -357,7 +360,7 @@ func Test_KVService_Range_WithLimit(t *testing.T) {
 	ts.mustPut("d", "4")
 	ts.mustPut("e", "5")
 
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key:   []byte("a"),
 		End:   []byte("f"),
 		Limit: 3,
@@ -377,7 +380,7 @@ func Test_KVService_Range_WithLimit_One(t *testing.T) {
 	ts.mustPut("y", "2")
 	ts.mustPut("z", "3")
 
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key:   []byte("x"),
 		End:   []byte("zz"),
 		Limit: 1,
@@ -395,7 +398,7 @@ func Test_KVService_Range_CountOnly(t *testing.T) {
 	ts.mustPut("b", "2")
 	ts.mustPut("c", "3")
 
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key:       []byte("a"),
 		End:       []byte("d"),
 		CountOnly: true,
@@ -408,7 +411,7 @@ func Test_KVService_Range_CountOnly(t *testing.T) {
 func Test_KVService_Range_EmptyStore(t *testing.T) {
 	ts := newTestKVService(t)
 
-	result := ts.mustRange(kv.RangeCmd{Key: []byte("anything")})
+	result := ts.mustRange(command.RangeCmd{Key: []byte("anything")})
 
 	require.Equal(t, 0, result.Range.Count)
 	require.Empty(t, result.Range.Entries)
@@ -421,7 +424,7 @@ func Test_KVService_Range_AfterOverwrite(t *testing.T) {
 	ts.mustPut("key", "v2")
 	ts.mustPut("key", "v3")
 
-	result := ts.mustRange(kv.RangeCmd{Key: []byte("key")})
+	result := ts.mustRange(command.RangeCmd{Key: []byte("key")})
 
 	require.Len(t, result.Range.Entries, 1, "should return only the latest version")
 	require.Equal(t, "v3", string(result.Range.Entries[0].Value))
@@ -435,7 +438,7 @@ func Test_KVService_Range_AtRevision(t *testing.T) {
 	ts.mustPut("key", "v3") // rev 3
 
 	// Read at revision 1
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key:      []byte("key"),
 		Revision: 1,
 	})
@@ -443,7 +446,7 @@ func Test_KVService_Range_AtRevision(t *testing.T) {
 	require.Equal(t, "v1", string(result.Range.Entries[0].Value))
 
 	// Read at revision 2
-	result = ts.mustRange(kv.RangeCmd{
+	result = ts.mustRange(command.RangeCmd{
 		Key:      []byte("key"),
 		Revision: 2,
 	})
@@ -457,7 +460,7 @@ func Test_KVService_Range_AfterDelete(t *testing.T) {
 	ts.mustPut("foo", "bar")
 	ts.mustDelete("foo", "", false)
 
-	result := ts.mustRange(kv.RangeCmd{Key: []byte("foo")})
+	result := ts.mustRange(command.RangeCmd{Key: []byte("foo")})
 
 	require.Equal(t, 0, result.Range.Count, "deleted key should not appear")
 	require.Empty(t, result.Range.Entries)
@@ -470,7 +473,7 @@ func Test_KVService_Range_DeletedKeyAtOldRevision(t *testing.T) {
 	ts.mustDelete("foo", "", false) // rev 2
 
 	// Should still be visible at rev 1
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key:      []byte("foo"),
 		Revision: 1,
 	})
@@ -488,7 +491,7 @@ func Test_KVService_Range_AllKeysOrdered(t *testing.T) {
 	ts.mustPut("date", "4")
 	ts.mustPut("zorro", "5") // excluded in [a, z)
 
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key: []byte("a"),
 		End: []byte("z"),
 	})
@@ -509,7 +512,7 @@ func Test_KVService_Range_SingleKeyEnd(t *testing.T) {
 	ts.mustPut("c", "3")
 
 	// Range [b, c) should return only b
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key: []byte("b"),
 		End: []byte("c"),
 	})
@@ -525,7 +528,7 @@ func Test_KVService_Range_EntryMetadata(t *testing.T) {
 	ts.mustPut("meta", "v1") // rev 1, createRev=1, modRev=1, version=1
 	ts.mustPut("meta", "v2") // rev 2, createRev=1, modRev=2, version=2
 
-	result := ts.mustRange(kv.RangeCmd{Key: []byte("meta")})
+	result := ts.mustRange(command.RangeCmd{Key: []byte("meta")})
 
 	require.Len(t, result.Range.Entries, 1)
 	entry := result.Range.Entries[0]
@@ -542,7 +545,7 @@ func Test_KVService_Range_ReturnsHeaderRevision(t *testing.T) {
 	ts.mustPut("a", "1") // rev 1
 	ts.mustPut("b", "2") // rev 2
 
-	result := ts.mustRange(kv.RangeCmd{Key: []byte("a")})
+	result := ts.mustRange(command.RangeCmd{Key: []byte("a")})
 
 	require.Equal(t, int64(2), result.Header.Revision, "Header revision should be the store's current revision")
 }
@@ -558,7 +561,7 @@ func Test_KVService_RangePrefix_SingleKeyEnd(t *testing.T) {
 
 	require.Equal(t, []byte("g"), kv.PrefixEnd([]byte("f")))
 
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key:    []byte("f"),
 		End:    []byte("gets_discarded_anyways"),
 		Prefix: true,
@@ -582,7 +585,7 @@ func Test_KVService_RangePrefix_LongKeyEnd(t *testing.T) {
 
 	require.Equal(t, []byte("fop"), kv.PrefixEnd([]byte("foo")))
 
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key:    []byte("foo"),
 		Prefix: true,
 	})
@@ -600,7 +603,7 @@ func Test_KVService_RangePrefix_NoMatchingKeys(t *testing.T) {
 	ts.mustPut("b", "2")
 	ts.mustPut("c", "3")
 
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key:    []byte("d"),
 		Prefix: true,
 	})
@@ -618,7 +621,7 @@ func Test_KVService_RangePrefix_All0xFF_Prefix(t *testing.T) {
 	}
 	ts.mustPut("\xff\xff", "bar")
 
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key:    []byte{}, // empty prefix -> PrefixEnd returns nil
 		Prefix: true,
 	})
@@ -659,7 +662,7 @@ func Test_KVService_Delete_Range(t *testing.T) {
 	require.Equal(t, int64(2), result.Delete.NumDeleted)
 
 	// Verify remaining keys
-	remaining := ts.mustRange(kv.RangeCmd{Key: []byte("a"), End: []byte("z")})
+	remaining := ts.mustRange(command.RangeCmd{Key: []byte("a"), End: []byte("z")})
 	require.Len(t, remaining.Range.Entries, 2)
 	require.Equal(t, "a", string(remaining.Range.Entries[0].Key))
 	require.Equal(t, "d", string(remaining.Range.Entries[1].Key))
@@ -694,7 +697,7 @@ func Test_KVService_Delete_ThenRange(t *testing.T) {
 	ts.mustPut("key", "value")
 	ts.mustDelete("key", "", false)
 
-	result := ts.mustRange(kv.RangeCmd{Key: []byte("key")})
+	result := ts.mustRange(command.RangeCmd{Key: []byte("key")})
 	require.Equal(t, 0, result.Range.Count, "deleted key should not be returned by Range")
 }
 
@@ -707,11 +710,11 @@ func Test_KVService_Delete_DoesNotAffectOtherKeys(t *testing.T) {
 
 	ts.mustDelete("delete_me", "", false)
 
-	r1 := ts.mustRange(kv.RangeCmd{Key: []byte("keep1")})
+	r1 := ts.mustRange(command.RangeCmd{Key: []byte("keep1")})
 	require.Len(t, r1.Range.Entries, 1)
 	require.Equal(t, "v1", string(r1.Range.Entries[0].Value))
 
-	r2 := ts.mustRange(kv.RangeCmd{Key: []byte("keep2")})
+	r2 := ts.mustRange(command.RangeCmd{Key: []byte("keep2")})
 	require.Len(t, r2.Range.Entries, 1)
 	require.Equal(t, "v3", string(r2.Range.Entries[0].Value))
 }
@@ -735,7 +738,7 @@ func Test_KVService_PutDeletePut(t *testing.T) {
 	ts.mustDelete("key", "", false) // rev 2
 	ts.mustPut("key", "v2")         // rev 3
 
-	result := ts.mustRange(kv.RangeCmd{Key: []byte("key")})
+	result := ts.mustRange(command.RangeCmd{Key: []byte("key")})
 	require.Len(t, result.Range.Entries, 1)
 	require.Equal(t, "v2", string(result.Range.Entries[0].Value))
 
@@ -752,7 +755,7 @@ func Test_KVService_VersionTracking(t *testing.T) {
 		ts.mustPut("counter", fmt.Sprintf("v%d", i))
 	}
 
-	result := ts.mustRange(kv.RangeCmd{Key: []byte("counter")})
+	result := ts.mustRange(command.RangeCmd{Key: []byte("counter")})
 	require.Len(t, result.Range.Entries, 1)
 
 	entry := result.Range.Entries[0]
@@ -769,7 +772,7 @@ func Test_KVService_ManyKeysRangeAll(t *testing.T) {
 		ts.mustPut(k, fmt.Sprintf("val_%d", i))
 	}
 
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key: []byte("a"),
 		//End: []byte("zz"), // TODO: z stops "zeta" from being included, "zz" does include "zeta" (since z > e)
 		End: []byte("{"), // '{' is the next ASCII char after 'z', so it will include all keys starting with alphanumerics
@@ -787,7 +790,7 @@ func Test_KVService_RangeRevisionConsistency(t *testing.T) {
 	ts.mustPut("c", "3") // rev 3
 
 	// At revision 2, only a and b should exist
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key:      []byte("a"),
 		End:      []byte("z"),
 		Revision: 2,
@@ -798,7 +801,7 @@ func Test_KVService_RangeRevisionConsistency(t *testing.T) {
 	require.Equal(t, "b", string(result.Range.Entries[1].Key))
 
 	// At revision 1, only a should exist
-	result = ts.mustRange(kv.RangeCmd{
+	result = ts.mustRange(command.RangeCmd{
 		Key:      []byte("a"),
 		End:      []byte("z"),
 		Revision: 1,
@@ -817,14 +820,14 @@ func Test_KVService_DeleteThenRangeAtOldRevision(t *testing.T) {
 	ts.mustDelete("b", "", false) // rev 4
 
 	// At current revision, b should be gone
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key: []byte("a"),
 		End: []byte("d"),
 	})
 	require.Equal(t, 2, result.Range.Count)
 
 	// At revision 3, b should still exist
-	result = ts.mustRange(kv.RangeCmd{
+	result = ts.mustRange(command.RangeCmd{
 		Key:      []byte("a"),
 		End:      []byte("d"),
 		Revision: 3,
@@ -853,18 +856,18 @@ func Test_KVService_Range_PrefixScan_MultiplePatterns(t *testing.T) {
 	}
 
 	// Point query for "a" should return ONLY "a"
-	result := ts.mustRange(kv.RangeCmd{Key: []byte("a")})
+	result := ts.mustRange(command.RangeCmd{Key: []byte("a")})
 	require.Len(t, result.Range.Entries, 1, "point query for 'a' should return exactly 1")
 	require.Equal(t, "a", string(result.Range.Entries[0].Key))
 	require.Equal(t, "single", string(result.Range.Entries[0].Value))
 
 	// Point query for "aa" should return ONLY "aa"
-	result = ts.mustRange(kv.RangeCmd{Key: []byte("aa")})
+	result = ts.mustRange(command.RangeCmd{Key: []byte("aa")})
 	require.Len(t, result.Range.Entries, 1, "point query for 'aa' should return exactly 1")
 	require.Equal(t, "aa", string(result.Range.Entries[0].Key))
 
 	// Point query for "/path" should return ONLY "/path"
-	result = ts.mustRange(kv.RangeCmd{Key: []byte("/path")})
+	result = ts.mustRange(command.RangeCmd{Key: []byte("/path")})
 	require.Len(t, result.Range.Entries, 1, "point query for '/path' should return exactly 1")
 	require.Equal(t, "/path", string(result.Range.Entries[0].Key))
 }
@@ -877,7 +880,7 @@ func Test_KVService_Range_EndBoundaryIsExclusive(t *testing.T) {
 	ts.mustPut("c", "3")
 
 	// Range [a, c) should NOT include c
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key: []byte("a"),
 		End: []byte("c"),
 	})
@@ -895,7 +898,7 @@ func Test_KVService_Range_LimitZeroMeansNoLimit(t *testing.T) {
 		ts.mustPut(fmt.Sprintf("key%02d", i), fmt.Sprintf("val%d", i))
 	}
 
-	result := ts.mustRange(kv.RangeCmd{
+	result := ts.mustRange(command.RangeCmd{
 		Key:   []byte("key00"),
 		End:   []byte("key99"),
 		Limit: 0,
@@ -910,7 +913,7 @@ func Test_KVService_Range_FutureRevision(t *testing.T) {
 
 	ts.mustPut("key", "value") // rev 1
 
-	_, err := ts.Range(ts.ctx, kv.RangeCmd{
+	_, err := ts.Range(ts.ctx, command.RangeCmd{
 		Key:      []byte("key"),
 		Revision: 9999,
 	})
@@ -924,7 +927,7 @@ func Test_KVService_HeaderFields(t *testing.T) {
 
 	ts.mustPut("key", "value")
 
-	result := ts.mustRange(kv.RangeCmd{Key: []byte("key")})
+	result := ts.mustRange(command.RangeCmd{Key: []byte("key")})
 
 	require.NotEmpty(t, result.Header.NodeID, "NodeID should be set")
 	require.Greater(t, result.Header.Revision, int64(0), "Revision should be positive")
@@ -934,7 +937,7 @@ func Test_KVService_Put_HeaderRevisionMatchesRange(t *testing.T) {
 	ts := newTestKVService(t)
 
 	putResult := ts.mustPut("key", "value")
-	rangeResult := ts.mustRange(kv.RangeCmd{Key: []byte("key")})
+	rangeResult := ts.mustRange(command.RangeCmd{Key: []byte("key")})
 
 	require.Equal(t, putResult.Header.Revision, rangeResult.Header.Revision,
 		"put result revision should match range header revision")
