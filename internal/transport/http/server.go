@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/balits/kave/internal/command"
 	"github.com/balits/kave/internal/config"
-	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/service"
 	"github.com/balits/kave/internal/transport"
 	"github.com/hashicorp/raft"
@@ -115,7 +115,7 @@ func (s *HttpServer) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cmd kv.RangeCmd
+	var cmd command.RangeCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		s.logger.Error(jsonDecodeErrMsg, "error", err)
 		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
@@ -155,7 +155,7 @@ func (s *HttpServer) handlePut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cmd kv.PutCmd
+	var cmd command.PutCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		s.logger.Error(jsonDecodeErrMsg, "error", err)
 		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
@@ -193,7 +193,7 @@ func (s *HttpServer) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cmd kv.DeleteCmd
+	var cmd command.DeleteCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		s.logger.Error("Failed to decode request body", "error", err)
 		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
@@ -326,7 +326,7 @@ func (s *HttpServer) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status": "ok"}`))
 }
 
-func (s *HttpServer) writeJSON(w http.ResponseWriter, result kv.Result, status int) {
+func (s *HttpServer) writeJSON(w http.ResponseWriter, result command.Result, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	bytes, err := json.Marshal(result)
 	if err != nil {

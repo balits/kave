@@ -13,6 +13,7 @@ import (
 
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/transport"
+	"github.com/balits/kave/internal/util"
 	"github.com/hashicorp/raft"
 )
 
@@ -61,13 +62,13 @@ func (s *clusterService) AddToCluster(ctx context.Context, req transport.JoinReq
 	//TODO Info -> Debug
 	s.logger.Info("Adding peer to cluster", "peer_id", req.NodeID, "peer_addr", req.RaftAddr)
 
-	if err := waitFuture(ctx, s.raft.VerifyLeader()); err != nil {
+	if err := util.WaitFuture(ctx, s.raft.VerifyLeader()); err != nil {
 		return fmt.Errorf("failed to add peer to cluster: %v", err)
 	}
 
 	fut := s.raft.GetConfiguration()
 
-	if err := waitFuture(ctx, fut); err != nil {
+	if err := util.WaitFuture(ctx, fut); err != nil {
 		return fmt.Errorf("failed to add peer to cluster: %v", err)
 	}
 
@@ -80,7 +81,7 @@ func (s *clusterService) AddToCluster(ctx context.Context, req transport.JoinReq
 	}
 
 	fut2 := s.raft.AddVoter(raft.ServerID(req.NodeID), raft.ServerAddress(req.RaftAddr), 0, 5*time.Second)
-	if err := waitFuture(ctx, fut2); err != nil {
+	if err := util.WaitFuture(ctx, fut2); err != nil {
 		return fmt.Errorf("failed to add peer to cluster: %v", err)
 	}
 	s.logger.Info("Peer added successfully", "peer_id", req.NodeID, "peer_addr", req.RaftAddr)

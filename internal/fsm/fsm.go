@@ -6,7 +6,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/balits/kave/internal/kv"
+	"github.com/balits/kave/internal/command"
+	"github.com/balits/kave/internal/lease"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/hashicorp/raft"
@@ -17,20 +18,22 @@ var (
 )
 
 type Fsm struct {
-	engine  *mvcc.Engine
-	store   *mvcc.KVStore
-	logger  *slog.Logger
-	_nodeID string // hack to set Result.Header.NodeID
+	engine   *mvcc.Engine
+	leaseMgr *lease.LeaseManager
+	store    *mvcc.KVStore
+	logger   *slog.Logger
+	_nodeID  string // hack to set Result.Header.NodeID
 
 	metrics *metrics.RaftMetrics
 }
 
-func NewFsm(logger *slog.Logger, store *mvcc.KVStore, nodeID string) *Fsm {
+func NewFsm(logger *slog.Logger, store *mvcc.KVStore, leaseMgr *lease.LeaseManager, nodeID string) *Fsm {
 	f := &Fsm{
-		engine:  mvcc.NewEngine(store),
-		store:   store,
-		logger:  logger.With("component", "fsm"),
-		_nodeID: nodeID,
+		engine:   mvcc.NewEngine(store),
+		leaseMgr: leaseMgr,
+		store:    store,
+		logger:   logger.With("component", "fsm"),
+		_nodeID:  nodeID,
 	}
 	return f
 }
@@ -43,19 +46,19 @@ func (f *Fsm) InjectMetrics(m *metrics.RaftMetrics) {
 // 1) validate command structure and arguments before callig Apply
 func (f *Fsm) Apply(log *raft.Log) interface{} {
 	start := time.Now()
-	defer f.metrics.ApplyLatency.Observe(time.Since(start).Seconds())
+	defer f.metrics.ApplyDurationSec.Observe(time.Since(start).Seconds())
 	f.metrics.ApplyTotal.Inc()
 
-	cmd, err := kv.DecodeCommand(log.Data)
+	cmd, err := command.Decode(log.Data)
 	if err != nil {
-		return kv.Result{Error: err}
+		return command.Result{Error: err}
 	}
 
 	f.store.UpdateRaftMeta(log.Index, log.Term)
 
 	res, err := f.engine.ApplyWrite(cmd)
 	if err != nil {
-		return kv.Result{Error: err}
+		return command.Result{Error: err}
 	}
 	res.Header.RaftTerm = log.Term
 	res.Header.RaftIndex = log.Index
@@ -71,7 +74,11 @@ func (f *Fsm) Snapshot() (raft.FSMSnapshot, error) {
 
 // Restore can be slower, it will never run concurrently with Apply
 func (f *Fsm) Restore(snapshot io.ReadCloser) error {
-	return f.store.Restore(snapshot)
+	err := f.store.Restore(snapshot)
+	if err != nil {
+		return err
+	}
+	return f.leaseMgr.Restore(f.store)
 }
 
 func (f *Fsm) Metrics() *metrics.RaftMetrics {

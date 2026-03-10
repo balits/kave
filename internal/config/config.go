@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/balits/kave/internal/kv"
+	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
 )
 
@@ -114,7 +114,7 @@ func (cj *ConfigJson) ToConfig() (*Config, error) {
 		StorageOpts: storage.StorageOptions{
 			Kind:           kind,
 			Dir:            cj.Dir,
-			InitialBuckets: kv.AllBuckets,
+			InitialBuckets: schema.AllBuckets,
 		},
 		LogLevel: logLevel,
 		Peers:    peers,

@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/balits/kave/internal/kv"
+	"github.com/balits/kave/internal/schema"
+	"github.com/balits/kave/internal/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -335,12 +336,12 @@ func Test_WriterEndPersistsRaftMeta(t *testing.T) {
 
 	rtx := s.backend.ReadTx()
 	rtx.RLock()
-	indexBytes, _ := rtx.UnsafeGet(kv.BucketMeta, kv.MetaKeyRaftApplyIndex)
-	termBytes, _ := rtx.UnsafeGet(kv.BucketMeta, kv.MetaKeyRaftTerm)
+	indexBytes, _ := rtx.UnsafeGet(schema.BucketMeta, schema.MetaKeyRaftApplyIndex)
+	termBytes, _ := rtx.UnsafeGet(schema.BucketMeta, schema.MetaKeyRaftTerm)
 	rtx.RUnlock()
 
-	idx, _ := kv.DecodeUint64(indexBytes)
-	term, _ := kv.DecodeUint64(termBytes)
+	idx, _ := types.DecodeUint64(indexBytes)
+	term, _ := types.DecodeUint64(termBytes)
 
 	if idx != 42 {
 		t.Errorf("raft index = %d, want 42", idx)
@@ -360,7 +361,7 @@ func Test_WriterEndNoRaftMetaWhenZero(t *testing.T) {
 
 	rtx := s.backend.ReadTx()
 	rtx.RLock()
-	indexBytes, _ := rtx.UnsafeGet(kv.BucketMeta, kv.MetaKeyRaftApplyIndex)
+	indexBytes, _ := rtx.UnsafeGet(schema.BucketMeta, schema.MetaKeyRaftApplyIndex)
 	rtx.RUnlock()
 
 	if indexBytes != nil {

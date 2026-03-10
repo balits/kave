@@ -1,7 +1,10 @@
-package kv
+package command
 
 import (
 	"bytes"
+	"fmt"
+
+	"github.com/balits/kave/internal/types"
 )
 
 // TODO: no checks for union field
@@ -12,12 +15,30 @@ type Comparison struct {
 	TargetUnion CompareTargetValue `json:"target_value"` // actual value of Target
 }
 
-// MatchZeroValue returns true if the comparison matches against a zero value (i.e. no metadata or value)
-func (c *Comparison) MatchZeroValue() bool {
-	return c.Eval(EmptyEntry)
+func (c *Comparison) Check() error {
+	if len(c.Key) == 0 {
+		return fmt.Errorf("comparison key is required")
+	}
+	switch c.Operator {
+	case OperatorEqual, OperatorGreaterThan, OperatorGreaterEqual, OperatorLessThan, OperatorLessEqual, OperatorNotEqual:
+		// ok
+	default:
+		return fmt.Errorf("invalid comparison operator: %s", c.Operator)
+	}
+	switch c.Target {
+	case FieldValue, FieldCreate, FieldMod, FieldVersion:
+		// ok
+	default:
+		return fmt.Errorf("invalid comparison target field: %s", c.Target)
+	}
+	return nil
 }
 
-func (c *Comparison) Eval(targetEntry Entry) (result bool) {
+func (c *Comparison) EvalEmpty() bool {
+	return c.Eval(types.Entry{})
+}
+
+func (c *Comparison) Eval(targetEntry types.Entry) (result bool) {
 	var t CompareTargetValue
 
 	switch c.Target {

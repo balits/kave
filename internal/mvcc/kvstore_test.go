@@ -7,6 +7,7 @@ import (
 
 	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/metrics"
+	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
 )
@@ -16,7 +17,7 @@ func newTestKVStore() *KVStore {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	b := backend.NewBackend(reg, storage.StorageOptions{
 		Kind:           storage.StorageKindInMemory,
-		InitialBuckets: kv.AllBuckets,
+		InitialBuckets: schema.AllBuckets,
 	})
 	return NewKVStore(reg, logger, b)
 }

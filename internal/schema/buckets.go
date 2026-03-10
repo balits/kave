@@ -1,10 +1,10 @@
-package kv
+package schema
 
 import "github.com/balits/kave/internal/storage"
 
 const (
 	// Append only history we store revision(main, sub) -> Entry{Key,Value,CreateRev,ModRev,Version,LeaseID}
-	BucketMain storage.Bucket = "main"
+	BucketKV storage.Bucket = "kv"
 
 	// Internal bucket for storing current_revision, compacted_revision and consistent_index
 	BucketMeta storage.Bucket = "_meta"
@@ -13,4 +13,4 @@ const (
 	BucketLeaseWIP storage.Bucket = "lease"
 )
 
-var AllBuckets = []storage.Bucket{BucketMain, BucketMeta, BucketLeaseWIP}
+var AllBuckets = []storage.Bucket{BucketKV, BucketMeta, BucketLeaseWIP}

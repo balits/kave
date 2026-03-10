@@ -5,7 +5,9 @@ import (
 	"time"
 
 	"github.com/balits/kave/internal/kv"
+	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage/backend"
+	"github.com/balits/kave/internal/types"
 )
 
 type Writer interface {
@@ -28,14 +30,14 @@ type Writer interface {
 
 	// Abort discards all changes and releases locks. It should be called if the caller decides not to commit the transaction.
 	Abort()
-	Changes() []kv.Entry
+	Changes() []types.Entry
 }
 
 type writer struct {
 	store    *KVStore
 	writeTx  backend.WriteTx
 	startRev kv.Revision
-	changes  []kv.Entry
+	changes  []types.Entry
 	txnMode  bool
 
 	startTime time.Time
@@ -54,12 +56,12 @@ func newWriter(
 	}
 }
 
-func (w *writer) Revision() kv.Revision { return w.startRev }
-func (w *writer) Changes() []kv.Entry   { return w.changes }
+func (w *writer) Revision() kv.Revision  { return w.startRev }
+func (w *writer) Changes() []types.Entry { return w.changes }
 
 // delegates
 
-func (w *writer) Get(key []byte, rev int64) *kv.Entry {
+func (w *writer) Get(key []byte, rev int64) *types.Entry {
 	entries, _, _, err := w.Range(key, nil, rev, 1)
 	if err != nil {
 		return nil
@@ -70,7 +72,7 @@ func (w *writer) Get(key []byte, rev int64) *kv.Entry {
 	return &entries[0]
 }
 
-func (w *writer) Range(key, end []byte, rev int64, limit int64) (entries []kv.Entry, count int, currentRev int64, err error) {
+func (w *writer) Range(key, end []byte, rev int64, limit int64) (entries []types.Entry, count int, currentRev int64, err error) {
 	start := time.Now()
 	w.store.revMu.RLock()
 	curRevMain := w.store.currentRev.Main
@@ -78,7 +80,7 @@ func (w *writer) Range(key, end []byte, rev int64, limit int64) (entries []kv.En
 	w.store.revMu.RUnlock()
 
 	w.store.metrics.ReadsTotal.Inc()
-	defer w.store.metrics.ReadLatency.Observe(time.Since(start).Seconds())
+	defer w.store.metrics.ReadDurationSec.Observe(time.Since(start).Seconds())
 
 	if rev > curRevMain {
 		return nil, 0, curRevMain, fmt.Errorf("future revision requested")
@@ -100,16 +102,16 @@ func (w *writer) Range(key, end []byte, rev int64, limit int64) (entries []kv.En
 		lim = len(revpairs)
 	}
 
-	entries = make([]kv.Entry, 0, lim)
+	entries = make([]types.Entry, 0, lim)
 	revBytes := kv.NewRevBytes()
 	for _, rp := range revpairs[:lim] {
-		revBytes = kv.RevToBytes(rp, revBytes)
-		entryBytes, err := w.writeTx.UnsafeGet(kv.BucketMain, revBytes)
+		revBytes = kv.EncodeRevision(rp, revBytes)
+		entryBytes, err := w.writeTx.UnsafeGet(schema.BucketKV, revBytes)
 		if err != nil || entryBytes == nil {
 			w.store.logger.Error("range: revision not found in backend", "main", rp.Main, "sub", rp.Sub)
 			continue
 		}
-		entry, err := kv.DecodeEntry(entryBytes)
+		entry, err := types.DecodeEntry(entryBytes)
 		if err != nil {
 			w.store.logger.Error("range: failed to unmarshal entry", "err", err)
 			continue
@@ -141,9 +143,9 @@ func (w *writer) put(key, value []byte) error {
 
 	idxRev := kv.Revision{Main: nextRev, Sub: int64(len(w.changes))}
 	idxRevBytes := kv.NewRevBytes()
-	idxRevBytes = kv.RevToBytes(idxRev, idxRevBytes)
+	idxRevBytes = kv.EncodeRevision(idxRev, idxRevBytes)
 
-	entry := kv.Entry{
+	entry := types.Entry{
 		Key:       key,
 		Value:     value,
 		CreateRev: createRev,
@@ -151,12 +153,12 @@ func (w *writer) put(key, value []byte) error {
 		Version:   version + 1,
 	}
 
-	d, err := kv.EncodeEntry(entry)
+	d, err := types.EncodeEntry(entry)
 	if err != nil {
 		return fmt.Errorf("failed to encode entry: %v", err)
 	}
 
-	if err := w.writeTx.UnsafePut(kv.BucketMain, idxRevBytes, d); err != nil {
+	if err := w.writeTx.UnsafePut(schema.BucketKV, idxRevBytes, d); err != nil {
 		return fmt.Errorf("failed to put entry: %v", err)
 	}
 	if err := w.store.kvIndex.Put(key, idxRev); err != nil {
@@ -212,18 +214,18 @@ func (w *writer) DeleteKey(key []byte) (count int64, rev kv.Revision, err error)
 }
 
 func (w *writer) deleteKey(key []byte) error {
-	bk := kv.NewBucketKey(w.store.currentRev.Main+1, int64(len(w.changes)), true)
+	bk := kv.NewKVBucketKey(w.store.currentRev.Main+1, int64(len(w.changes)), true)
 	bkBytes := kv.NewRevBytes()
-	bkBytes = kv.BucketKeyToBytes(bk, bkBytes)
+	bkBytes = kv.EncodeKVBucketKey(bk, bkBytes)
 
-	entry := kv.Entry{Key: key}
-	entryBytes, err := kv.EncodeEntry(entry)
+	entry := types.Entry{Key: key}
+	entryBytes, err := types.EncodeEntry(entry)
 	if err != nil {
 		return fmt.Errorf("writer.deleteKey(): failed to encode entry: %v", err)
 	}
 
 	// update history
-	err = w.writeTx.UnsafePut(kv.BucketMain, bkBytes, entryBytes)
+	err = w.writeTx.UnsafePut(schema.BucketKV, bkBytes, entryBytes)
 	if err != nil {
 		return fmt.Errorf("writer.deleteKey(): failed to put tombstone entry: %v", err)
 	}
@@ -249,19 +251,19 @@ func (w *writer) End() {
 	if len(w.changes) != 0 {
 		w.store.revMu.Lock()
 		w.store.currentRev = kv.Revision{Main: w.store.currentRev.Main + 1}
-		w.writeTx.UnsafePut(kv.BucketMeta, kv.MetaKeyCurrentRevision, kv.EncodeUint64(uint64(w.store.currentRev.Main)))
+		w.writeTx.UnsafePut(schema.BucketMeta, schema.MetaKeyCurrentRevision, types.EncodeUint64(uint64(w.store.currentRev.Main)))
 	}
 
 	if w.store.applyIndex > 0 {
-		w.writeTx.UnsafePut(kv.BucketMeta, kv.MetaKeyRaftApplyIndex, kv.EncodeUint64(w.store.applyIndex))
-		w.writeTx.UnsafePut(kv.BucketMeta, kv.MetaKeyRaftTerm, kv.EncodeUint64(w.store.raftTerm))
+		w.writeTx.UnsafePut(schema.BucketMeta, schema.MetaKeyRaftApplyIndex, types.EncodeUint64(w.store.applyIndex))
+		w.writeTx.UnsafePut(schema.BucketMeta, schema.MetaKeyRaftTerm, types.EncodeUint64(w.store.raftTerm))
 	}
 
 	if err := w.writeTx.Commit(); err != nil {
 		w.store.logger.Error("failed to commit write tx", "error", err)
 	} else {
 		w.store.metrics.TxnsTotal.Add(1) // TODO: count failed txns?
-		w.store.metrics.TxnLatency.Observe(time.Since(w.startTime).Seconds())
+		w.store.metrics.TxnDurationSec.Observe(time.Since(w.startTime).Seconds())
 	}
 	w.writeTx.Unlock() // release db lock
 
