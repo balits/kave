@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/balits/kave/internal/compaction"
+	"github.com/balits/kave/internal/compactor"
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/fsm"
 	"github.com/balits/kave/internal/lease"
@@ -14,6 +14,7 @@ import (
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/service"
+	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
 	transport "github.com/balits/kave/internal/transport/http"
 	"github.com/balits/kave/internal/util"
@@ -25,8 +26,9 @@ import (
 type Node struct {
 	bootstrap bool
 	logger    *slog.Logger
-	cfg       *config.Config
-	reg       *prometheus.Registry
+
+	backend backend.Backend
+	kvstore *mvcc.KVStore
 
 	fsm          *fsm.Fsm
 	raft         *raft.Raft
@@ -36,7 +38,7 @@ type Node struct {
 
 	leaseMgr            *lease.LeaseManager
 	checkpointScheduler *lease.CheckpointScheduler
-	compactor           compaction.Compactor
+	compactor           compactor.Compactor
 
 	kvService      service.KVService
 	peerService    service.PeerService
@@ -45,63 +47,30 @@ type Node struct {
 }
 
 func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*Node, error) {
-	backend := backend.NewBackend(reg, cfg.StorageOpts)
-	kvstore := mvcc.NewKVStore(reg, logger, backend)
-	leaseMgr := lease.NewLeaseManager(reg, logger, kvstore, backend)
-	checkpointScheduler := lease.NewCheckpointScheduler(logger, leaseMgr, time.Second*5) // TODO: move interval into config
-	f := fsm.NewFsm(logger, kvstore, leaseMgr, cfg.Me.NodeID)
-
-	hclogger := logutil.NewHcLogAdapter(logger, cfg.LogLevel)
-	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, hclogger, cfg.LogLevel)
-	raftDeps, err := config.NewRaftDependencies(cfg.Me.GetRaftAddress(), cfg.StorageOpts.Dir, hclogger)
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO: move CompactorOptions fields to config
-	comp := compaction.NewCompactor(logger, kvstore, compaction.CompactorOptions{
-		Kind:         compaction.CompactorWindowRetention,
-		Threshold:    20,
-		WindowSize:   10,
-		PollInterval: 10 * time.Second,
-	})
-
 	n := &Node{
-		bootstrap:           cfg.Bootstrap,
-		logger:              logger.With("component", "node"),
-		cfg:                 cfg,
-		reg:                 reg,
-		fsm:                 f,
-		leaseMgr:            leaseMgr,
-		checkpointScheduler: checkpointScheduler,
-		compactor:           comp,
-		raftDeps:            raftDeps,
+		bootstrap: cfg.Bootstrap,
+		logger:    logger.With("node_id", cfg.Me.NodeID),
 	}
 
-	r, err := raft.NewRaft(raftCfg, n.fsm, raftDeps.LogStore, raftDeps.StableStore, raftDeps.SnapshotStore, raftDeps.Transport)
-	if err != nil {
+	if err := n.initStorage(reg, cfg.StorageOpts); err != nil {
+		return nil, fmt.Errorf("failed to setup storage: %v", err)
+	}
+
+	if err := n.initRaft(reg, cfg); err != nil {
 		return nil, fmt.Errorf("failed to setup raft: %v", err)
 	}
 
-	raftMetrics := metrics.NewRaftMetrics(reg, r, config.ApplyLagReadinessThreshold)
-	f.InjectMetrics(raftMetrics)
-	c := make(chan raft.Observation)
-	ew := fsm.NewRaftEventWatcher(c, raftMetrics, raft.ServerID(cfg.Me.NodeID))
-	obs := raft.NewObserver(c, false, ew.FilterFn())
-	r.RegisterObserver(obs)
+	proposeFunc, isLeaderFunc := util.NewProposeFunc(n.raft), util.NewIsLeaderFunc(n.raft, cfg.Me)
 
-	proposeFunc := util.NewProposeFunc(r)
-	isLeaderFunc := util.NewIsLeaderFunc(r, cfg.Me)
-	checkpointScheduler.InjectProposeFunc(proposeFunc)
-	checkpointScheduler.InjectIsLeaderFunc(isLeaderFunc)
+	if err := n.initBackgroundProcesses(cfg.CheckpointInterval, cfg.CompactorOpts, proposeFunc, isLeaderFunc); err != nil {
+		return nil, fmt.Errorf("failed to setup background processes: %v", err)
+	}
 
-	n.raft = r
-	n.eventWatcher = ew
-	n.observer = obs
-	n.peerService = service.NewPeerService(n.raft, cfg)
-	n.kvService = service.NewKVService(logger, kvstore, n.peerService, proposeFunc)
-	n.clusterService = service.NewClusterService(n.raft, cfg, logger)
-	n.httpServer = transport.NewHTTPServer(cfg.Me.HttpPort, n.kvService, n.clusterService, n.peerService, cfg, n.reg, logger)
+	if err := n.initServices(cfg, reg, proposeFunc); err != nil {
+		return nil, fmt.Errorf("failed to setup services: %v", err)
+	}
+
+	n.httpServer = transport.NewHTTPServer(cfg.Me.HttpPort, n.kvService, n.clusterService, n.peerService, cfg, reg, logger)
 	return n, nil
 }
 
@@ -203,6 +172,62 @@ func (n *Node) Shutdown(ctx context.Context) error {
 	}
 
 	n.logger.Info("Shutdown completed")
+	return nil
+}
+
+func (n *Node) initStorage(reg prometheus.Registerer, opts storage.StorageOptions) error {
+	n.backend = backend.NewBackend(reg, opts)
+	n.kvstore = mvcc.NewKVStore(reg, n.logger, n.backend)
+	return nil
+}
+
+func (n *Node) initRaft(reg prometheus.Registerer, cfg *config.Config) error {
+	n.leaseMgr = lease.NewLeaseManager(reg, n.logger, n.kvstore, n.backend)
+	n.fsm = fsm.NewFsm(n.logger, n.kvstore, n.leaseMgr, cfg.Me.NodeID)
+
+	hclogger := logutil.NewHcLogAdapter(n.logger, cfg.LogLevel)
+	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, hclogger, cfg.LogLevel)
+	raftDeps, err := config.NewRaftDependencies(cfg.Me.GetRaftAddress(), cfg.StorageOpts.Dir, hclogger)
+	if err != nil {
+		return err
+	}
+	n.raftDeps = raftDeps
+
+	// TODO: move CompactorOptions fields to config
+	n.compactor = compactor.New(n.logger, n.kvstore, compactor.CompactorOptions{
+		Kind:         compactor.CompactorWindowRetention,
+		Threshold:    20,
+		WindowSize:   10,
+		PollInterval: 10 * time.Second,
+	})
+
+	r, err := raft.NewRaft(raftCfg, n.fsm, raftDeps.LogStore, raftDeps.StableStore, raftDeps.SnapshotStore, raftDeps.Transport)
+	if err != nil {
+		return err
+	}
+	n.raft = r
+
+	raftMetrics := metrics.NewRaftMetrics(reg, r, config.ApplyLagReadinessThreshold)
+	n.fsm.SetMetrics(raftMetrics)
+
+	c := make(chan raft.Observation)
+	n.eventWatcher = fsm.NewRaftEventWatcher(c, raftMetrics, raft.ServerID(cfg.Me.NodeID))
+	n.observer = raft.NewObserver(c, false, n.eventWatcher.FilterFn())
+	r.RegisterObserver(n.observer)
+
+	return nil
+}
+
+func (n *Node) initBackgroundProcesses(interval time.Duration, opts compactor.CompactorOptions, propose util.ProposeFunc, isLeader util.IsLeaderFunc) error {
+	n.checkpointScheduler = lease.NewCheckpointScheduler(n.logger, n.leaseMgr, interval, propose, isLeader)
+	n.compactor = compactor.New(n.logger, n.kvstore, opts)
+	return nil
+}
+
+func (n *Node) initServices(cfg *config.Config, reg prometheus.Registerer, propose util.ProposeFunc) error {
+	n.peerService = service.NewPeerService(n.raft, cfg)
+	n.kvService = service.NewKVService(n.logger, n.kvstore, n.peerService, propose)
+	n.clusterService = service.NewClusterService(n.raft, cfg, n.logger)
 	return nil
 }
 

@@ -99,7 +99,10 @@ Hello world
     - [ ] batch kvindex updates, rollback on commit failure
     - [ ] mvcc.writer: support revision.sub++ on txn ops
     - [ ] lease:
-        - [ ] type Lease
-        - [ ] type LeaseManager
-        - [ ] type LeaseQueue
-        - [ ] type Checkpoint / CHeckpointScheduler
+        - [x] type Lease
+        - [x] type LeaseManager
+        - [x] type LeaseQueue
+        - [x] type Checkpoint / CHeckpointScheduler
+
+# CHORES
+- [ ] use require in every test insteaf of if err != nil ...

@@ -12,7 +12,7 @@ import (
 // ==================== Writer.Put ====================
 
 func Test_WriterPutSingleKey(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -31,7 +31,7 @@ func Test_WriterPutSingleKey(t *testing.T) {
 }
 
 func Test_WriterPutMultipleKeys(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -52,7 +52,7 @@ func Test_WriterPutMultipleKeys(t *testing.T) {
 }
 
 func Test_WriterPutSameKeyTwice(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -70,7 +70,7 @@ func Test_WriterPutSameKeyTwice(t *testing.T) {
 }
 
 func Test_WriterPutPreservesCreateRev(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -94,7 +94,7 @@ func Test_WriterPutPreservesCreateRev(t *testing.T) {
 }
 
 func Test_WriterPutEntryFields(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -126,7 +126,7 @@ func Test_WriterPutEntryFields(t *testing.T) {
 // ==================== Writer.Revision ====================
 
 func Test_WriterRevisionReturnsStartRev(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -144,7 +144,7 @@ func Test_WriterRevisionReturnsStartRev(t *testing.T) {
 // ==================== Writer.DeleteKey ====================
 
 func Test_WriterDeleteKey(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -165,7 +165,7 @@ func Test_WriterDeleteKey(t *testing.T) {
 }
 
 func Test_WriterDeleteKeyNonExistent(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -182,7 +182,7 @@ func Test_WriterDeleteKeyNonExistent(t *testing.T) {
 }
 
 func Test_WriterDeleteKeyThenReCreate(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -217,7 +217,7 @@ func Test_WriterDeleteKeyThenReCreate(t *testing.T) {
 // ==================== Writer.DeleteRange ====================
 
 func Test_WriterDeleteRange(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -241,7 +241,7 @@ func Test_WriterDeleteRange(t *testing.T) {
 }
 
 func Test_WriterDeleteRangeEmpty(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -261,7 +261,7 @@ func Test_WriterDeleteRangeEmpty(t *testing.T) {
 // ==================== Writer.Changes ====================
 
 func Test_WriterChangesEmpty(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -273,7 +273,7 @@ func Test_WriterChangesEmpty(t *testing.T) {
 }
 
 func Test_WriterChangesIncludesTombstones(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -296,7 +296,7 @@ func Test_WriterChangesIncludesTombstones(t *testing.T) {
 // ==================== Writer.End revision bump ====================
 
 func Test_WriterEndNoChangesNoRevBump(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -309,7 +309,7 @@ func Test_WriterEndNoChangesNoRevBump(t *testing.T) {
 }
 
 func Test_WriterEndBumpsRevisionOnce(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -325,7 +325,7 @@ func Test_WriterEndBumpsRevisionOnce(t *testing.T) {
 }
 
 func Test_WriterEndPersistsRaftMeta(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	s.UpdateRaftMeta(42, 7)
@@ -352,7 +352,7 @@ func Test_WriterEndPersistsRaftMeta(t *testing.T) {
 }
 
 func Test_WriterEndNoRaftMetaWhenZero(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()

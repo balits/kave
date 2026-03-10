@@ -8,7 +8,9 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/balits/kave/internal/compactor"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
 )
@@ -16,17 +18,21 @@ import (
 const ApplyLagReadinessThreshold uint = 10
 
 type Config struct {
-	Me          Peer
-	Bootstrap   bool
-	StorageOpts storage.StorageOptions
-	LogLevel    slog.Level
-	Peers       []Peer
+	Me                 Peer
+	Bootstrap          bool
+	StorageOpts        storage.StorageOptions
+	CompactorOpts      compactor.CompactorOptions
+	CheckpointInterval time.Duration
+	LogLevel           slog.Level
+	Peers              []Peer
 }
 
 type ConfigJson struct {
 	storage.StorageOptions
-	LogLevel configLogLevel `json:"log_level"`
-	Peers    string         `json:"peers"`
+	compactor.CompactorOptions
+	CheckpointInterval time.Duration  `json:"checkpoint_interval_ns"`
+	LogLevel           configLogLevel `json:"log_level"`
+	Peers              string         `json:"peers"`
 }
 
 type configLogLevel = string
@@ -57,7 +63,7 @@ func (cj *ConfigJson) validate() error {
 		return errors.New("unrecognised loglevel kind")
 	}
 
-	return nil
+	return cj.CompactorOptions.Validate()
 }
 
 // ToConfig parses the raw json configuration, and turns them
@@ -99,25 +105,18 @@ func (cj *ConfigJson) ToConfig() (*Config, error) {
 		return nil, fmt.Errorf("for optimal raft clusters, cluster size must be 1, 3 or 5, got %d", len(peers))
 	}
 
-	var kind storage.StorageKind
-
-	switch cj.Kind {
-	case storage.StorageKindBoltdb, storage.StorageKindInMemory:
-		kind = cj.StorageOptions.Kind
-	default:
-		return nil, errors.New("unrecognised storage kind")
-	}
-
 	logLevel := configLogLevelToSlogLogLevel(cj.LogLevel)
 
 	c := &Config{
+		LogLevel:           logLevel,
+		Peers:              peers,
+		CheckpointInterval: cj.CheckpointInterval,
+		CompactorOpts:      cj.CompactorOptions,
 		StorageOpts: storage.StorageOptions{
-			Kind:           kind,
+			Kind:           cj.StorageOptions.Kind,
 			Dir:            cj.Dir,
 			InitialBuckets: schema.AllBuckets,
 		},
-		LogLevel: logLevel,
-		Peers:    peers,
 	}
 
 	return c, nil
