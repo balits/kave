@@ -1,4 +1,4 @@
-package service
+package util
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 
 // waitFuture megvárja egy raft future értékét, vagy a kontextus lejártát
 // A visszaadott hiba vagy a future hibaértékét, vagy a kontextus lezárását jelzi
-func waitFuture(ctx context.Context, fut raft.Future) error {
+func WaitFuture(ctx context.Context, fut raft.Future) error {
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- fut.Error()
@@ -28,7 +28,7 @@ func waitFuture(ctx context.Context, fut raft.Future) error {
 
 // waitApply megvárja egy raft.ApplyFuture értékét, vagy a kontextus lejártát.
 // A visszaadott hiba vagy belső fsm hibát, vagy a kontextus lezárását jelzi
-func waitApply(ctx context.Context, fut raft.ApplyFuture) (any, error) {
+func WaitApply(ctx context.Context, fut raft.ApplyFuture) (any, error) {
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- fut.Error()

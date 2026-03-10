@@ -17,6 +17,6 @@ type observer struct {
 }
 
 func (o *observer) ObserveCommit(duration time.Duration, batchSize int) {
-	o.metrics.CommitLatency.Observe(duration.Seconds())
+	o.metrics.CommitDurationSec.Observe(duration.Seconds())
 	o.metrics.BatchSize.Observe(float64(batchSize))
 }

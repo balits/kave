@@ -9,6 +9,8 @@ import (
 	"github.com/balits/kave/internal/compaction"
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/fsm"
+	"github.com/balits/kave/internal/lease"
+	"github.com/balits/kave/internal/logutil"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/service"
@@ -32,7 +34,10 @@ type Node struct {
 	observer     *raft.Observer
 	eventWatcher *fsm.RaftEventWatcher
 
-	compactor      compaction.Compactor
+	leaseMgr            *lease.LeaseManager
+	checkpointScheduler *lease.CheckpointScheduler
+	compactor           compaction.Compactor
+
 	kvService      service.KVService
 	peerService    service.PeerService
 	clusterService service.ClusterService
@@ -42,9 +47,11 @@ type Node struct {
 func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*Node, error) {
 	backend := backend.NewBackend(reg, cfg.StorageOpts)
 	kvstore := mvcc.NewKVStore(reg, logger, backend)
-	f := fsm.NewFsm(logger, kvstore, cfg.Me.NodeID)
+	leaseMgr := lease.NewLeaseManager(reg, logger, kvstore, backend)
+	checkpointScheduler := lease.NewCheckpointScheduler(logger, leaseMgr, time.Second*5) // TODO: move interval into config
+	f := fsm.NewFsm(logger, kvstore, leaseMgr, cfg.Me.NodeID)
 
-	hclogger := util.NewHcLogAdapter(logger, cfg.LogLevel)
+	hclogger := logutil.NewHcLogAdapter(logger, cfg.LogLevel)
 	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, hclogger, cfg.LogLevel)
 	raftDeps, err := config.NewRaftDependencies(cfg.Me.GetRaftAddress(), cfg.StorageOpts.Dir, hclogger)
 	if err != nil {
@@ -60,32 +67,39 @@ func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*No
 	})
 
 	n := &Node{
-		bootstrap: cfg.Bootstrap,
-		logger:    logger.With("component", "node"),
-		cfg:       cfg,
-		reg:       reg,
-		fsm:       f,
-		compactor: comp,
-		raftDeps:  raftDeps,
+		bootstrap:           cfg.Bootstrap,
+		logger:              logger.With("component", "node"),
+		cfg:                 cfg,
+		reg:                 reg,
+		fsm:                 f,
+		leaseMgr:            leaseMgr,
+		checkpointScheduler: checkpointScheduler,
+		compactor:           comp,
+		raftDeps:            raftDeps,
 	}
 
 	r, err := raft.NewRaft(raftCfg, n.fsm, raftDeps.LogStore, raftDeps.StableStore, raftDeps.SnapshotStore, raftDeps.Transport)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup raft: %v", err)
 	}
+
 	raftMetrics := metrics.NewRaftMetrics(reg, r, config.ApplyLagReadinessThreshold)
 	f.InjectMetrics(raftMetrics)
 	c := make(chan raft.Observation)
 	ew := fsm.NewRaftEventWatcher(c, raftMetrics, raft.ServerID(cfg.Me.NodeID))
 	obs := raft.NewObserver(c, false, ew.FilterFn())
-
 	r.RegisterObserver(obs)
+
+	proposeFunc := util.NewProposeFunc(r)
+	isLeaderFunc := util.NewIsLeaderFunc(r, cfg.Me)
+	checkpointScheduler.InjectProposeFunc(proposeFunc)
+	checkpointScheduler.InjectIsLeaderFunc(isLeaderFunc)
 
 	n.raft = r
 	n.eventWatcher = ew
 	n.observer = obs
 	n.peerService = service.NewPeerService(n.raft, cfg)
-	n.kvService = service.NewKVService(logger, n.raft, kvstore, n.peerService)
+	n.kvService = service.NewKVService(logger, kvstore, n.peerService, proposeFunc)
 	n.clusterService = service.NewClusterService(n.raft, cfg, logger)
 	n.httpServer = transport.NewHTTPServer(cfg.Me.HttpPort, n.kvService, n.clusterService, n.peerService, cfg, n.reg, logger)
 	return n, nil
@@ -108,6 +122,11 @@ func (n *Node) Run(ctx context.Context) error {
 
 	g.Go(func() error {
 		n.compactor.Run(ctx)
+		return nil
+	})
+
+	g.Go(func() error {
+		n.checkpointScheduler.Run(ctx)
 		return nil
 	})
 

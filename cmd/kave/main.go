@@ -7,15 +7,15 @@ import (
 	"syscall"
 
 	"github.com/balits/kave/internal/config"
+	"github.com/balits/kave/internal/logutil"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/node"
-	"github.com/balits/kave/internal/util"
 )
 
 func main() {
 	cfg := config.LoadConfig()
 	// change TextLogger to JsonLogger in prod
-	logger := util.NewLoggerWithKind(cfg.LogLevel, os.Stdout, util.TextLoggerKind).
+	logger := logutil.NewLoggerWithKind(cfg.LogLevel, os.Stdout, logutil.TextLoggerKind).
 		With("node_id", cfg.Me.NodeID)
 
 	reg := metrics.InitPrometheus()
