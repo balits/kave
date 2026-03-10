@@ -19,23 +19,17 @@ type CheckpointScheduler struct {
 	logger   *slog.Logger
 }
 
-func NewCheckpointScheduler(logger *slog.Logger, lm *LeaseManager, interval time.Duration) *CheckpointScheduler {
+func NewCheckpointScheduler(logger *slog.Logger, lm *LeaseManager, interval time.Duration, propose util.ProposeFunc, isLeaser util.IsLeaderFunc) *CheckpointScheduler {
 	if interval <= 0 {
 		interval = minCheckpointInterval
 	}
 	return &CheckpointScheduler{
 		lm:       lm,
 		interval: interval,
+		propose:  propose,
+		isLeader: isLeaser,
 		logger:   logger.With("component", "checkpoint_scheduler"),
 	}
-}
-
-func (cs *CheckpointScheduler) InjectProposeFunc(f util.ProposeFunc) {
-	cs.propose = f
-}
-
-func (cs *CheckpointScheduler) InjectIsLeaderFunc(f util.IsLeaderFunc) {
-	cs.isLeader = f
 }
 
 func (cs *CheckpointScheduler) Run(ctx context.Context) {

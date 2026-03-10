@@ -11,6 +11,9 @@ type heapItem struct {
 }
 
 func (a *heapItem) less(b *heapItem) int {
+	if b == nil {
+		return 1
+	}
 	if a.time.Before(b.time) {
 		return -1
 	} else if a.time.After(b.time) {

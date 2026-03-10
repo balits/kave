@@ -14,10 +14,7 @@ import (
 
 func main() {
 	cfg := config.LoadConfig()
-	// change TextLogger to JsonLogger in prod
-	logger := logutil.NewLoggerWithKind(cfg.LogLevel, os.Stdout, logutil.TextLoggerKind).
-		With("node_id", cfg.Me.NodeID)
-
+	logger := logutil.NewLoggerWithKind(cfg.LogLevel, os.Stdout, logutil.TextLoggerKind) // change TextLogger to JsonLogger in prod
 	reg := metrics.InitPrometheus()
 
 	node, err := node.New(cfg, logger, reg)

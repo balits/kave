@@ -1,4 +1,4 @@
-package compaction
+package compactor
 
 import (
 	"context"
@@ -58,6 +58,7 @@ func (wc *windowRetentionCompactor) run() {
 			wc.running.Store(false)
 			return
 		case <-ticker.C:
+			wc.logger.Debug("new tick")
 		}
 		if wc.paused.Load() {
 			continue
@@ -72,7 +73,11 @@ func (wc *windowRetentionCompactor) run() {
 		if targetRev-compactedRev < wc.threshold {
 			continue
 		}
-
+		wc.logger.Debug("Starting compaction",
+			"current_rev", currentRev.Main,
+			"compacted_rev", compactedRev,
+			"target_rev", targetRev,
+		)
 		doneC, err := wc.compactable.Compact(targetRev)
 		if err != nil {
 			wc.logger.Error("Failed to start compaction",

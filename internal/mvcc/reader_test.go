@@ -6,7 +6,7 @@ import (
 )
 
 func TestReaderRangeSingleKey(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -33,7 +33,7 @@ func TestReaderRangeSingleKey(t *testing.T) {
 }
 
 func TestReaderRangeAtSpecificRev(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -66,7 +66,7 @@ func TestReaderRangeAtSpecificRev(t *testing.T) {
 }
 
 func TestReaderRangeRevZeroUsesCurrentRev(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -88,7 +88,7 @@ func TestReaderRangeRevZeroUsesCurrentRev(t *testing.T) {
 }
 
 func TestReaderRangeFutureRevError(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -103,7 +103,7 @@ func TestReaderRangeFutureRevError(t *testing.T) {
 }
 
 func TestReaderRangeMultipleKeys(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -127,7 +127,7 @@ func TestReaderRangeMultipleKeys(t *testing.T) {
 }
 
 func TestReaderRangeWithLimit(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -150,7 +150,7 @@ func TestReaderRangeWithLimit(t *testing.T) {
 }
 
 func TestReaderRangeNonExistentKey(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -168,7 +168,7 @@ func TestReaderRangeNonExistentKey(t *testing.T) {
 }
 
 func TestReaderRangeDeletedKey(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -190,7 +190,7 @@ func TestReaderRangeDeletedKey(t *testing.T) {
 }
 
 func TestReaderRangeDeletedKeyAtOldRev(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
@@ -212,7 +212,7 @@ func TestReaderRangeDeletedKeyAtOldRev(t *testing.T) {
 }
 
 func TestReaderRangeEmptyStore(t *testing.T) {
-	s := newTestKVStore()
+	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	r := s.NewReader()

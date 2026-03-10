@@ -1,6 +1,0 @@
-{
-    "storage": "inmemory",
-    "log_level": "DEBUG",
-    "dir": "data",
-    "peers":"node1:7000:8000,node2:7000:8000,node3:7000:8000,node4:7000:8000,node5:7000:8000"
-}

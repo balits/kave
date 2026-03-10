@@ -38,7 +38,13 @@ func NewFsm(logger *slog.Logger, store *mvcc.KVStore, leaseMgr *lease.LeaseManag
 	return f
 }
 
-func (f *Fsm) InjectMetrics(m *metrics.RaftMetrics) {
+// SetMetrics is needed for a two phase init of the fsm
+// because of the unavoidable circular dependency:
+//
+// 1) raft needs fsm
+//
+// 2) fsm.metrics need raft
+func (f *Fsm) SetMetrics(m *metrics.RaftMetrics) {
 	f.metrics = m
 }
 

@@ -1,8 +1,9 @@
 package mvcc
 
 import (
+	"bytes"
+	"fmt"
 	"log/slog"
-	"os"
 	"testing"
 
 	"github.com/balits/kave/internal/kv"
@@ -10,21 +11,27 @@ import (
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stretchr/testify/require"
 )
 
-func newTestKVStore() *KVStore {
+func newTestKVStore(t *testing.T) *KVStore {
 	reg := metrics.InitTestPrometheus()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	// b := backend.NewBackend(reg, storage.StorageOptions{
+	// 	Kind:           storage.StorageKindInmemory,
+	// 	InitialBuckets: schema.AllBuckets,
+	// })
 	b := backend.NewBackend(reg, storage.StorageOptions{
-		Kind:           storage.StorageKindInMemory,
+		Kind:           storage.StorageKindBoltdb,
+		Dir:            t.TempDir(),
 		InitialBuckets: schema.AllBuckets,
 	})
-	return NewKVStore(reg, logger, b)
+	return NewKVStore(reg, slog.Default(), b)
 }
 
 func Test_KVStoreRevisionInitial(t *testing.T) {
-	s := newTestKVStore()
-	defer s.backend.Close()
+	s := newTestKVStore(t)
+	defer s.Close()
 
 	currRev, _ := s.Revisions()
 	if currRev.Main != 0 || currRev.Sub != 0 {
@@ -33,8 +40,8 @@ func Test_KVStoreRevisionInitial(t *testing.T) {
 }
 
 func Test_KVStoreRevisionAfterWrites(t *testing.T) {
-	s := newTestKVStore()
-	defer s.backend.Close()
+	s := newTestKVStore(t)
+	defer s.Close()
 
 	w := s.NewWriter()
 	w.Put([]byte("a"), []byte("1"))
@@ -51,8 +58,8 @@ func Test_KVStoreRevisionAfterWrites(t *testing.T) {
 }
 
 func Test_KVStoreUpdateRaftMeta(t *testing.T) {
-	s := newTestKVStore()
-	defer s.backend.Close()
+	s := newTestKVStore(t)
+	defer s.Close()
 
 	s.UpdateRaftMeta(100, 5)
 	if s.applyIndex != 100 {
@@ -64,8 +71,8 @@ func Test_KVStoreUpdateRaftMeta(t *testing.T) {
 }
 
 func Test_KVStoreSnapshot(t *testing.T) {
-	s := newTestKVStore()
-	defer s.backend.Close()
+	s := newTestKVStore(t)
+	defer s.Close()
 
 	snap := s.Snapshot()
 	if snap.store != s {
@@ -74,8 +81,8 @@ func Test_KVStoreSnapshot(t *testing.T) {
 }
 
 func Test_KVStoreFullLifecycle(t *testing.T) {
-	s := newTestKVStore()
-	defer s.backend.Close()
+	s := newTestKVStore(t)
+	defer s.Close()
 
 	w := s.NewWriter()
 	w.Put([]byte("key1"), []byte("val1"))
@@ -119,8 +126,8 @@ func Test_KVStoreFullLifecycle(t *testing.T) {
 }
 
 func Test_KVStoreVersionTracking(t *testing.T) {
-	s := newTestKVStore()
-	defer s.backend.Close()
+	s := newTestKVStore(t)
+	defer s.Close()
 
 	for range 5 {
 		w := s.NewWriter()
@@ -145,8 +152,8 @@ func Test_KVStoreVersionTracking(t *testing.T) {
 }
 
 func Test_KVStoreSubRevisions(t *testing.T) {
-	s := newTestKVStore()
-	defer s.backend.Close()
+	s := newTestKVStore(t)
+	defer s.Close()
 
 	w := s.NewWriter()
 	w.Put([]byte("a"), []byte("1"))
@@ -178,8 +185,8 @@ func Test_KVStoreSubRevisions(t *testing.T) {
 }
 
 func Test_KVStoreMultipleWritersSameKey(t *testing.T) {
-	s := newTestKVStore()
-	defer s.backend.Close()
+	s := newTestKVStore(t)
+	defer s.Close()
 
 	w := s.NewWriter()
 	w.Put([]byte("k"), []byte("v1"))
@@ -209,8 +216,19 @@ func Test_KVStoreMultipleWritersSameKey(t *testing.T) {
 	}
 }
 
-func Test_KVStoreRestore(t *testing.T) {
-	s := newTestKVStore()
+func Test_KVStoreRestoreInmem(t *testing.T) {
+	reg1 := prometheus.NewRegistry()
+	reg2 := prometheus.NewRegistry()
+	s := NewKVStore(reg1, slog.Default(), backend.NewBackend(reg2, storage.StorageOptions{
+		Kind:           storage.StorageKindInMemory,
+		InitialBuckets: schema.AllBuckets,
+	}))
+	defer s.Close()
+	s2 := NewKVStore(reg2, slog.Default(), backend.NewBackend(reg1, storage.StorageOptions{
+		Kind:           storage.StorageKindInMemory,
+		InitialBuckets: schema.AllBuckets,
+	}))
+	defer s2.Close()
 
 	s.UpdateRaftMeta(10, 3)
 	w := s.NewWriter()
@@ -218,42 +236,72 @@ func Test_KVStoreRestore(t *testing.T) {
 	w.End()
 
 	var buf mockBuffer
-	if err := s.backend.Snapshot(&buf); err != nil {
-		t.Fatalf("Snapshot: %v", err)
-	}
+	require.NoError(t, s.backend.Snapshot(&buf), "Snapshot error")
 
-	s2 := newTestKVStore()
-	defer s2.backend.Close()
-
-	if err := s2.Restore(&buf); err != nil {
-		t.Fatalf("Restore: %v", err)
-	}
+	require.NoError(t, s2.Restore(&buf), "Restore error")
 
 	currRev, _ := s2.Revisions()
-	if currRev.Main != 1 {
-		t.Errorf("restored revision = %d, want 1", currRev.Main)
-	}
+	require.Equal(t, int64(1), currRev.Main, "restored revision = %d, want 1", currRev.Main)
 
 	r := s2.NewReader()
 	entries, _, _, err := r.Range([]byte("rk"), nil, 0, 0)
-	if err != nil {
-		t.Fatalf("Range after restore: %v", err)
-	}
+	require.NoError(t, err, "Range error after restore")
+
 	if len(entries) != 1 || string(entries[0].Value) != "rv" {
 		t.Errorf("restored value = %v", entries)
 	}
 
-	if s2.applyIndex != 10 {
-		t.Errorf("restored raftIndex = %d, want 10", s2.applyIndex)
-	}
-	if s2.raftTerm != 3 {
-		t.Errorf("restored raftTerm = %d, want 3", s2.raftTerm)
-	}
+	require.Equal(t, uint64(10), s2.applyIndex, "restored raftIndex = %d, want 10", s2.applyIndex)
+	require.Equal(t, uint64(3), s2.raftTerm, "restored raftTerm = %d, want 3", s2.raftTerm)
+}
+
+func Test_KVStoreRestoreBoltdb(t *testing.T) {
+	// Each store needs its own directory — BoltDB holds a file lock
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+
+	opts1 := storage.StorageOptions{Kind: storage.StorageKindBoltdb, Dir: dir1, InitialBuckets: schema.AllBuckets}
+	opts2 := storage.StorageOptions{Kind: storage.StorageKindBoltdb, Dir: dir2, InitialBuckets: schema.AllBuckets}
+
+	b1 := backend.NewBackend(prometheus.NewRegistry(), opts1)
+	s1 := NewKVStore(prometheus.NewRegistry(), slog.Default(), b1)
+	defer s1.Close()
+
+	s1.UpdateRaftMeta(10, 3)
+	w := s1.NewWriter()
+	w.Put([]byte("k"), []byte("v"))
+	w.End()
+
+	// Snapshot into a buffer — don't touch files
+	var buf bytes.Buffer
+	snap := s1.Snapshot()
+	sink := &sink{buf: &buf} // implements raft.SnapshotSink
+	require.NoError(t, snap.Persist(sink))
+
+	// Restore into a fresh store
+	b2 := backend.NewBackend(prometheus.NewRegistry(), opts2)
+	s2 := NewKVStore(prometheus.NewRegistry(), slog.Default(), b2)
+	defer s2.Close()
+
+	require.NoError(t, s2.Restore(&buf))
+
+	// Assert state was fully transferred
+	currRev, _ := s2.Revisions()
+	require.Equal(t, int64(1), currRev.Main)
+
+	r := s2.NewReader()
+	entries, _, _, err := r.Range([]byte("k"), nil, 0, 0)
+	require.NoError(t, err)
+	require.Equal(t, "v", string(entries[0].Value))
+
+	idx, term := s2.RaftMeta()
+	require.Equal(t, uint64(10), idx)
+	require.Equal(t, uint64(3), term)
 }
 
 func Test_KVStoreRangeRejectsCompactedRev(t *testing.T) {
-	s := newTestKVStore()
-	defer s.backend.Close()
+	s := newTestKVStore(t)
+	defer s.Close()
 
 	w := s.NewWriter()
 	w.Put([]byte("k"), []byte("v"))
@@ -268,6 +316,44 @@ func Test_KVStoreRangeRejectsCompactedRev(t *testing.T) {
 	if err == nil {
 		t.Error("expected compacted error for rev < compactedMainRev")
 	}
+}
+
+func Test_KVStoreCompactDeletesEntries(t *testing.T) {
+	s := newTestKVStore(t)
+	defer s.Close()
+
+	// Write key at revisions 1, 2, 3
+	for i := range 3 {
+		w := s.NewWriter()
+		w.Put([]byte("k"), fmt.Appendf(nil, "v%d", i))
+		w.End()
+	}
+	r := s.NewReader()
+	entries, _, _, err := r.Range([]byte("k"), nil, 0, 0)
+	t.Log(err)
+	t.Log(entries)
+
+	ch, err := s.Compact(2)
+	require.NoError(t, err)
+	<-ch
+
+	rtx := s.backend.ReadTx()
+	rtx.RLock()
+	defer rtx.RUnlock()
+
+	start := kv.EncodeRevision(kv.Revision{Main: 0}, kv.NewRevBytes())
+	end := kv.EncodeRevision(kv.Revision{Main: 3}, kv.NewRevBytes())
+
+	var found []kv.Revision
+	rtx.UnsafeScan(schema.BucketKV, start, end, func(k, v []byte) error {
+		bk := kv.DecodeKVBucketKey(k)
+		found = append(found, bk.Revision)
+		return nil
+	})
+
+	// Only {Main:2} should remain in the compacted range — {Main:1} must be deleted
+	require.Len(t, found, 1, "expected exactly 1 entry retained in compacted range, got: %v", found)
+	require.Equal(t, int64(2), found[0].Main)
 }
 
 type mockBuffer struct {
@@ -290,4 +376,25 @@ func (m *mockBuffer) Read(p []byte) (n int, err error) {
 		return n, nil
 	}
 	return n, nil
+}
+
+// minimal raft.SnapshotSink for tests
+type sink struct {
+	buf *bytes.Buffer
+}
+
+func (s *sink) Write(p []byte) (int, error) {
+	return s.buf.Write(p)
+}
+
+func (s *sink) Close() error {
+	return nil
+}
+
+func (s *sink) ID() string {
+	return "test"
+}
+
+func (s *sink) Cancel() error {
+	return nil
 }

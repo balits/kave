@@ -60,7 +60,7 @@ func newTestKVService(t *testing.T) *testKVService {
 
 	r, err := raft.NewRaft(raftCfg, fsmInst, raftDeps.LogStore, raftDeps.StableStore, raftDeps.SnapshotStore, raftDeps.Transport)
 	require.NoError(t, err, "failed to create raft")
-	fsmInst.InjectMetrics(metrics.NewRaftMetrics(reg, r, config.ApplyLagReadinessThreshold))
+	fsmInst.SetMetrics(metrics.NewRaftMetrics(reg, r, config.ApplyLagReadinessThreshold))
 
 	raftcfg := raft.Configuration{
 		Servers: []raft.Server{
