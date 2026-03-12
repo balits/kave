@@ -258,7 +258,7 @@ func cloneHcLogAdapter(a *HcLogAdapter) *HcLogAdapter {
 
 func NewHcLogAdapter(slogger *slog.Logger, level slog.Level) *HcLogAdapter {
 	return &HcLogAdapter{
-		slogger: slogger,
+		slogger: slogger.With("component", "raft"),
 		level:   slogLeveltoHcLevel(level),
 	}
 }

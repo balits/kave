@@ -31,6 +31,7 @@ func (e *Engine) ApplyWrite(cmd command.Command) (command.Result, error) {
 	}
 }
 
+
 func (e *Engine) applyPut(cmd *command.PutCmd) (command.Result, error) {
 	var prev *types.Entry
 	if cmd.PrevEntry {

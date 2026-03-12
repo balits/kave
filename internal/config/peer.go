@@ -27,6 +27,7 @@ func (p *Peer) GetHttpAddress() string {
 }
 
 
+// maybe redundant
 func (p *Peer) validateNodeConfig() error {
 	if p.NodeID == "" {
 		return errors.New("node ID is required")

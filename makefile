@@ -14,19 +14,19 @@ build-img: ## Build Docker image
 	docker build -t kave .
 
 up3: ## Run 3-node cluster
-	docker compose -f $(COMPOSE3) -p $(APP_NAME) up --remove-orphans
+	docker compose -f $(COMPOSE3) -p $(APP_NAME) up --remove-orphans --detach
 
-down3:
+down3: ## Stop 3-node cluster
 	docker compose -f $(COMPOSE3) -p $(APP_NAME) down --volumes
 
 up3build: ## Builds image and runs 3-node cluster
 	$(MAKE) build-img
 	$(MAKE) up3
 
-test:
+test: ## Run all tests
 	go test -v ./internal/...
 
-test-slow:
+test-slow: ## Run tests with the slowtest buildtag
 	go test -tags slowtest -v ./internal/...
 
 .PHONY: build build-img up3 down3 up3build

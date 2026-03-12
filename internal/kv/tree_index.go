@@ -250,7 +250,7 @@ func (ti *treeIndex) Keep(rev int64) map[Revision]struct{} {
 
 func (ti *treeIndex) Compact(rev int64) (avail map[Revision]struct{}, err error) {
 	avail = make(map[Revision]struct{})
-	ti.logger.Info("compacting tree index", "revision", rev)
+	ti.logger.Info("compacting tree index", "target_rev", rev)
 	ti.mu.Lock()
 	clone := ti.tree.Clone()
 	ti.mu.Unlock()

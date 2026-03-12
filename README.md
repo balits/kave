@@ -10,9 +10,7 @@ Hello world
 - [ ] fix cluster tests
 - [x] simplify http server handlers
 - [ ] BatchingFSM
-- [ ] lease
 - [ ] Snapshot metrics too
-- [ ] prune random string(bytes) and []byte(string)
 - [ ] bytestrore.Defragment
 - [ ] raft index -> mvcc 
     - [x] Global monotonic revision
@@ -31,6 +29,8 @@ Hello world
             - encode/decode should use binary so it doesnt return errors
         - [x] add TxnOpTypeGet = ~~"GET"~~ "RANGE" (if no writes chosen ops then then return early, no new rev needed)
     - [ ] Compaction
+        - [ ] periodic compactor
+        - [x] window retention: still buggy
         - automatic retention window: currentRev - compactedRev > THRESHOLD
         - deterministic
         - run from raft apply or by a fsm command directly
@@ -58,13 +58,13 @@ Hello world
     - [x] Snapshot
         - Storage layer already handles this
         - on restore, load _meta keys into RevisionManager
-    - [ ] BUCKETS
+    - [x] BUCKETS
         - [x] "_meta/"
             - current_revision
             - consistent_index
                 - after apply log at raft log index i: store consistent_index = i
             - compacted_revision
-        - ~~[x] "key_index/":~~
+        - ~~[ ] "key_index/":~~
             - key index is gonna be inmemory, sort of like a cache
                 so we dont have to store redundant data on disk, and dont have to do additional roundtrips
             - it stores all the revisions per key, handles deleted but revived keys via generations (list of revisions)
@@ -103,6 +103,18 @@ Hello world
         - [x] type LeaseManager
         - [x] type LeaseQueue
         - [x] type Checkpoint / CHeckpointScheduler
+        - [ ] expiry loop
+    - [ ] workload
+        - [ ] run: generate workload
+        - [ ] check: check generated logs for invariants (revs are monotonic, read the writes, etc)
 
+# URGENT
+    - [ ] batch kvindex updates, rollback on commit failure
+    - [ ] periodic compactor
+    - [ ] GET linearizable/serializable
+    - [ ] lease
+        - [ ] expiry loop
+        - [ ] tests
+    - [ ] mvcc.Writer: support rev.sub++ on txp ops
 # CHORES
-- [ ] use require in every test insteaf of if err != nil ...
+- [ ] use require in every test instead of if err != nil ...

@@ -14,9 +14,9 @@ var (
 
 	// Stores the last requested compaction revision.
 	// Stored at request, before compaction is actually run
-	MetaKeyCompactScheduled MetaKey = []byte("scheduled_compaction")
+	MetaKeyScheduledCompactionRev MetaKey = []byte("scheduled_compaction_rev")
 
 	// Stores the last finished compaction revision.
 	// Stored after compaction is finished
-	MetaKeyCompactFinished MetaKey = []byte("finished_compaction")
+	MetaKeyFinishedCompactionRev MetaKey = []byte("finished_compaction_rev")
 )

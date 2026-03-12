@@ -15,7 +15,16 @@ import (
 	"github.com/balits/kave/internal/storage"
 )
 
+// TOODO: move to config
 const ApplyLagReadinessThreshold uint = 10
+
+type Flags struct {
+	ConfigPath string
+	Bootstrap  bool
+	NodeID     string
+	RaftPort   string
+	HttpPort   string
+}
 
 type Config struct {
 	Me                 Peer
@@ -146,35 +155,50 @@ func getEnv(key string) string {
 	return v
 }
 
-func LoadConfig() *Config {
+func RegisterFlags() Flags {
+	var f Flags
 	fs := flag.NewFlagSet("kave", flag.ExitOnError)
+	fs.Usage = func() {
+		fmt.Fprintln(fs.Output(), "usage: kave --config=PATH --node_id=ID --raft_port=RAFT_PORT --http_port=HTTP_PORT")
+		fs.PrintDefaults()
+	}
 
 	bootstrapMaybe, _ := os.LookupEnv("BOOTSTRAP")
 	bootstrapDefault := bootstrapMaybe == "TRUE" || bootstrapMaybe == "true"
 
-	var (
-		configPath = fs.String("config", "", "path to config file (required)")
-		bootstrap  = fs.Bool("bootstrap", bootstrapDefault, "flag to start bootstrap process")
-		nodeID     = fs.String("nodeID", getEnv("NODE_ID"), "id of the raft node")
-		raftPort   = fs.String("raft_port", getEnv("RAFT_PORT"), "raft port of the raft node")
-		httpPort   = fs.String("http_port", getEnv("HTTP_PORT"), "http port of the raft node")
-	)
+	fs.StringVar(&f.ConfigPath, "config", "", "path to config file (required)")
+	fs.BoolVar(&f.Bootstrap, "bootstrap", bootstrapDefault, "flag to start bootstrap process")
+	fs.StringVar(&f.NodeID, "nodeID", getEnv("NODE_ID"), "id of the raft node")
+	fs.StringVar(&f.RaftPort, "raft_port", getEnv("RAFT_PORT"), "raft port of the raft node")
+	fs.StringVar(&f.HttpPort, "http_port", getEnv("HTTP_PORT"), "http port of the raft node")
 
 	fs.Parse(os.Args[1:])
 
-	if *configPath == "" {
-		check(errors.New("no config file found"))
+	if f.ConfigPath == "" {
+		check(errors.New("no config path given"))
 	}
+	if f.NodeID == "" {
+		check(errors.New("no node_id given"))
+	}
+	if f.RaftPort == "" {
+		check(errors.New("no raft_port given"))
+	}
+	if f.HttpPort == "" {
+		check(errors.New("no http_port given"))
+	}
+	return f
+}
 
+func LoadConfig(f Flags) *Config {
 	me := Peer{
-		NodeID:   *nodeID,
-		RaftPort: *raftPort,
-		HttpPort: *httpPort,
+		NodeID:   f.NodeID,
+		RaftPort: f.RaftPort,
+		HttpPort: f.HttpPort,
 	}
 	check(me.validateNodeConfig())
 
 	var cj ConfigJson
-	file, err := os.Open(*configPath)
+	file, err := os.Open(f.ConfigPath)
 	check(err)
 	d := json.NewDecoder(file)
 	d.DisallowUnknownFields()
@@ -184,7 +208,7 @@ func LoadConfig() *Config {
 	check(err)
 
 	cfg.Me = me
-	cfg.Bootstrap = *bootstrap
+	cfg.Bootstrap = f.Bootstrap
 
 	return cfg
 }

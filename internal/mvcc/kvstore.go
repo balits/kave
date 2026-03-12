@@ -1,6 +1,7 @@
 package mvcc
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/schema"
+	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
 	"github.com/balits/kave/internal/types"
 	"github.com/prometheus/client_golang/prometheus"
@@ -21,7 +23,7 @@ type SmartRevisionGetter interface {
 	Revisions() (currentRev kv.Revision, compacted int64)
 }
 
-const COMPACTION_BATCH_LIMIT int = 100
+const COMPACTION_BATCH_LIMIT int = 1024
 
 type KVStore struct {
 	rwlock           sync.RWMutex    // mutex for the whole store, not for backend transactions, used for raft meta and compaction
@@ -123,6 +125,11 @@ func (s *KVStore) Restore(r io.Reader) error {
 	if err != nil {
 		s.logger.Error("restore error: failed to get raft index", "error", err)
 	}
+	finishedCompactedRevBytes, err := rtx.UnsafeGet(schema.BucketMeta, schema.MetaKeyFinishedCompactionRev)
+	if err != nil {
+		s.logger.Error("restore error: failed to finished compacted rev", "error", err)
+	}
+
 	rtx.RUnlock()
 	term, err := types.DecodeUint64(raftTermBytes)
 	if err != nil {
@@ -133,6 +140,8 @@ func (s *KVStore) Restore(r io.Reader) error {
 		s.logger.Error("restore error: failed to decode raft index", "error", err)
 	}
 
+	finished := kv.DecodeRevision(finishedCompactedRevBytes)
+
 	s.rwlock.Lock()
 	s.raftTerm = term
 	s.applyIndex = raftIndex
@@ -140,6 +149,7 @@ func (s *KVStore) Restore(r io.Reader) error {
 
 	s.revMu.Lock()
 	s.currentRev = lastRev
+	s.compactedMainRev = finished.Main
 	s.revMu.Unlock()
 
 	return nil
@@ -165,12 +175,12 @@ func (s *KVStore) Compact(rev int64) (<-chan struct{}, error) {
 		return nil, fmt.Errorf("compaction error: %v", kv.ErrCompacted)
 	}
 
-	// Persist schedule compaction revision -> crash safe
+	// Persist scheduled compaction revision -> crash safe
 	{
 		wtx := s.backend.WriteTx()
 		wtx.Lock()
 		revBytes := kv.EncodeRevision(kv.Revision{Main: rev}, kv.NewRevBytes())
-		wtx.UnsafePut(schema.BucketMeta, schema.MetaKeyCompactScheduled, revBytes)
+		wtx.UnsafePut(schema.BucketMeta, schema.MetaKeyScheduledCompactionRev, revBytes)
 		wtx.Commit()
 		wtx.Unlock()
 	}
@@ -183,24 +193,36 @@ func (s *KVStore) Compact(rev int64) (<-chan struct{}, error) {
 		s.doCompact(rev)
 	}()
 
+	// Persist finished compaction revision -> on restore if scheduled != finished we havent compacted until target rev
+	{
+		wtx := s.backend.WriteTx()
+		wtx.Lock()
+		revBytes := kv.EncodeRevision(kv.Revision{Main: rev}, kv.NewRevBytes())
+		wtx.UnsafePut(schema.BucketMeta, schema.MetaKeyFinishedCompactionRev, revBytes)
+		wtx.Commit()
+		wtx.Unlock()
+	}
+
 	// TODO: return real errors from .doCompact()
 	return c, nil
 }
 
 func (s *KVStore) doCompact(rev int64) {
-	s.logger.Info("compaction started", "revision", rev)
-	// 1) collect values we still should retain
+	s.logger.Info("compacting kvstore",
+		"target_rev", rev,
+		"prev_compacted_rev", s.compactedMainRev,
+		"current_rev", s.currentRev.Main,
+	)
+	// collect values we still should retain
 	retain, err := s.kvIndex.Compact(rev)
 	if err != nil {
 		s.logger.Error("compaction error: failed to compact key index", "error", err, "revision", rev)
 		return
 	}
 
-	// 2) delete en-masse entries where entry.modRev <= rev
 	start := kv.EncodeRevision(kv.Revision{Main: s.compactedMainRev}, kv.NewRevBytes())
 	endExcluded := kv.EncodeRevision(kv.Revision{Main: rev + 1}, kv.NewRevBytes())
 
-	// batch deletes
 	var (
 		done           bool
 		numDeleted     int
@@ -227,12 +249,13 @@ func (s *KVStore) doCompact(rev int64) {
 		})
 
 		if err != nil {
-			s.logger.Error("compaction error: scanning returned an error", "error", err)
+			s.logger.Warn("compaction error: scanning returned an error", "error", err)
 		}
 
 		for _, k := range batch {
-			if err := wtx.UnsafeDelete(schema.BucketKV, k); err != nil {
-				s.logger.Error("compaction error: failed to delete key", "error", err)
+			err := wtx.UnsafeDelete(schema.BucketKV, k)
+			if err != nil && !errors.Is(err, storage.ErrEmptyKey) {
+				s.logger.Warn("compaction error: failed to delete key", "error", err, "key", fmt.Sprintf("%b", k))
 			} else {
 				numDeleted++
 			}
@@ -246,7 +269,7 @@ func (s *KVStore) doCompact(rev int64) {
 		if done {
 			// persist meta
 			revBytes := kv.EncodeRevision(kv.Revision{Main: rev}, kv.NewRevBytes())
-			wtx.UnsafePut(schema.BucketMeta, schema.MetaKeyCompactFinished, revBytes)
+			wtx.UnsafePut(schema.BucketMeta, schema.MetaKeyFinishedCompactionRev, revBytes)
 		}
 
 		if err := wtx.Commit(); err != nil {

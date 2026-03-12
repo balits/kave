@@ -30,6 +30,9 @@ func newWindowRetentionCompactor(logger *slog.Logger, compactable Compactable, o
 		logger: logger.With(
 			"component", "compactor",
 			"compactor_kind", string(opts.Kind),
+			"threshold", opts.Threshold,
+			"window_size", opts.WindowSize,
+			"poll_interval", opts.PollInterval.String(),
 		),
 	}
 }
@@ -58,7 +61,6 @@ func (wc *windowRetentionCompactor) run() {
 			wc.running.Store(false)
 			return
 		case <-ticker.C:
-			wc.logger.Debug("new tick")
 		}
 		if wc.paused.Load() {
 			continue
@@ -75,7 +77,7 @@ func (wc *windowRetentionCompactor) run() {
 		}
 		wc.logger.Debug("Starting compaction",
 			"current_rev", currentRev.Main,
-			"compacted_rev", compactedRev,
+			"prev_compacted_rev", compactedRev,
 			"target_rev", targetRev,
 		)
 		doneC, err := wc.compactable.Compact(targetRev)
@@ -85,10 +87,8 @@ func (wc *windowRetentionCompactor) run() {
 			)
 			continue
 		}
-		wc.logger.Debug("Compaction started")
-
 		<-doneC
-		wc.logger.Debug("Compaction finished")
+		wc.logger.Debug("Compaction finished", "compacted_rev", targetRev)
 	}
 }
 

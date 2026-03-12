@@ -1,0 +1,16 @@
+{
+    "Violations": [],
+    "Stats": {
+        "Total": 100,
+        "OK": 100,
+        "ElectionGap": 0,
+        "UnexpectedErr": 0,
+        "ExpectedErr": 0,
+        "Elections": [],
+        "RevRate": {
+            "AvgRatePerSec": 0,
+            "MaxRatePerSec": 0
+        },
+        "NodeDistributiion": {}
+    }
+}

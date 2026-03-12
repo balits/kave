@@ -28,8 +28,8 @@ var (
 	// Wrapper hiba az implementáció-specifikus hibákhoz amik elő jöhetnek
 	ErrInternalStorageError error = errors.New("storage error: internal storage error")
 
-	// Hiba ha egy üres kulcsot próbálunk beszúrni
-	ErrEmptyKey error = errors.New("storage error: empty key inserted")
+	// Hiba ha egy üres kulcsot próbálunk beszúrni, vagy törölni
+	ErrEmptyKey error = errors.New("storage error: empty key")
 )
 
 // StorageKind a tároló implementáció típusa

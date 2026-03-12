@@ -13,7 +13,8 @@ import (
 )
 
 func main() {
-	cfg := config.LoadConfig()
+	flags := config.RegisterFlags()
+	cfg := config.LoadConfig(flags)
 	logger := logutil.NewLoggerWithKind(cfg.LogLevel, os.Stdout, logutil.TextLoggerKind) // change TextLogger to JsonLogger in prod
 	reg := metrics.InitPrometheus()
 
