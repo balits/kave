@@ -15,6 +15,7 @@ import (
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage/backend"
+	"github.com/balits/kave/internal/util"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -38,7 +39,7 @@ type LeaseManager struct {
 }
 
 func NewLeaseManager(reg prometheus.Registerer, logger *slog.Logger, store *mvcc.KVStore, backend backend.Backend) *LeaseManager {
-	var h leaseHeap = make(leaseHeap, 32)
+	var h leaseHeap = make(leaseHeap, 0, 32)
 	heap.Init(&h)
 	m := &LeaseManager{
 		leaseMap: make(map[int64]*Lease),
@@ -62,6 +63,8 @@ func (lm *LeaseManager) Grant(ttl int64) (*Lease, error) {
 	if ttl > maxTTL {
 		ttl = maxTTL
 	}
+	start := time.Now()
+	defer func() { lm.metrics.GrantDurationSec.Observe(time.Since(start).Seconds()) }()
 
 	lease := &Lease{
 		ID:           nextID(),
@@ -91,24 +94,36 @@ func (lm *LeaseManager) Grant(ttl int64) (*Lease, error) {
 	return lease, nil
 }
 
-func (lm *LeaseManager) Revoke(id int64) error {
+// noop on LeaseNotFound
+func (lm *LeaseManager) Revoke(id int64) {
 	lm.rwlock.Lock()
-	defer lm.rwlock.Unlock()
+	start := time.Now()
+	defer func() { lm.metrics.RevokeDurationSec.Observe(time.Since(start).Seconds()) }()
+
 	lease, ok := lm.leaseMap[id]
 	if !ok {
-		return errLeaseNotFound
+		return
 	}
+	toDelete := make([][]byte, len(lease.keys))
+	for lk := range lease.keys {
+		toDelete = append(toDelete, []byte(lk.Key))
+	}
+	lm.unsafeRemoveFromLeaseMap(lease)
+	lm.unsafeRemoveFromHeap(lease.ID)
+	lm.rwlock.Unlock()
 
-	if len(lease.keys) > 0 {
+	if len(toDelete) > 0 {
 		w := lm.store.NewWriter()
-		for lk := range lease.keys {
-			w.DeleteKey([]byte(lk.Key))
+		for _, k := range toDelete {
+			w.DeleteKey(k)
 		}
 		w.End()
 		lm.logger.Info("lease revoked: removed attached keys",
 			"id", lease.ID,
-			"key_count", len(lease.keys),
+			"key_count", len(toDelete),
 		)
+
+		lm.metrics.KeysPerRevoke.Observe(float64(len(toDelete)))
 	}
 
 	// logoljuk, de nem kell hibával visszatértünk:
@@ -121,19 +136,19 @@ func (lm *LeaseManager) Revoke(id int64) error {
 		)
 	}
 
-	lm.unsafeRemoveFromLeaseMap(lease)
-	lm.unsafeRemoveFromHeap(lease.ID)
 	lm.metrics.LeasesRevoked.Inc()
 
 	lm.logger.Info("lease revoked",
 		"id", lease.ID,
 	)
-	return nil
 }
 
 func (lm *LeaseManager) KeepAlive(id int64) (remainingTTL int64, err error) {
 	lm.rwlock.Lock()
 	defer lm.rwlock.Unlock()
+
+	start := time.Now()
+	defer func() { lm.metrics.KeepAliveDurationSec.Observe(time.Since(start).Seconds()) }()
 
 	lease, ok := lm.leaseMap[id]
 	if !ok {
@@ -221,7 +236,7 @@ func (lm *LeaseManager) ApplyCheckpoints(cmd command.LeaseCheckpointCmd) {
 
 func (lm *LeaseManager) genereteCheckpoints() command.LeaseCheckpointCmd {
 	lm.rwlock.Lock()
-	defer lm.rwlock.Lock()
+	defer lm.rwlock.Unlock()
 	now := time.Now()
 	checks := make([]command.Checkpoint, 0, len(lm.leaseMap))
 	for id, lease := range lm.leaseMap {
@@ -240,7 +255,26 @@ func (lm *LeaseManager) genereteCheckpoints() command.LeaseCheckpointCmd {
 	}
 }
 
+func (lm *LeaseManager) ExpiredLeases() (expired []*Lease) {
+	lm.rwlock.Lock()
+	defer lm.rwlock.Unlock()
+	now := time.Now()
+	expired = make([]*Lease, 0)
+	for {
+		_min := lm.heap.(*leaseHeap).peekMin()
+		if _min == nil {
+			return
+		}
+		if _min.time.Before(now) {
+			item := lm.heap.Pop().(*heapItem)
+			lm.unsafeRemoveFromLeaseMap(item.lease)
+			expired = append(expired, item.lease)
+		}
+	}
+}
+
 func (lm *LeaseManager) Restore(newStore *mvcc.KVStore) error {
+	util.Todo("LeaseManager.Restore")
 	return nil
 }
 
@@ -283,7 +317,7 @@ func (lm *LeaseManager) unsafePersistToBackend(lease *Lease) error {
 		wtx.Abort()
 		return fmt.Errorf("%v: %w", errLease, err)
 	}
-	if err := wtx.Commit(); err != nil {
+	if _, err := wtx.Commit(); err != nil {
 		wtx.Abort()
 		return fmt.Errorf("%v: %w", errLease, err)
 	}
@@ -301,7 +335,7 @@ func (lm *LeaseManager) unsafeRemoveFromBackend(lease *Lease) error {
 		wtx.Abort()
 		return fmt.Errorf("%v: %w", errLease, err)
 	}
-	if err := wtx.Commit(); err != nil {
+	if _, err := wtx.Commit(); err != nil {
 		wtx.Abort()
 		return fmt.Errorf("%v: %w", errLease, err)
 	}

@@ -30,20 +30,26 @@ type Node struct {
 	backend backend.Backend
 	kvstore *mvcc.KVStore
 
-	fsm          *fsm.Fsm
-	raft         *raft.Raft
-	raftDeps     *config.RaftDependencies // stored bcs raft.HasExistingState() upon Bootstrap requires it
-	observer     *raft.Observer
-	eventWatcher *fsm.RaftEventWatcher
+	fsm      *fsm.Fsm
+	raft     *raft.Raft
+	raftDeps *config.RaftDependencies // stored bcs raft.HasExistingState() upon Bootstrap requires it
 
-	leaseMgr            *lease.LeaseManager
-	checkpointScheduler *lease.CheckpointScheduler
-	compactor           compactor.Compactor
+	leaseMgr *lease.LeaseManager
 
+	// services
 	kvService      service.KVService
 	peerService    service.PeerService
 	clusterService service.ClusterService
-	httpServer     *transport.HttpServer
+
+	// transport
+	httpServer *transport.HttpServer
+
+	// background processes
+	observer            *raft.Observer
+	eventWatcher        *fsm.RaftEventWatcher
+	compactor           compactor.Compactor
+	checkpointScheduler *lease.CheckpointScheduler
+	expiryLoop          *lease.ExpiryLoop
 }
 
 func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*Node, error) {
@@ -66,7 +72,7 @@ func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*No
 		return nil, fmt.Errorf("failed to setup background processes: %v", err)
 	}
 
-	if err := n.initServices(cfg, reg, proposeFunc); err != nil {
+	if err := n.initServices(cfg, proposeFunc); err != nil {
 		return nil, fmt.Errorf("failed to setup services: %v", err)
 	}
 
@@ -91,6 +97,11 @@ func (n *Node) Run(ctx context.Context) error {
 
 	g.Go(func() error {
 		n.compactor.Run(ctx)
+		return nil
+	})
+
+	g.Go(func() error {
+		n.expiryLoop.Run(ctx)
 		return nil
 	})
 
@@ -160,6 +171,8 @@ func (n *Node) Shutdown(ctx context.Context) error {
 
 	// 0.2) stop compactor
 	n.compactor.Stop()
+	n.checkpointScheduler.Stop()
+	n.expiryLoop.Stop()
 
 	// 1) stop traffic
 	if err := n.httpServer.Shutdown(timeout); err != nil {
@@ -220,11 +233,12 @@ func (n *Node) initRaft(reg prometheus.Registerer, cfg *config.Config) error {
 
 func (n *Node) initBackgroundProcesses(interval time.Duration, opts compactor.CompactorOptions, propose util.ProposeFunc, isLeader util.IsLeaderFunc) error {
 	n.checkpointScheduler = lease.NewCheckpointScheduler(n.logger, n.leaseMgr, interval, propose, isLeader)
+	n.expiryLoop = lease.NewExpiryLoop(n.logger, n.leaseMgr, propose, isLeader)
 	n.compactor = compactor.New(n.logger, n.kvstore, opts)
 	return nil
 }
 
-func (n *Node) initServices(cfg *config.Config, reg prometheus.Registerer, propose util.ProposeFunc) error {
+func (n *Node) initServices(cfg *config.Config, propose util.ProposeFunc) error {
 	n.peerService = service.NewPeerService(n.raft, cfg)
 	n.kvService = service.NewKVService(n.logger, n.kvstore, n.peerService, propose)
 	n.clusterService = service.NewClusterService(n.raft, cfg, n.logger)

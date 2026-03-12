@@ -37,7 +37,7 @@ func NewRaftMetrics(reg prometheus.Registerer, r *raft.Raft, applyLagThresholt u
 			Help:      "Total number of leader changes.",
 		}),
 		ApplyTotal: factory.NewCounter(prometheus.CounterOpts{
-			Namespace: "kvstore",
+			Namespace: "kave",
 			Subsystem: "raft",
 			Name:      "apply_total",
 			Help:      "Total number of Apply calls from Raft to the state machine.",
@@ -89,7 +89,7 @@ func NewRaftMetrics(reg prometheus.Registerer, r *raft.Raft, applyLagThresholt u
 		}),
 
 		ElectionDurationSec: factory.NewHistogram(prometheus.HistogramOpts{
-			Namespace: "kvstore",
+			Namespace: "kave",
 			Subsystem: "raft",
 			Name:      "election_duration_seconds",
 			Help:      "Time taken to elect a leader.",
@@ -97,7 +97,7 @@ func NewRaftMetrics(reg prometheus.Registerer, r *raft.Raft, applyLagThresholt u
 			Buckets: prometheus.DefBuckets,
 		}),
 		ApplyDurationSec: factory.NewHistogram(prometheus.HistogramOpts{
-			Namespace: "kvstore",
+			Namespace: "kave",
 			Subsystem: "raft",
 			Name:      "apply_duration_seconds",
 			Help:      "Time taken to apply a command to the state machine.",

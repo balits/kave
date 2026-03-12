@@ -1,7 +1,9 @@
 package command
 
 type LeaseGrantCmd struct{}
-type LeaseRevokeCmd struct{}
+type LeaseRevokeCmd struct {
+	LeaseID int64
+}
 
 type LeaseCheckpointCmd struct {
 	Checkpoints []Checkpoint

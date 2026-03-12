@@ -102,16 +102,15 @@ func (b *backend) Restore(r io.Reader) error {
 	return err
 }
 
-func (b *backend) Commit() error {
+func (b *backend) Commit() (storage.CommitInfo, error) {
 	b.rwlock.Lock()
 	defer b.rwlock.Unlock()
 
 	if b.batch == nil {
-		return nil
+		return storage.CommitInfo{}, fmt.Errorf("attempting to commit a nil batch")
 	}
-	err := b.batch.Commit()
 	b.batch = nil
-	return err
+	return b.batch.Commit()
 }
 
 func (b *backend) Defrag() error {

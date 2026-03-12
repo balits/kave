@@ -243,7 +243,6 @@ func Test_ReadTxUnsafeRange(t *testing.T) {
 	})
 }
 
-
 func Test_WriteTxPutAndCommit(t *testing.T) {
 	runForAllKinds(t, "PutAndCommit", func(t *testing.T, kind storage.StorageKind) {
 		b := newTestBackend(t, kind)
@@ -256,7 +255,7 @@ func Test_WriteTxPutAndCommit(t *testing.T) {
 		if err := wtx.UnsafePut(testBucket, []byte("k"), []byte("v")); err != nil {
 			t.Fatalf("UnsafePut: %v", err)
 		}
-		if err := wtx.Commit(); err != nil {
+		if _, err := wtx.Commit(); err != nil {
 			t.Fatalf("Commit: %v", err)
 		}
 	})
@@ -472,7 +471,6 @@ func Test_WriteTxOverwriteValue(t *testing.T) {
 	})
 }
 
-
 func Test_WriteTxCanRead(t *testing.T) {
 	runForAllKinds(t, "WriteTxCanRead", func(t *testing.T, kind storage.StorageKind) {
 		b := newTestBackend(t, kind)
@@ -531,7 +529,6 @@ func Test_WriteTxUnsafeScan(t *testing.T) {
 		}
 	})
 }
-
 
 func Test_BackendSnapshotAndRestore(t *testing.T) {
 	runForAllKinds(t, "SnapshotAndRestore", func(t *testing.T, kind storage.StorageKind) {
@@ -620,7 +617,6 @@ func Test_BackendRestoreOverwritesExisting(t *testing.T) {
 	})
 }
 
-
 // NOTE: backend no longer has a Commit() function, thats the writetx responsibility
 // func Test_BackendForceCommitNoPendingBatch(t *testing.T) {
 // 	runForAllKinds(t, "ForceCommitNoBatch", func(t *testing.T, kind storage.StorageKind) {
@@ -643,7 +639,6 @@ func Test_BackendRestoreOverwritesExisting(t *testing.T) {
 // 		}
 // 	})
 // }
-
 
 func Test_BackendConcurrentReads(t *testing.T) {
 	runForAllKinds(t, "ConcurrentReads", func(t *testing.T, kind storage.StorageKind) {
@@ -734,7 +729,6 @@ func Test_BackendWriteThenReadConcurrent(t *testing.T) {
 		wg.Wait()
 	})
 }
-
 
 func Test_WriteTxRejectsEmptyKey(t *testing.T) {
 	runForAllKinds(t, "RejectsEmptyKey", func(t *testing.T, kind storage.StorageKind) {
@@ -828,7 +822,6 @@ func Test_WriteTxManyKeys(t *testing.T) {
 	})
 }
 
-
 func Test_ScanRangesBoundaryConditions(t *testing.T) {
 	runForAllKinds(t, "ScanBoundaries", func(t *testing.T, kind storage.StorageKind) {
 		b := newTestBackend(t, kind)
@@ -879,7 +872,6 @@ func Test_ScanRangesBoundaryConditions(t *testing.T) {
 		}
 	})
 }
-
 
 func Test_SequentialWriteTransactions(t *testing.T) {
 	runForAllKinds(t, "SequentialTxns", func(t *testing.T, kind storage.StorageKind) {

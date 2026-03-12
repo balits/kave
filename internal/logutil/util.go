@@ -100,7 +100,7 @@ func slogLeveltoHcLevel(lvl slog.Level) hclog.Level {
 // ============ hclog.Logger impl ============
 
 func (a *HcLogAdapter) Log(level hclog.Level, msg string, args ...interface{}) {
-	a.slogger.Log(context.TODO(), hcLeveltoSlogLevel(level), a.namePrefix+msg, args...)
+	a.slogger.Log(context.Background(), hcLeveltoSlogLevel(level), a.namePrefix+msg, args...)
 }
 
 func (a *HcLogAdapter) Trace(msg string, args ...interface{}) {

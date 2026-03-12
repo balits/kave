@@ -33,7 +33,6 @@ type HttpServer struct {
 	clusterSvc service.ClusterService
 	peerSvc    service.PeerService
 	logger     *slog.Logger
-	reg        *prometheus.Registry
 	server     *http.Server
 }
 
@@ -52,7 +51,6 @@ func NewHTTPServer(
 		kvSvc:      kvService,
 		clusterSvc: clusterService,
 		peerSvc:    peerService,
-		reg:        reg,
 		logger:     logger.With("component", "http_server", "addr", addr),
 		server: &http.Server{
 			Addr:    addr,
@@ -72,9 +70,7 @@ func NewHTTPServer(
 	mux.HandleFunc("GET /stats", s.handleStats)
 
 	// prometheus metrics
-	mux.Handle("/metrics", promhttp.HandlerFor(s.reg, promhttp.HandlerOpts{
-		Registry: reg,
-	}))
+	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 
 	// k8s
 	mux.HandleFunc("GET /livez", s.handleLivez)

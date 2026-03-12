@@ -49,3 +49,10 @@ func (h *leaseHeap) Pop() any {
 	*h = old[:oldLen-1]
 	return lastItem
 }
+
+func (h *leaseHeap) peekMin() *heapItem {
+	if len(*h) > 0 {
+		return (*h)[0]
+	}
+	return nil
+}

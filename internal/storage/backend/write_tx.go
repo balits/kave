@@ -18,7 +18,7 @@ type WriteTx interface {
 	// NOTE: caller needs to hold the lock
 	UnsafeDelete(bucket storage.Bucket, key []byte) error
 
-	Commit() error
+	Commit() (storage.CommitInfo, error)
 	Abort()
 }
 
@@ -54,17 +54,17 @@ func (w *writetx) UnsafeDelete(bucket storage.Bucket, key []byte) error {
 	return w.b.batch.Delete(bucket, key)
 }
 
-func (w *writetx) Commit() error {
+func (w *writetx) Commit() (storage.CommitInfo, error) {
 	start := time.Now()
 	defer func() {
 		w.b.batch = nil
 		w.opCount = 0
 	}()
-	err := w.b.batch.Commit()
+	info, err := w.b.batch.Commit()
 	if err != nil && w.b.obs != nil {
 		w.b.obs.ObserveCommit(time.Since(start), w.opCount)
 	}
-	return err
+	return info, err
 }
 
 func (w *writetx) Abort() {

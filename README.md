@@ -103,6 +103,14 @@ Hello world
         - [x] type LeaseManager
         - [x] type LeaseQueue
         - [x] type Checkpoint / CHeckpointScheduler
+        - [ ] expiry loo
+    - [ ] metrics
+        - meaningful grafana
+        - figure out where and how to collect every kind of metric
+    - [ ] combined compactor
+        - [ ] periodic ticks, candidateRev = rev at last tick
+        - [ ] threshold under which we shouldnt compact
+        - [ ] BUT if were between periods, but writes have accumulated fast -> lets compact
 
 # CHORES
 - [ ] use require in every test insteaf of if err != nil ...

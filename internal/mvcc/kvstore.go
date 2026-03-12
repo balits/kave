@@ -249,7 +249,7 @@ func (s *KVStore) doCompact(rev int64) {
 			wtx.UnsafePut(schema.BucketMeta, schema.MetaKeyCompactFinished, revBytes)
 		}
 
-		if err := wtx.Commit(); err != nil {
+		if _, err := wtx.Commit(); err != nil {
 			s.logger.Error("compaction error: commit failed", "error", err)
 			wtx.Unlock()
 			return
