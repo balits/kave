@@ -2,6 +2,7 @@ package fsm
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"time"
@@ -18,22 +19,23 @@ var (
 )
 
 type Fsm struct {
-	engine   *mvcc.Engine
-	leaseMgr *lease.LeaseManager
-	store    *mvcc.KVStore
-	logger   *slog.Logger
-	_nodeID  string // hack to set Result.Header.NodeID
+	engine *mvcc.Engine
+
+	lm      *lease.LeaseManager
+	store   *mvcc.KVStore
+	logger  *slog.Logger
+	_nodeID string // hack to set Result.Header.NodeID
 
 	metrics *metrics.RaftMetrics
 }
 
 func NewFsm(logger *slog.Logger, store *mvcc.KVStore, leaseMgr *lease.LeaseManager, nodeID string) *Fsm {
 	f := &Fsm{
-		engine:   mvcc.NewEngine(store),
-		leaseMgr: leaseMgr,
-		store:    store,
-		logger:   logger.With("component", "fsm"),
-		_nodeID:  nodeID,
+		engine:  mvcc.NewEngine(store),
+		lm:      leaseMgr,
+		store:   store,
+		logger:  logger.With("component", "fsm"),
+		_nodeID: nodeID,
 	}
 	return f
 }
@@ -52,7 +54,7 @@ func (f *Fsm) SetMetrics(m *metrics.RaftMetrics) {
 // 1) validate command structure and arguments before callig Apply
 func (f *Fsm) Apply(log *raft.Log) interface{} {
 	start := time.Now()
-	defer f.metrics.ApplyDurationSec.Observe(time.Since(start).Seconds())
+	defer func() { f.metrics.ApplyDurationSec.Observe(time.Since(start).Seconds()) }()
 	f.metrics.ApplyTotal.Inc()
 
 	cmd, err := command.Decode(log.Data)
@@ -62,15 +64,39 @@ func (f *Fsm) Apply(log *raft.Log) interface{} {
 
 	f.store.UpdateRaftMeta(log.Index, log.Term)
 
+	switch cmd.Type {
+	case command.CmdPut, command.CmdDelete, command.CmdTxn:
+		return f.applyKv(cmd, log.Term, log.Index)
+	case command.CmdLeaseGrant, command.CmdLeaseRevoke, command.CmdLeaseCheckpoint:
+		return f.applyLease(cmd)
+	default:
+		panic(fmt.Sprintf("Unsupported command type: %v", cmd.Type))
+	}
+}
+
+func (f *Fsm) applyKv(cmd command.Command, term uint64, index uint64) command.Result {
 	res, err := f.engine.ApplyWrite(cmd)
 	if err != nil {
 		return command.Result{Error: err}
 	}
-	res.Header.RaftTerm = log.Term
-	res.Header.RaftIndex = log.Index
+	res.Header.RaftTerm = term
+	res.Header.RaftIndex = index
 	res.Header.NodeID = f._nodeID
-
 	return res
+}
+
+// TODO: should we create more meaningful return type for lease commands?
+func (f *Fsm) applyLease(cmd command.Command) command.Result {
+	switch cmd.Type {
+	case command.CmdLeaseCheckpoint:
+		f.lm.ApplyCheckpoints(*cmd.LeaseCheckpoint)
+	case command.CmdLeaseRevoke:
+		f.lm.Revoke(cmd.LeaseRevoke.LeaseID)
+	default:
+		panic(fmt.Sprintf("Unsupported lease command type: %v", cmd.Type))
+	}
+
+	return command.Result{}
 }
 
 // Snapshot also should be fast, just take a pointer to the data
@@ -84,7 +110,7 @@ func (f *Fsm) Restore(snapshot io.ReadCloser) error {
 	if err != nil {
 		return err
 	}
-	return f.leaseMgr.Restore(f.store)
+	return f.lm.Restore(f.store)
 }
 
 func (f *Fsm) Metrics() *metrics.RaftMetrics {

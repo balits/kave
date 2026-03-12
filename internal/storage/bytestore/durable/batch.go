@@ -11,7 +11,7 @@ import (
 type durableBatch struct {
 	tx        *bolt.Tx
 	wc        bytestore.WriteCollector
-	sz       *atomic.Int64
+	sz        *atomic.Int64
 	bucketMap map[storage.Bucket][]byte
 	closed    bool
 }
@@ -20,7 +20,7 @@ func newBatch(tx *bolt.Tx, bucketMap map[storage.Bucket][]byte, sz *atomic.Int64
 	return &durableBatch{
 		tx:        tx,
 		wc:        bytestore.NewWriteCollector(),
-		sz: sz,
+		sz:        sz,
 		bucketMap: bucketMap,
 	}
 }
@@ -47,9 +47,9 @@ func (b *durableBatch) Delete(bucket storage.Bucket, key []byte) error {
 	return nil
 }
 
-func (b *durableBatch) Commit() (err error) {
+func (b *durableBatch) Commit() (info storage.CommitInfo, err error) {
 	if b.closed {
-		return storage.ErrBatchClosed
+		return info, storage.ErrBatchClosed
 	}
 
 	totalDelta := int64(0)
@@ -65,24 +65,25 @@ func (b *durableBatch) Commit() (err error) {
 	for bucketName, keys := range b.wc.Deletes() {
 		bucketBytes, ok := b.bucketMap[bucketName]
 		if !ok {
-			return storage.ErrBucketNotFound
+			return info, storage.ErrBucketNotFound
 		}
 		bucket := b.tx.Bucket(bucketBytes)
 		if bucket == nil {
-			return storage.ErrBucketNotFound
+			return info, storage.ErrBucketNotFound
 		}
 
 		for key := range keys {
 			if len(key) == 0 {
-				return storage.ErrEmptyKey
+				return info, storage.ErrEmptyKey
 			}
 			keyb := []byte(key)
 			old := bucket.Get(keyb)
 			if old != nil {
 				totalDelta += int64(-len(old))
+				info.DeletedKeys++
 			}
 			if err := bucket.Delete(keyb); err != nil {
-				return err
+				return info, err
 			}
 		}
 	}
@@ -90,16 +91,16 @@ func (b *durableBatch) Commit() (err error) {
 	for bucketName, keys := range b.wc.Puts() {
 		bucketBytes, ok := b.bucketMap[bucketName]
 		if !ok {
-			return storage.ErrBucketNotFound
+			return info, storage.ErrBucketNotFound
 		}
 		bucket := b.tx.Bucket(bucketBytes)
 		if bucket == nil {
-			return storage.ErrBucketNotFound
+			return info, storage.ErrBucketNotFound
 		}
 
 		for k, v := range keys {
 			if len(k) == 0 {
-				return storage.ErrEmptyKey
+				return info, storage.ErrEmptyKey
 			}
 			old := bucket.Get([]byte(k))
 			if old != nil {
@@ -108,12 +109,14 @@ func (b *durableBatch) Commit() (err error) {
 				totalDelta += int64(len(v))
 			}
 			if err := bucket.Put([]byte(k), v); err != nil {
-				return err
+				return info, err
+			} else if old == nil {
+				info.NewKeys++
 			}
 		}
 	}
 
-	return b.tx.Commit()
+	return info, b.tx.Commit()
 }
 
 func (b *durableBatch) Abort() {

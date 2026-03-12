@@ -51,7 +51,7 @@ services:
       - "9090:9090"
     networks: ["raftnetwork"]
     volumes:
-      - ./prometheus.yaml:/etc/prometheus/prometheus.yaml
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
   grafana:
     image: grafana/grafana
     ports:

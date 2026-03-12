@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-
 func TestBatchPutAndCommit(t *testing.T) {
 	s := newTestStore()
 	b, err := s.NewBatch()
@@ -22,7 +21,7 @@ func TestBatchPutAndCommit(t *testing.T) {
 		t.Error("value visible before commit")
 	}
 
-	if err := b.Commit(); err != nil {
+	if _, err := b.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 
@@ -35,7 +34,6 @@ func TestBatchPutAndCommit(t *testing.T) {
 		t.Errorf("k2 = %q, want %q", v2, "v2")
 	}
 }
-
 
 func TestBatchDeleteAndCommit(t *testing.T) {
 	s := newTestStore()
@@ -57,7 +55,6 @@ func TestBatchDeleteAndCommit(t *testing.T) {
 	}
 }
 
-
 func TestBatchAbort(t *testing.T) {
 	s := newTestStore()
 	s.Put(testBucket, []byte("existing"), []byte("yes"))
@@ -77,7 +74,6 @@ func TestBatchAbort(t *testing.T) {
 		t.Errorf("aborted delete should not affect existing key, got %q", existing)
 	}
 }
-
 
 func TestBatchPutAfterCommit(t *testing.T) {
 	s := newTestStore()
@@ -107,7 +103,7 @@ func TestBatchCommitAfterCommit(t *testing.T) {
 	b, _ := s.NewBatch()
 	b.Commit()
 
-	err := b.Commit()
+	_, err := b.Commit()
 	if err == nil {
 		t.Fatal("expected error on double Commit")
 	}
@@ -140,7 +136,7 @@ func TestBatchCommitAfterAbort(t *testing.T) {
 	b, _ := s.NewBatch()
 	b.Abort()
 
-	err := b.Commit()
+	_, err := b.Commit()
 	if err == nil {
 		t.Fatal("expected error on Commit after Abort")
 	}
@@ -152,7 +148,6 @@ func TestBatchAbortAfterAbort(t *testing.T) {
 	b.Abort()
 	b.Abort()
 }
-
 
 func TestBatchPutOverwritesSameBatch(t *testing.T) {
 	s := newTestStore()
@@ -195,7 +190,6 @@ func TestBatchPutUndoesDelete(t *testing.T) {
 	}
 }
 
-
 func TestBatchMultipleBuckets(t *testing.T) {
 	s := newTestStore()
 	b, _ := s.NewBatch()
@@ -212,7 +206,6 @@ func TestBatchMultipleBuckets(t *testing.T) {
 		t.Errorf("meta = %q, want %q", mv, "mv")
 	}
 }
-
 
 func TestBatchManyKeys(t *testing.T) {
 	s := newTestStore()
@@ -232,7 +225,6 @@ func TestBatchManyKeys(t *testing.T) {
 		t.Errorf("scanned %d, want %d", count, n)
 	}
 }
-
 
 func TestBatchAtomicityOnAbort(t *testing.T) {
 	s := newTestStore()
@@ -259,7 +251,6 @@ func TestBatchAtomicityOnAbort(t *testing.T) {
 		t.Errorf("c should not exist, got %q", c)
 	}
 }
-
 
 func TestSequentialBatches(t *testing.T) {
 	s := newTestStore()

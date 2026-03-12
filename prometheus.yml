@@ -1,8 +1,8 @@
 global:
   scrape_interval: 15s
 
-scapre_configs:
-  - job_name: 'kave'
+scrape_configs:
+  - job_name: "kave"
     static_configs:
       - targets:
         - 'node1:8000'

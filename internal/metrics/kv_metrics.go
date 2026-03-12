@@ -23,9 +23,10 @@ type KVMetrics struct {
 	CompactionErrors  prometheus.Counter
 
 	// cmd counts
-	ReadsTotal prometheus.Counter
-	// PutsTotal    prometheus.Counter
-	// DeletesTotal prometheus.Counter
+	ReadsTotal   prometheus.Counter
+	PutsTotal    prometheus.Counter
+	DeletesTotal prometheus.Counter
+
 	TxnsTotal        prometheus.Counter // count of committed transactions
 	CompactionsTotal prometheus.Counter // count of compactions
 
@@ -100,6 +101,18 @@ func NewKVMetrics(
 			Help:      "Total errors during compaction.",
 		}),
 
+		PutsTotal: factory.NewCounter(prometheus.CounterOpts{
+			Namespace: "kave",
+			Subsystem: "kv",
+			Name:      "puts_total",
+			Help:      "Total Put operations.",
+		}),
+		DeletesTotal: factory.NewCounter(prometheus.CounterOpts{
+			Namespace: "kave",
+			Subsystem: "kv",
+			Name:      "deletes_total",
+			Help:      "Total Delete operations.",
+		}),
 		ReadsTotal: factory.NewCounter(prometheus.CounterOpts{
 			Namespace: "kave",
 			Subsystem: "kv",

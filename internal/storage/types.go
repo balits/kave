@@ -55,3 +55,8 @@ type StorageOptions struct {
 	// Ha egy bucket nincs benne ebben a listában, később már nem lehet létrehozni
 	InitialBuckets []Bucket
 }
+
+type CommitInfo struct {
+	DeletedKeys int64
+	NewKeys     int64
+}

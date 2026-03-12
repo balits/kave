@@ -40,9 +40,10 @@ func (b *inmemBatch) Delete(bucket storage.Bucket, key []byte) error {
 	return nil
 }
 
-func (b *inmemBatch) Commit() (err error) {
+func (b *inmemBatch) Commit() (info storage.CommitInfo, err error) {
 	if b.closed {
-		return storage.ErrBatchClosed
+		err = storage.ErrBatchClosed
+		return
 	}
 
 	totalDelta := int64(0)
@@ -66,7 +67,10 @@ func (b *inmemBatch) Commit() (err error) {
 			if err != nil {
 				return
 			}
-			totalDelta += int64(-len(old))
+			if old != nil {
+				totalDelta += int64(-len(old))
+				info.DeletedKeys++
+			}
 		}
 	}
 
@@ -75,17 +79,18 @@ func (b *inmemBatch) Commit() (err error) {
 			var old []byte
 			old, err = b.inner.unsafePut(bucket, []byte(key), value)
 			if err != nil {
-				return err
+				return
 			}
 			if old != nil {
 				totalDelta += int64(len(old) - len(value))
 			} else {
 				totalDelta += int64(len(value))
+				info.NewKeys++
 			}
 		}
 	}
 
-	return nil
+	return
 }
 
 func (b *inmemBatch) Abort() {

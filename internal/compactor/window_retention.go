@@ -58,7 +58,6 @@ func (wc *windowRetentionCompactor) run() {
 			wc.running.Store(false)
 			return
 		case <-ticker.C:
-			wc.logger.Debug("new tick")
 		}
 		if wc.paused.Load() {
 			continue

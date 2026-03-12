@@ -259,11 +259,15 @@ func (w *writer) End() {
 		w.writeTx.UnsafePut(schema.BucketMeta, schema.MetaKeyRaftTerm, types.EncodeUint64(w.store.raftTerm))
 	}
 
-	if err := w.writeTx.Commit(); err != nil {
+	info, err := w.writeTx.Commit()
+	if err != nil {
 		w.store.logger.Error("failed to commit write tx", "error", err)
 	} else {
 		w.store.metrics.TxnsTotal.Add(1) // TODO: count failed txns?
 		w.store.metrics.TxnDurationSec.Observe(time.Since(w.startTime).Seconds())
+		w.store.metrics.PutsTotal.Add(float64(info.NewKeys))
+		w.store.metrics.DeletesTotal.Add(float64(info.DeletedKeys))
+		w.store.metrics.KeyCount.Add(float64(info.NewKeys - info.DeletedKeys))
 	}
 	w.writeTx.Unlock() // release db lock
 

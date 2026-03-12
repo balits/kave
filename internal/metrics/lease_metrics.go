@@ -14,10 +14,12 @@ type LeaseMetrics struct {
 	CheckpointsTotal prometheus.Counter
 
 	ActiveLeases prometheus.GaugeFunc
-	LeasedKeys   prometheus.Gauge
+	LeasedKeys   prometheus.Gauge // todo: maybe update on mvcc.KVStore
 
 	GrantDurationSec     prometheus.Histogram
+	RevokeDurationSec    prometheus.Histogram
 	KeepAliveDurationSec prometheus.Histogram
+
 	LeaseTTLAtExpirySec  prometheus.Histogram
 	KeysPerRevoke        prometheus.Histogram
 }
@@ -82,6 +84,13 @@ func NewLeaseMetrics(reg prometheus.Registerer, activeLeasesFunc func() int) *Le
 			Subsystem: "lease",
 			Name:      "grant_latency_seconds",
 			Help:      "Latency of granting leases.",
+			Buckets:   []float64{0.0005, 0.001, 0.002, 0.005, .010, .025, .05, .1, .25, .5, 1, 2, 5},
+		}),
+		RevokeDurationSec: factory.NewHistogram(prometheus.HistogramOpts{
+			Namespace: "kave",
+			Subsystem: "lease",
+			Name:      "revoke_latency_seconds",
+			Help:      "Latency of revoking leases.",
 			Buckets:   []float64{0.0005, 0.001, 0.002, 0.005, .010, .025, .05, .1, .25, .5, 1, 2, 5},
 		}),
 		KeepAliveDurationSec: factory.NewHistogram(prometheus.HistogramOpts{
