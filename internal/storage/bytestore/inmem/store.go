@@ -86,7 +86,8 @@ func (s *InmemStore) Scan(bucket storage.Bucket, op func(key, value []byte) bool
 
 	tree.Ascend(func(it btree.Item) bool {
 		item := it.(KVBtreeItem)
-		return op(item.Key, item.Value)
+		b := op(item.Key, item.Value)
+		return b
 	})
 	return nil
 }

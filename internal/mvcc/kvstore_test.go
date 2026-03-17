@@ -44,11 +44,11 @@ func Test_KVStoreRevisionAfterWrites(t *testing.T) {
 	defer s.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("a"), []byte("1"))
+	w.Put([]byte("a"), []byte("1"), 0)
 	w.End()
 
 	w = s.NewWriter()
-	w.Put([]byte("b"), []byte("2"))
+	w.Put([]byte("b"), []byte("2"), 0)
 	w.End()
 
 	currRev, _ := s.Revisions()
@@ -85,12 +85,12 @@ func Test_KVStoreFullLifecycle(t *testing.T) {
 	defer s.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("key1"), []byte("val1"))
-	w.Put([]byte("key2"), []byte("val2"))
+	w.Put([]byte("key1"), []byte("val1"), 0)
+	w.Put([]byte("key2"), []byte("val2"), 0)
 	w.End()
 
 	w = s.NewWriter()
-	w.Put([]byte("key1"), []byte("val1_updated"))
+	w.Put([]byte("key1"), []byte("val1_updated"), 0)
 	w.End()
 
 	w = s.NewWriter()
@@ -131,7 +131,7 @@ func Test_KVStoreVersionTracking(t *testing.T) {
 
 	for range 5 {
 		w := s.NewWriter()
-		w.Put([]byte("k"), []byte("v"))
+		w.Put([]byte("k"), []byte("v"), 0)
 		w.End()
 	}
 
@@ -156,9 +156,9 @@ func Test_KVStoreSubRevisions(t *testing.T) {
 	defer s.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("a"), []byte("1"))
-	w.Put([]byte("b"), []byte("2"))
-	w.Put([]byte("c"), []byte("3"))
+	w.Put([]byte("a"), []byte("1"), 0)
+	w.Put([]byte("b"), []byte("2"), 0)
+	w.Put([]byte("c"), []byte("3"), 0)
 	w.End()
 
 	_, created, _, err := s.kvIndex.Get([]byte("a"), 1)
@@ -189,15 +189,15 @@ func Test_KVStoreMultipleWritersSameKey(t *testing.T) {
 	defer s.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("k"), []byte("v1"))
+	w.Put([]byte("k"), []byte("v1"), 0)
 	w.End()
 
 	w = s.NewWriter()
-	w.Put([]byte("k"), []byte("v2"))
+	w.Put([]byte("k"), []byte("v2"), 0)
 	w.End()
 
 	w = s.NewWriter()
-	w.Put([]byte("k"), []byte("v3"))
+	w.Put([]byte("k"), []byte("v3"), 0)
 	w.End()
 
 	r := s.NewReader()
@@ -232,7 +232,7 @@ func Test_KVStoreRestoreInmem(t *testing.T) {
 
 	s.UpdateRaftMeta(10, 3)
 	w := s.NewWriter()
-	w.Put([]byte("rk"), []byte("rv"))
+	w.Put([]byte("rk"), []byte("rv"), 0)
 	w.End()
 
 	var buf mockBuffer
@@ -269,7 +269,7 @@ func Test_KVStoreRestoreBoltdb(t *testing.T) {
 
 	s1.UpdateRaftMeta(10, 3)
 	w := s1.NewWriter()
-	w.Put([]byte("k"), []byte("v"))
+	w.Put([]byte("k"), []byte("v"), 0)
 	w.End()
 
 	// Snapshot into a buffer — don't touch files
@@ -304,7 +304,7 @@ func Test_KVStoreRangeRejectsCompactedRev(t *testing.T) {
 	defer s.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("k"), []byte("v"))
+	w.Put([]byte("k"), []byte("v"), 0)
 	w.End()
 
 	s.revMu.Lock()
@@ -325,7 +325,7 @@ func Test_KVStoreCompactDeletesEntries(t *testing.T) {
 	// Write key at revisions 1, 2, 3
 	for i := range 3 {
 		w := s.NewWriter()
-		w.Put([]byte("k"), fmt.Appendf(nil, "v%d", i))
+		w.Put([]byte("k"), fmt.Appendf(nil, "v%d", i), 0)
 		w.End()
 	}
 	r := s.NewReader()
@@ -341,12 +341,12 @@ func Test_KVStoreCompactDeletesEntries(t *testing.T) {
 	rtx.RLock()
 	defer rtx.RUnlock()
 
-	start := kv.EncodeRevision(kv.Revision{Main: 0}, kv.NewRevBytes())
-	end := kv.EncodeRevision(kv.Revision{Main: 3}, kv.NewRevBytes())
+	start := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: 0}, kv.NewRevBytes())
+	end := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: 3}, kv.NewRevBytes())
 
 	var found []kv.Revision
 	rtx.UnsafeScan(schema.BucketKV, start, end, func(k, v []byte) error {
-		bk := kv.DecodeKVBucketKey(k)
+		bk := kv.DecodeKvBucketKey(k)
 		found = append(found, bk.Revision)
 		return nil
 	})

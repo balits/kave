@@ -10,7 +10,7 @@ var (
 	errDecodingFailed = fmt.Errorf("codec error: entry decoding failed")
 )
 
-func EncodeEntry(e Entry) ([]byte, error) {
+func EncodeKvEntry(e KvEntry) ([]byte, error) {
 	totalLen := 4 + len(e.Key) + 4 + len(e.Value) + 8 + 8 + 8 + 8
 	buf := make([]byte, totalLen)
 	offset := 0
@@ -38,8 +38,8 @@ func EncodeEntry(e Entry) ([]byte, error) {
 	return buf, nil
 }
 
-func DecodeEntry(data []byte) (Entry, error) {
-	var e Entry
+func DecodeKvEntry(data []byte) (KvEntry, error) {
+	var e KvEntry
 	offset := 0
 
 	if len(data) < 4 {

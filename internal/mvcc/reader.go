@@ -12,10 +12,10 @@ import (
 
 type Reader interface {
 	// Range reads entries at the given or current revision.
-	Range(key, end []byte, rev int64, limit int64) (entries []types.Entry, count int, currRev int64, err error)
+	Range(key, end []byte, rev int64, limit int64) (entries []types.KvEntry, count int, currRev int64, err error)
 
 	// Get reads a single entry at the given or current revision.
-	Get(key []byte, rev int64) *types.Entry
+	Get(key []byte, rev int64) *types.KvEntry
 }
 
 type reader struct {
@@ -23,18 +23,18 @@ type reader struct {
 	metrics *metrics.KVMetrics
 }
 
-func (r *reader) Range(key, end []byte, rev int64, limit int64) (entries []types.Entry, count int, currentRev int64, err error) {
+func (r *reader) Range(key, end []byte, rev int64, limit int64) (entries []types.KvEntry, count int, currentRev int64, err error) {
 	start := time.Now()
 	r.store.rwlock.RLock()
+	defer r.store.rwlock.RUnlock()
 
 	r.store.revMu.RLock()
 	currRevMain := r.store.currentRev.Main
 	compactRev := r.store.compactedMainRev
 	r.store.revMu.RUnlock()
 
-	defer r.store.rwlock.RUnlock()
 	r.metrics.ReadsTotal.Inc()
-	defer r.metrics.ReadDurationSec.Observe(time.Since(start).Seconds())
+	defer func() { r.metrics.ReadDurationSec.Observe(time.Since(start).Seconds()) }()
 
 	if rev > currRevMain {
 		return nil, 0, currRevMain, fmt.Errorf("future revision requested")
@@ -60,16 +60,16 @@ func (r *reader) Range(key, end []byte, rev int64, limit int64) (entries []types
 	rtx.RLock()
 	defer rtx.RUnlock()
 
-	entries = make([]types.Entry, 0, lim)
+	entries = make([]types.KvEntry, 0, lim)
 	revBytes := kv.NewRevBytes()
 	for _, rp := range revpairs[:lim] {
-		revBytes = kv.EncodeRevision(rp, revBytes)
+		revBytes = kv.EncodeRevisionAsBucketKey(rp, revBytes)
 		entryBytes, err := rtx.UnsafeGet(schema.BucketKV, revBytes)
 		if err != nil || entryBytes == nil {
 			r.store.logger.Error("range: revision not found in backend", "main", rp.Main, "sub", rp.Sub)
 			continue
 		}
-		entry, err := types.DecodeEntry(entryBytes)
+		entry, err := types.DecodeKvEntry(entryBytes)
 		if err != nil {
 			r.store.logger.Error("range: failed to unmarshal entry", "err", err)
 			continue
@@ -80,9 +80,7 @@ func (r *reader) Range(key, end []byte, rev int64, limit int64) (entries []types
 	return entries, total, currRevMain, nil
 }
 
-func (r *reader) Get(key []byte, rev int64) *types.Entry {
-	r.store.rwlock.RLock()
-	defer r.store.rwlock.RUnlock()
+func (r *reader) Get(key []byte, rev int64) *types.KvEntry {
 	entries, _, _, err := r.Range(key, nil, rev, 1)
 	if err != nil {
 		return nil

@@ -2,8 +2,8 @@ package types
 
 import "fmt"
 
-// Entry a valódi tipus amit az adatbázisban tárolunk
-type Entry struct {
+// KvEntry a valódi tipus amit az adatbázisban tárolunk
+type KvEntry struct {
 	Key       []byte `json:"key"`
 	Value     []byte `json:"value"`
 	CreateRev int64  `json:"create_revision"`
@@ -13,7 +13,7 @@ type Entry struct {
 }
 
 // for debugging
-func (e Entry) String() string {
+func (e KvEntry) String() string {
 	return fmt.Sprintf(
 		"Entry{Key: %s, Value: %s, CreateRev: %d, ModRev: %d, Version: %d, LeaseID: %d}",
 		string(e.Key),

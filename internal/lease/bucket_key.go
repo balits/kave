@@ -2,7 +2,6 @@ package lease
 
 import (
 	"encoding/binary"
-	"fmt"
 )
 
 type LeaseBucketKey int64
@@ -13,9 +12,10 @@ func EncodeLeaseBucketKey(bk LeaseBucketKey) []byte {
 	return buff
 }
 
-func DecodeLeaseBucketKey(src []byte) (LeaseBucketKey, error) {
+func DecodeLeaseBucketKey(src []byte) LeaseBucketKey {
 	if len(src) < 8 {
-		return 0, fmt.Errorf("coded error: decode lease bucket key failed: buffer is less than 8 bytes long")
+		panic("coded error: decode lease bucket key failed: buffer is less than 8 bytes long")
 	}
-	return LeaseBucketKey(binary.BigEndian.Uint64(src[:8])), nil
+	i := binary.BigEndian.Uint64(src[:8])
+	return LeaseBucketKey(i)
 }

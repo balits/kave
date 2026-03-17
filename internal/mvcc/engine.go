@@ -8,13 +8,20 @@ import (
 	"github.com/balits/kave/internal/types"
 )
 
-type Engine struct {
-	store *KVStore
+type LeaseAttacher interface {
+	AttachKey(id int64, key []byte)
+	DetachKey(id int64, key []byte)
 }
 
-func NewEngine(store *KVStore) *Engine {
+type Engine struct {
+	store    *KVStore
+	attacher LeaseAttacher
+}
+
+func NewEngine(store *KVStore, attacher LeaseAttacher) *Engine {
 	return &Engine{
-		store: store,
+		store:    store,
+		attacher: attacher,
 	}
 }
 
@@ -32,51 +39,66 @@ func (e *Engine) ApplyWrite(cmd command.Command) (command.Result, error) {
 }
 
 func (e *Engine) applyPut(cmd *command.PutCmd) (command.Result, error) {
-	var prev *types.Entry
-	if cmd.PrevEntry {
-		prev = e.store.NewReader().Get([]byte(cmd.Key), 0)
-	}
+	prev := e.store.NewReader().Get([]byte(cmd.Key), 0)
 
 	w := e.store.NewWriter()
-	rev, err := w.Put([]byte(cmd.Key), []byte(cmd.Value))
+	rev, err := w.Put(cmd.Key, cmd.Value, cmd.LeaseID)
 	if err != nil {
 		w.Abort()
 		return command.Result{}, fmt.Errorf("applyPut failed: %w", err)
 	}
 	w.End()
 
-	return command.Result{
+	if prev != nil && prev.LeaseID != 0 && prev.LeaseID != cmd.LeaseID {
+		e.attacher.DetachKey(prev.LeaseID, cmd.Key) // no-op if no such lease existed
+	}
+	if cmd.LeaseID != 0 {
+		e.attacher.AttachKey(cmd.LeaseID, cmd.Key) // no-op if no such lease exists
+	}
+
+	res := command.Result{
 		Header: command.ResultHeader{
 			Revision: rev.Main,
 		},
-		Put: &command.PutResult{
-			PrevEntry: prev,
-		},
-	}, nil
+		PutResult: &command.PutResult{},
+	}
+	if cmd.PrevEntry {
+		res.PutResult.PrevEntry = prev
+	}
+	return res, nil
 }
 
 func (e *Engine) applyDelete(cmd *command.DeleteCmd) (command.Result, error) {
-	var prevs []types.Entry
+	var (
+		prevs []types.KvEntry
+		err   error
+	)
 	if cmd.PrevEntries {
-		var err error
-		prevs, _, _, err = e.store.NewReader().Range([]byte(cmd.Key), []byte(cmd.End), 0, 0)
+		prevs, _, _, err = e.store.NewReader().Range(cmd.Key, cmd.End, 0, 0)
 		if err != nil {
 			return command.Result{}, fmt.Errorf("applyDelete failed: %w", err)
 		}
 	}
+
 	w := e.store.NewWriter()
-	cnt, rev, err := w.DeleteRange([]byte(cmd.Key), []byte(cmd.End))
+	cnt, rev, err := w.DeleteRange(cmd.Key, cmd.End)
 	if err != nil {
 		w.Abort()
 		return command.Result{}, fmt.Errorf("applyDelete failed: %w", err)
 	}
 	w.End()
 
+	for _, entry := range prevs {
+		if entry.LeaseID != 0 {
+			e.attacher.DetachKey(entry.LeaseID, entry.Key)
+		}
+	}
+
 	return command.Result{
 		Header: command.ResultHeader{
 			Revision: rev.Main,
 		},
-		Delete: &command.DeleteResult{
+		DeleteResult: &command.DeleteResult{
 			NumDeleted:  cnt,
 			PrevEntries: prevs,
 		},
@@ -108,7 +130,7 @@ func (e *Engine) applyTxn(cmd *command.TxnCmd) (command.Result, error) {
 		Header: command.ResultHeader{
 			Revision: finalRev.Main,
 		},
-		Txn: &command.TxnResult{
+		TxnResult: &command.TxnResult{
 			Success: cond,
 			Results: res,
 		},
@@ -142,12 +164,12 @@ func (e *Engine) applyTxnOps(w Writer, ops []command.TxnOp) ([]command.TxnOpResu
 		switch op.Type {
 		case command.TxnOpPut:
 			put := op.Put
-			var prev *types.Entry
+			var prev *types.KvEntry
 			if put.PrevEntry {
-				prev = w.Get([]byte(put.Key), 0)
+				prev = w.Get(put.Key, 0)
 			}
 
-			_, err := w.Put([]byte(op.Put.Key), []byte(op.Put.Value))
+			_, err := w.Put(put.Key, put.Value, put.LeaseID)
 			if err != nil {
 				return nil, fmt.Errorf("txn failed: error during put op: %w", err)
 			}
@@ -158,16 +180,16 @@ func (e *Engine) applyTxnOps(w Writer, ops []command.TxnOp) ([]command.TxnOpResu
 			})
 		case command.TxnOpDelete:
 			del := op.Delete
-			var prevs []types.Entry
+			var prevs []types.KvEntry
 			if del.PrevEntries {
 				var err error
-				prevs, _, _, err = w.Range([]byte(del.Key), []byte(del.End), 0, 0)
+				prevs, _, _, err = w.Range(del.Key, del.End, 0, 0)
 				if err != nil {
 					return nil, fmt.Errorf("txn failed: error on prev entries on delete op: %w", err)
 				}
 			}
 
-			cnt, _, err := w.DeleteRange([]byte(del.Key), []byte(del.End))
+			cnt, _, err := w.DeleteRange(del.Key, del.End)
 			if err != nil {
 				return nil, fmt.Errorf("txn failed: error during delete op: %w", err)
 			}
