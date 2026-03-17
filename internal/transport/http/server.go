@@ -11,6 +11,7 @@ import (
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/service"
 	"github.com/balits/kave/internal/transport"
+	"github.com/balits/kave/internal/util"
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -30,6 +31,7 @@ const (
 // also TODO: sometimes http responses have header sometiems no, sometiems they have error sometimes not
 type HttpServer struct {
 	kvSvc      service.KVService
+	leaseSvc   service.LeaseService
 	clusterSvc service.ClusterService
 	peerSvc    service.PeerService
 	logger     *slog.Logger
@@ -37,18 +39,20 @@ type HttpServer struct {
 }
 
 func NewHTTPServer(
+	logger *slog.Logger,
 	httpPort string,
 	kvService service.KVService,
+	leaseService service.LeaseService,
 	clusterService service.ClusterService,
 	peerService service.PeerService,
 	cfg *config.Config,
 	reg *prometheus.Registry,
-	logger *slog.Logger,
 ) *HttpServer {
 	addr := "0.0.0.0:" + httpPort
 	mux := http.NewServeMux()
 	s := &HttpServer{
 		kvSvc:      kvService,
+		leaseSvc:   leaseService,
 		clusterSvc: clusterService,
 		peerSvc:    peerService,
 		logger:     logger.With("component", "http_server", "addr", addr),
@@ -59,9 +63,14 @@ func NewHTTPServer(
 	}
 
 	// kv
-	mux.HandleFunc("GET "+transport.UriKvUri+"/get", s.handleGet)
-	mux.HandleFunc("POST "+transport.UriKvUri+"/put", s.handlePut)
-	mux.HandleFunc("DELETE "+transport.UriKvUri+"/delete", s.handleDelete)
+	mux.HandleFunc("GET "+transport.UriKv+"/get", s.handleKvGet)
+	mux.HandleFunc("POST "+transport.UriKv+"/put", s.handleKvPut)
+	mux.HandleFunc("DELETE "+transport.UriKv+"/delete", s.handleKvDelete)
+
+	// lease
+	mux.HandleFunc("POST "+transport.UriLease+"/grant", s.handleLeaseGrant)
+	mux.HandleFunc("DELETE "+transport.UriLease+"/revoke", s.handleLeaseRevoke)
+	mux.HandleFunc("POST "+transport.UriLease+"/keep-alive", s.handleLeaseKeepAlive)
 
 	// cluster
 	mux.HandleFunc("POST "+transport.UriCluster+"/join", s.handleJoin)
@@ -97,7 +106,7 @@ func (s *HttpServer) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (s *HttpServer) handleGet(w http.ResponseWriter, r *http.Request) {
+func (s *HttpServer) handleKvGet(w http.ResponseWriter, r *http.Request) {
 	leader, err := s.peerSvc.GetLeader()
 	if err != nil {
 		s.logger.Error("Failed to get leader info", "error", err)
@@ -136,7 +145,7 @@ func (s *HttpServer) handleGet(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, *result, http.StatusOK)
 }
 
-func (s *HttpServer) handlePut(w http.ResponseWriter, r *http.Request) {
+func (s *HttpServer) handleKvPut(w http.ResponseWriter, r *http.Request) {
 	s.logger.Debug("Received PUT request")
 	leader, err := s.peerSvc.GetLeader()
 	if err != nil {
@@ -174,7 +183,7 @@ func (s *HttpServer) handlePut(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, *result, http.StatusOK)
 }
 
-func (s *HttpServer) handleDelete(w http.ResponseWriter, r *http.Request) {
+func (s *HttpServer) handleKvDelete(w http.ResponseWriter, r *http.Request) {
 	s.logger.Debug("Received DELETE request")
 	leader, err := s.peerSvc.GetLeader()
 	if err != nil {
@@ -256,6 +265,16 @@ func (s *HttpServer) handleJoin(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write(bytes)
 	}
+}
+
+func (s *HttpServer) handleLeaseGrant(w http.ResponseWriter, r *http.Request) {
+	util.Todo("http /lease/grant")
+}
+func (s *HttpServer) handleLeaseRevoke(w http.ResponseWriter, r *http.Request) {
+	util.Todo("http /lease/revoke")
+}
+func (s *HttpServer) handleLeaseKeepAlive(w http.ResponseWriter, r *http.Request) {
+	util.Todo("http /lease/keep-alive")
 }
 
 func (s *HttpServer) handleStats(w http.ResponseWriter, r *http.Request) {

@@ -2,33 +2,38 @@ package lease
 
 import (
 	"container/heap"
-	"crypto/rand"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"time"
 
 	"github.com/balits/kave/internal/command"
+	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage/backend"
+	"github.com/balits/kave/internal/types"
 	"github.com/balits/kave/internal/util"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 var (
-	errLease           = errors.New("lease error:")
+	errLease           = errors.New("lease error")
 	errLeaseIDConflict = fmt.Errorf("%w: lease ID conflict", errLease)
 	errLeaseNotFound   = fmt.Errorf("%w: lease not found", errLease)
+	errLeaseInvalidTTL = fmt.Errorf("%w: TTL must be bigger than 0", errLease)
+)
 
-	errTTLNegative = fmt.Errorf("%w: TTL cannot be negative or zero", errLease)
+const (
+	MAX_BATCH_SIZE = 1
 )
 
 type LeaseManager struct {
 	rwlock   sync.RWMutex
+	clock    util.Clock
 	leaseMap map[int64]*Lease
 	heap     heap.Interface
 	heapMap  map[int64]*heapItem
@@ -39,9 +44,10 @@ type LeaseManager struct {
 }
 
 func NewLeaseManager(reg prometheus.Registerer, logger *slog.Logger, store *mvcc.KVStore, backend backend.Backend) *LeaseManager {
-	var h leaseHeap = make(leaseHeap, 0, 32)
+	h := NewLeaseHeap()
 	heap.Init(&h)
 	m := &LeaseManager{
+		clock:    util.NewRealClock(),
 		leaseMap: make(map[int64]*Lease),
 		heap:     &h,
 		heapMap:  make(map[int64]*heapItem),
@@ -56,9 +62,9 @@ func NewLeaseManager(reg prometheus.Registerer, logger *slog.Logger, store *mvcc
 	return m
 }
 
-func (lm *LeaseManager) Grant(ttl int64) (*Lease, error) {
+func (lm *LeaseManager) Grant(requestedID, ttl int64) (*Lease, error) {
 	if ttl <= 0 {
-		return nil, errTTLNegative
+		return nil, errLeaseInvalidTTL
 	}
 	if ttl > maxTTL {
 		ttl = maxTTL
@@ -66,13 +72,15 @@ func (lm *LeaseManager) Grant(ttl int64) (*Lease, error) {
 	start := time.Now()
 	defer func() { lm.metrics.GrantDurationSec.Observe(time.Since(start).Seconds()) }()
 
-	lease := &Lease{
-		ID:           nextID(),
-		ttl:          ttl,
-		remainingTTL: ttl,
-		expiry:       time.Now().Add(time.Second * time.Duration(ttl)),
-		keys:         make(map[LeasedKey]struct{}),
+	var id int64
+	if requestedID != 0 {
+		id = requestedID
+	} else {
+		// leaseIDConflict esetén az unsafeSaveToLeaseMap fogja visszadobni a hibát
+		id = nextID()
 	}
+
+	lease := newLease(id, ttl, lm.clock)
 
 	lm.rwlock.Lock()
 	defer lm.rwlock.Unlock()
@@ -88,28 +96,36 @@ func (lm *LeaseManager) Grant(ttl int64) (*Lease, error) {
 	lm.metrics.LeasesGranted.Inc()
 	lm.logger.Info("lease granted",
 		"id", lease.ID,
-		"ttl", lease.ttl,
+		"ttl", lease.TTL,
 		"expiry", lease.expiry,
 	)
 	return lease, nil
 }
 
-// noop on LeaseNotFound
-func (lm *LeaseManager) Revoke(id int64) {
+func (lm *LeaseManager) Revoke(id int64) (found, revoked bool) {
 	lm.rwlock.Lock()
 	start := time.Now()
 	defer func() { lm.metrics.RevokeDurationSec.Observe(time.Since(start).Seconds()) }()
 
 	lease, ok := lm.leaseMap[id]
 	if !ok {
+		lm.rwlock.Unlock()
 		return
+	} else {
+		found = ok
 	}
-	toDelete := make([][]byte, len(lease.keys))
-	for lk := range lease.keys {
+
+	lease.keysMu.Lock()
+	toDelete := make([][]byte, len(lease.keySet))
+	for lk := range lease.keySet {
 		toDelete = append(toDelete, []byte(lk.Key))
+		delete(lease.keySet, lk)
 	}
+	lease.keysMu.Unlock()
+
 	lm.unsafeRemoveFromLeaseMap(lease)
 	lm.unsafeRemoveFromHeap(lease.ID)
+
 	lm.rwlock.Unlock()
 
 	if len(toDelete) > 0 {
@@ -118,7 +134,7 @@ func (lm *LeaseManager) Revoke(id int64) {
 			w.DeleteKey(k)
 		}
 		w.End()
-		lm.logger.Info("lease revoked: removed attached keys",
+		lm.logger.Info("lease revoke: removed attached keys",
 			"id", lease.ID,
 			"key_count", len(toDelete),
 		)
@@ -130,17 +146,16 @@ func (lm *LeaseManager) Revoke(id int64) {
 	// a kulcsokat már úgyis töröltük, és a régi lease-k úgyis törlődnek
 	// a következő Restorenál
 	if err := lm.unsafeRemoveFromBackend(lease); err != nil {
-		lm.logger.Error("lease: failed to delete lease from backend",
+		lm.logger.Warn("lease revoke: failed to delete lease from backend",
 			"id", id,
 			"error", err,
 		)
 	}
 
+	revoked = true
 	lm.metrics.LeasesRevoked.Inc()
-
-	lm.logger.Info("lease revoked",
-		"id", lease.ID,
-	)
+	lm.logger.Info("lease revoked successfuly", "id", lease.ID)
+	return
 }
 
 func (lm *LeaseManager) KeepAlive(id int64) (remainingTTL int64, err error) {
@@ -156,11 +171,9 @@ func (lm *LeaseManager) KeepAlive(id int64) (remainingTTL int64, err error) {
 		return 0, errLeaseNotFound
 	}
 
-	newExpiry := time.Now().Add(time.Second * time.Duration(lease.ttl))
-	rem := int64(time.Until(newExpiry).Seconds())
-
-	lease.expiry = newExpiry
-	lease.remainingTTL = rem
+	newExpiry := lm.clock.Now().Add(time.Second * time.Duration(lease.TTL))
+	remTTL := int64(lm.clock.Until(newExpiry).Seconds())
+	lease.Update(remTTL, newExpiry)
 
 	lm.unsafeUpdateHeap(id, newExpiry)
 	if err = lm.unsafePersistToBackend(lease); err != nil {
@@ -173,31 +186,25 @@ func (lm *LeaseManager) KeepAlive(id int64) (remainingTTL int64, err error) {
 		)
 	}
 	lm.metrics.KeepAliveTotal.Inc()
-	return rem, nil
+	return remTTL, nil
 }
 
-func (lm *LeaseManager) AttachKey(id int64, key []byte) error {
+func (lm *LeaseManager) AttachKey(id int64, key []byte) {
 	lm.rwlock.Lock()
 	defer lm.rwlock.Unlock()
-	lease, ok := lm.leaseMap[id]
-	if !ok {
-		return errLeaseNotFound
-	}
-	lease.keys[LeasedKey{Key: string(key)}] = struct{}{}
+	lm.unsafeAttachKey(id, key)
 	lm.metrics.LeasedKeys.Inc()
-	return nil
 }
 
-func (lm *LeaseManager) DetachKey(id int64, key []byte) error {
+func (lm *LeaseManager) DetachKey(id int64, key []byte) {
 	lm.rwlock.Lock()
 	defer lm.rwlock.Unlock()
 	lease, ok := lm.leaseMap[id]
 	if !ok {
-		return errLeaseNotFound
+		return
 	}
-	delete(lease.keys, LeasedKey{Key: string(key)})
+	lease.DetachKey(key)
 	lm.metrics.LeasedKeys.Dec()
-	return nil
 }
 
 func (lm *LeaseManager) Lookup(id int64) *Lease {
@@ -206,26 +213,44 @@ func (lm *LeaseManager) Lookup(id int64) *Lease {
 	return lm.leaseMap[id]
 }
 
-func (lm *LeaseManager) ApplyCheckpoints(cmd command.LeaseCheckpointCmd) {
+func (lm *LeaseManager) Checkpoint() []command.Checkpoint {
+	lm.rwlock.RLock()
+	defer lm.rwlock.RUnlock()
+
+	checks := make([]command.Checkpoint, 0, len(lm.leaseMap))
+	for id, lease := range lm.leaseMap {
+		rem := lease.RemainingSec(lm.clock)
+		if rem <= 0 {
+			continue
+		}
+		checks = append(checks, command.Checkpoint{
+			LeaseID:      id,
+			RemainingTTL: rem,
+		})
+	}
+	return checks
+}
+
+func (lm *LeaseManager) ApplyCheckpoint(cmd command.LeaseCheckpointCmd) {
 	lm.rwlock.Lock()
 	defer lm.rwlock.Unlock()
 
 	for _, ck := range cmd.Checkpoints {
-		lease, ok := lm.leaseMap[ck.ID]
+		lease, ok := lm.leaseMap[ck.LeaseID]
 		if !ok {
 			continue
 		}
 		if ck.RemainingTTL <= 0 {
 			continue
 		}
-		lease.remainingTTL = ck.RemainingTTL
 
+		lease.Update(ck.RemainingTTL, lease.expiry)
 		if err := lm.unsafePersistToBackend(lease); err != nil {
 			// logoljuk, de nem kell hibával visszatértünk:
 			// a következő checkpointnál újrapróbálkozunk
 			// legrosszabb esetben ez a lease picit tovább él
 			// a következő restore után
-			lm.logger.Warn("checkpoint failed: failed to persist leave",
+			lm.logger.Warn("checkpoint failed: failed to persist lease",
 				"lease_id", lease.ID,
 				"checkpoint_remainging_ttl_sec", ck.RemainingTTL,
 				"error", err,
@@ -234,53 +259,251 @@ func (lm *LeaseManager) ApplyCheckpoints(cmd command.LeaseCheckpointCmd) {
 	}
 }
 
-func (lm *LeaseManager) genereteCheckpoints() command.LeaseCheckpointCmd {
+func (lm *LeaseManager) DrainExpiredLeases() []*Lease {
 	lm.rwlock.Lock()
 	defer lm.rwlock.Unlock()
-	now := time.Now()
-	checks := make([]command.Checkpoint, 0, len(lm.leaseMap))
-	for id, lease := range lm.leaseMap {
-		rem := int64(lease.expiry.Sub(now).Seconds())
-		if rem <= 0 {
-			continue
-		}
-
-		checks = append(checks, command.Checkpoint{
-			ID:           id,
-			RemainingTTL: rem,
-		})
-	}
-	return command.LeaseCheckpointCmd{
-		Checkpoints: checks,
-	}
-}
-
-func (lm *LeaseManager) ExpiredLeases() (expired []*Lease) {
-	lm.rwlock.Lock()
-	defer lm.rwlock.Unlock()
-	now := time.Now()
-	expired = make([]*Lease, 0)
+	now := lm.clock.Now()
+	expired := make([]*Lease, 0)
 	for {
-		_min := lm.heap.(*leaseHeap).peekMin()
-		if _min == nil {
-			return
+		min := lm.heap.(*leaseHeap).peekMin()
+		if min == nil {
+			break
 		}
-		if _min.time.Before(now) {
-			item := lm.heap.Pop().(*heapItem)
-			lm.unsafeRemoveFromLeaseMap(item.lease)
+
+		if min.expiry.Before(now) {
+			item := heap.Pop(lm.heap).(*heapItem)
+			delete(lm.heapMap, item.lease.ID)
 			expired = append(expired, item.lease)
+		} else {
+			break
 		}
 	}
+	return expired
 }
 
-func (lm *LeaseManager) Restore(newStore *mvcc.KVStore) error {
-	util.Todo("LeaseManager.Restore")
+func (lm *LeaseManager) ApplyExpired(cmd command.LeaseExpiredCmd) error {
+	lm.rwlock.Lock()
+	defer lm.rwlock.Unlock()
+	start := time.Now()
+	defer func() { lm.metrics.ApplyExpiredDurationSec.Observe(time.Since(start).Seconds()) }()
+
+	attachedKeys := make([][]byte, 0)
+	leaseCount := 0
+	for _, id := range cmd.LeaseIDs {
+		l, ok := lm.leaseMap[id]
+		if !ok {
+			continue
+		} else {
+			leaseCount++
+		}
+
+		l.keysMu.RLock()
+		for k := range l.keySet {
+			attachedKeys = append(attachedKeys, []byte(k.Key))
+		}
+		l.keysMu.RUnlock()
+
+		lm.unsafeRemoveFromLeaseMap(l)
+		// DrainExpiredLeases() already removes it from heap and heapMap
+		// lm.unsafeRemoveFromHeap(l.ID)
+	}
+
+	w := lm.store.NewWriter()
+	for _, key := range attachedKeys {
+		_, _, err := w.DeleteKey(key)
+		if err != nil {
+			w.Abort()
+			lm.logger.Error("apply expired: failed to remove key from store",
+				"error", err,
+				"key", key,
+			)
+			return err
+		}
+	}
+	w.End()
+	lm.metrics.KeysPerExpiry.Observe(float64(len(attachedKeys)))
+	lm.logger.Info("apply expired: removed keys from store", "key_count", len(attachedKeys))
+
+	wtx := lm.backend.WriteTx()
+	wtx.Lock()
+	defer wtx.Unlock()
+	for _, id := range cmd.LeaseIDs {
+		bk := LeaseBucketKey(id)
+		if err := wtx.UnsafeDelete(schema.BucketLeaseWIP, EncodeLeaseBucketKey(bk)); err != nil {
+			lm.logger.Error("apply expired: failed to remove lease",
+				"error", err,
+				"lease_id", id,
+			)
+			wtx.Abort()
+			return err
+		}
+	}
+
+	if _, err := wtx.Commit(); err != nil {
+		lm.logger.Error("apply expired: failed to commit deleted keys", "error", err)
+		wtx.Abort()
+		return err
+	}
+
+	lm.logger.Info("apply expired: removed leases from backend", "lease_count", leaseCount)
+	lm.metrics.LeasesExpired.Add(float64(leaseCount))
+	return nil
+}
+
+func (lm *LeaseManager) Restore() error {
+	lm.rwlock.Lock()
+	defer lm.rwlock.Unlock()
+
+	startTime := time.Now()
+	defer func() { lm.metrics.RestoreDurationSec.Observe(time.Since(startTime).Seconds()) }()
+
+	clear(lm.leaseMap)
+	clear(lm.heapMap)
+	newHeap := NewLeaseHeap()
+	heap.Init(&newHeap)
+	lm.heap = &newHeap
+
+	type leaseRestore struct {
+		id           int64
+		remainingTTL int64
+	}
+
+	// regrant leases
+	var (
+		leaseDone                        = false
+		leaseCountTotal                  = 0
+		leaseBatch                       = make([]leaseRestore, 0)
+		startLeaseBucket          []byte = nil
+		lastLeaseBucketKeyVisited        = LeaseBucketKey(math.MinInt64)
+	)
+
+	for !leaseDone {
+		leaseBatch = leaseBatch[:0]
+		leaseCountTotal = 0
+
+		rtx := lm.backend.ReadTx()
+		rtx.RLock()
+		// only return error on MAX_BATCH_SIZE
+		errBatchExceeded := rtx.UnsafeScan(schema.BucketLeaseWIP, startLeaseBucket, nil, func(k, v []byte) error {
+			if len(leaseBatch) == MAX_BATCH_SIZE {
+				return errors.New("batch size limit exceeded")
+			}
+			lastLeaseBucketKeyVisited = DecodeLeaseBucketKey(k)
+
+			l, err := DecodeLease(v)
+			if err != nil {
+				lm.logger.Warn("restore error: failed to decode lease", "error", err)
+				return nil
+			}
+
+			if l.remainingTTL <= 0 {
+				return nil
+			}
+
+			leaseBatch = append(leaseBatch, leaseRestore{l.ID, l.remainingTTL})
+			return nil
+		})
+		rtx.RUnlock()
+
+		if errBatchExceeded == nil || lastLeaseBucketKeyVisited == math.MaxInt64 {
+			leaseDone = true
+		}
+
+		if !leaseDone && (len(leaseBatch) > 0 || lastLeaseBucketKeyVisited != LeaseBucketKey(math.MinInt64)) {
+			startLeaseBucket = EncodeLeaseBucketKey(lastLeaseBucketKeyVisited + 1)
+		}
+
+		for _, l := range leaseBatch {
+			_, err := lm.unsafeRegrant(l.id, l.remainingTTL)
+			if err != nil {
+				lm.logger.Warn("restore error: failed to re-grant lease",
+					"error", err,
+					"lease_id", l.id,
+				)
+			}
+		}
+
+		leaseCountTotal += len(leaseBatch)
+	}
+
+	// reattach keys to leases
+	var (
+		keyDone                       = false
+		keysVisited                   = 0
+		keyCountTotal                 = 0
+		keyBatch                      = make(map[int64][][]byte)
+		startKvBucket          []byte = nil
+		lastKvBucketKeyVisited kv.KvBucketKey
+	)
+
+	for !keyDone {
+		clear(keyBatch)
+		keysVisited = 0
+
+		rtx := lm.backend.ReadTx()
+		rtx.RLock()
+		errBatchExceeded := rtx.UnsafeScan(schema.BucketKV, startKvBucket, nil, func(k, v []byte) error {
+			if keysVisited == MAX_BATCH_SIZE {
+				return errors.New("batch size limit exceeded")
+			}
+			keysVisited++
+
+			bk := kv.DecodeKvBucketKey(k)
+			lastKvBucketKeyVisited = bk
+			if bk.Tombstone {
+				lm.logger.Debug("restore: skipping tombstone key",
+					"main", bk.Main,
+					"sub", bk.Sub,
+				)
+				return nil
+			}
+
+			entry, err := types.DecodeKvEntry(v)
+			if err != nil {
+				lm.logger.Warn("restore error: failed to decode entry", "error", err)
+				return nil
+			}
+			if entry.LeaseID != 0 {
+				keyBatch[entry.LeaseID] = append(keyBatch[entry.LeaseID], entry.Key)
+			}
+			return nil
+		})
+		rtx.RUnlock()
+
+		if errBatchExceeded == nil {
+			keyDone = true
+		} else if lastKvBucketKeyVisited.Revision.Main == math.MaxInt64 {
+			keyDone = true
+		} else {
+			nextRev, ok := nextFullRevisionOverflowing(lastKvBucketKeyVisited.Revision)
+			if ok {
+				startKvBucket = kv.EncodeRevisionAsBucketKey(nextRev, kv.NewRevBytes())
+			} else {
+				panic("restore error: attempted to increment revision past the end range (math.MaxInt64) EVEN AFTER guarding against it")
+			}
+		}
+
+		for id, keys := range keyBatch {
+			for _, k := range keys {
+				lm.unsafeAttachKey(id, k)
+			}
+			keyCountTotal += len(keys)
+		}
+	}
+
+	lm.logger.Info("restore: restored leases from backend",
+		"regranted_lease_count", leaseCountTotal,
+		"reattached_key_count", keyCountTotal,
+	)
+
 	return nil
 }
 
 // privát helper függvények
 
 // saveLeaseInmem elmenti a leaset a leaseMap-be
+// és hozzáadja a heap-hez, hogy tudjuk mikor jár le
+// errLeaseIDConflictot dob vissza, ha már van ilyen ID-val lease
 // NOTE: caller needs to hold the lock
 func (lm *LeaseManager) unsafeSaveToLeaseMap(l *Lease) error {
 	if _, ok := lm.leaseMap[l.ID]; ok {
@@ -288,6 +511,13 @@ func (lm *LeaseManager) unsafeSaveToLeaseMap(l *Lease) error {
 	}
 	lm.leaseMap[l.ID] = l
 	return nil
+}
+
+// NOTE: caller needs to hold the lock
+func (lm *LeaseManager) unsafePushToHeap(lease *Lease) {
+	item := &heapItem{lease: lease, expiry: lease.expiry}
+	heap.Push(lm.heap, item)
+	lm.heapMap[lease.ID] = item
 }
 
 // unsafeRemoveFromHeap eltávolítja a least a heapről O(log n) időben
@@ -325,6 +555,7 @@ func (lm *LeaseManager) unsafePersistToBackend(lease *Lease) error {
 	return nil
 }
 
+// NOTE: caller needs to hold the lock
 func (lm *LeaseManager) unsafeRemoveFromBackend(lease *Lease) error {
 	bucketKey := EncodeLeaseBucketKey(LeaseBucketKey(lease.ID))
 
@@ -349,13 +580,6 @@ func (lm *LeaseManager) unsafeRemoveFromLeaseMap(l *Lease) {
 	delete(lm.leaseMap, l.ID)
 }
 
-// NOTE: caller needs to hold the lock
-func (lm *LeaseManager) unsafePushToHeap(lease *Lease) {
-	item := &heapItem{lease: lease, time: lease.expiry}
-	heap.Push(lm.heap, item)
-	lm.heapMap[lease.ID] = item
-}
-
 // unsafeUpdateHeap frissít egy már meglévő elemet
 // heap.Fix O(log n) időben újraépíti a heap invaránsát
 // NOTE: caller needs to hold the lock
@@ -364,22 +588,73 @@ func (lm *LeaseManager) unsafeUpdateHeap(id int64, t time.Time) {
 	if !ok {
 		return
 	}
-	item.time = t
+	item.expiry = t
 	heap.Fix(lm.heap, item.index)
 }
 
-// nextID új ID-t generál
-// TODO: ID collision panics
-func nextID() int64 {
-	var buf [8]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		err = fmt.Errorf("%w: failed to generate ID: %v", errLease, err)
-		panic(err)
+// unsafeRegrant újra létrehozza a leaset, lockolás nélkül és mégfontosabb hogy
+// az utolsó checkpoint utáni remainingTTL-t állítja be ttl-nek és expirynek,
+// hogy ne kapjon egy lease se extra időt
+//
+// NOTE: caller needs to hold the lock
+func (lm *LeaseManager) unsafeRegrant(requestedID, remainingTTLsec int64) (*Lease, error) {
+	if remainingTTLsec <= 0 {
+		return nil, errLeaseInvalidTTL
 	}
-	id := int64(binary.BigEndian.Uint64(buf[:]))
-	// 0 is reserved as "no lease"
-	if id <= 0 {
-		id = -id
+	if remainingTTLsec > maxTTL {
+		remainingTTLsec = maxTTL
 	}
-	return id
+
+	var id int64
+	if requestedID != 0 {
+		id = requestedID
+	} else {
+		// leaseIDConflict esetén az unsafeSaveToLeaseMap fogja visszadobni a hibát
+		id = nextID()
+	}
+
+	lease := newLease(id, remainingTTLsec, lm.clock)
+
+	if err := lm.unsafeSaveToLeaseMap(lease); err != nil {
+		return nil, err
+	}
+	lm.unsafePushToHeap(lease)
+	if err := lm.unsafePersistToBackend(lease); err != nil {
+		return nil, err
+	}
+
+	lm.metrics.LeasesGranted.Inc()
+	lm.logger.Debug("lease re-granted",
+		"id", lease.ID,
+		"ttl", lease.TTL,
+		"expiry", lease.expiry,
+	)
+	return lease, nil
+}
+
+// NOTE: caller needs to hold the lock
+func (lm *LeaseManager) unsafeAttachKey(id int64, key []byte) {
+	lease, ok := lm.leaseMap[id]
+	if !ok {
+		return
+	}
+	lease.AttachKey(key)
+}
+
+func nextFullRevisionOverflowing(r kv.Revision) (kv.Revision, bool) {
+	if r.Sub < math.MaxInt64 {
+		return kv.Revision{
+			Main: r.Main,
+			Sub:  r.Sub + 1,
+		}, true
+	}
+
+	if r.Main < math.MaxInt64 {
+		return kv.Revision{
+			Main: r.Main + 1,
+			Sub:  0,
+		}, true
+	}
+
+	return kv.Revision{}, false
 }

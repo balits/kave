@@ -35,10 +35,10 @@ func (c *Comparison) Check() error {
 }
 
 func (c *Comparison) EvalEmpty() bool {
-	return c.Eval(types.Entry{})
+	return c.Eval(types.KvEntry{})
 }
 
-func (c *Comparison) Eval(targetEntry types.Entry) (result bool) {
+func (c *Comparison) Eval(targetEntry types.KvEntry) (result bool) {
 	var t CompareTargetValue
 
 	switch c.Target {

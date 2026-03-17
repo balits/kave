@@ -15,7 +15,8 @@ import (
 )
 
 var (
-	ErrStateMachineError = errors.New("state machine error")
+	ErrStateMachineError = errors.New("FSM error")
+	ErrNilApplyResult    = fmt.Errorf("%w: nil result from FSM", ErrStateMachineError)
 )
 
 type Fsm struct {
@@ -29,10 +30,10 @@ type Fsm struct {
 	metrics *metrics.RaftMetrics
 }
 
-func NewFsm(logger *slog.Logger, store *mvcc.KVStore, leaseMgr *lease.LeaseManager, nodeID string) *Fsm {
+func NewFsm(logger *slog.Logger, store *mvcc.KVStore, lm *lease.LeaseManager, nodeID string) *Fsm {
 	f := &Fsm{
-		engine:  mvcc.NewEngine(store),
-		lm:      leaseMgr,
+		engine:  mvcc.NewEngine(store, lm),
+		lm:      lm,
 		store:   store,
 		logger:  logger.With("component", "fsm"),
 		_nodeID: nodeID,
@@ -64,39 +65,87 @@ func (f *Fsm) Apply(log *raft.Log) interface{} {
 
 	f.store.UpdateRaftMeta(log.Index, log.Term)
 
+	var res command.Result
+
 	switch cmd.Type {
 	case command.CmdPut, command.CmdDelete, command.CmdTxn:
-		return f.applyKv(cmd, log.Term, log.Index)
-	case command.CmdLeaseGrant, command.CmdLeaseRevoke, command.CmdLeaseCheckpoint:
-		return f.applyLease(cmd)
+		res = f.applyKv(cmd)
+	case command.CmdLeaseGrant, command.CmdLeaseRevoke, command.CmdLeaseKeepAlive, command.CmdLeaseCheckpoint:
+		res = f.applyLease(cmd)
 	default:
 		panic(fmt.Sprintf("Unsupported command type: %v", cmd.Type))
 	}
+
+	res.Header = command.ResultHeader{
+		RaftTerm:  log.Term,
+		RaftIndex: log.Index,
+		NodeID:    f._nodeID,
+	}
+
+	return res
 }
 
-func (f *Fsm) applyKv(cmd command.Command, term uint64, index uint64) command.Result {
+func (f *Fsm) applyKv(cmd command.Command) command.Result {
 	res, err := f.engine.ApplyWrite(cmd)
 	if err != nil {
 		return command.Result{Error: err}
 	}
-	res.Header.RaftTerm = term
-	res.Header.RaftIndex = index
-	res.Header.NodeID = f._nodeID
 	return res
 }
 
 // TODO: should we create more meaningful return type for lease commands?
 func (f *Fsm) applyLease(cmd command.Command) command.Result {
+	var (
+		res command.Result
+		err error
+	)
+
 	switch cmd.Type {
-	case command.CmdLeaseCheckpoint:
-		f.lm.ApplyCheckpoints(*cmd.LeaseCheckpoint)
+	case command.CmdLeaseGrant:
+		var lease *lease.Lease
+		lease, err = f.lm.Grant(cmd.LeaseGrant.LeaseID, cmd.LeaseGrant.TTL)
+		if err == nil {
+			res.LeaseGrantResult = &command.LeaseGrantResult{
+				TTL:     lease.TTL,
+				LeaseID: lease.ID,
+			}
+		}
+
 	case command.CmdLeaseRevoke:
-		f.lm.Revoke(cmd.LeaseRevoke.LeaseID)
+		var found, revoked bool
+		found, revoked = f.lm.Revoke(cmd.LeaseRevoke.LeaseID)
+		res.LeaseRevokeResult = &command.LeaseRevokeResult{
+			Found:   found,
+			Revoked: revoked,
+		}
+
+	case command.CmdLeaseKeepAlive:
+		var ttl int64
+		ttl, err = f.lm.KeepAlive(cmd.LeaseKeepAlive.LeaseID)
+		if err == nil {
+			res.LeaseKeepAliveResult = &command.LeaseKeepAliveResult{
+				TTL:     ttl,
+				LeaseID: cmd.LeaseKeepAlive.LeaseID,
+			}
+		}
+
+	case command.CmdLeaseCheckpoint:
+		f.lm.ApplyCheckpoint(*cmd.LeaseCheckpoint)
+
+	case command.CmdLeaseExpired:
+		err = f.lm.ApplyExpired(*cmd.LeaseExpired)
+
 	default:
 		panic(fmt.Sprintf("Unsupported lease command type: %v", cmd.Type))
 	}
 
-	return command.Result{}
+	// Lease resultoknál legyen mind az error, mind a result kitölrve
+	// igy jóbban látható mi történt
+	// TODO: gondoljuk át, talán ez lenne a jobb megoldást a kv parancsoknál is?
+	if err != nil {
+		res.Error = err
+	}
+	return res
 }
 
 // Snapshot also should be fast, just take a pointer to the data
@@ -104,15 +153,12 @@ func (f *Fsm) Snapshot() (raft.FSMSnapshot, error) {
 	return f.store.Snapshot(), nil
 }
 
-// Restore can be slower, it will never run concurrently with Apply
+// Restore can be slower, it will never run concurrently with Apply.
+// Also, no metrics should be replayed during restoration!
 func (f *Fsm) Restore(snapshot io.ReadCloser) error {
 	err := f.store.Restore(snapshot)
 	if err != nil {
 		return err
 	}
-	return f.lm.Restore(f.store)
-}
-
-func (f *Fsm) Metrics() *metrics.RaftMetrics {
-	return f.metrics
+	return f.lm.Restore()
 }

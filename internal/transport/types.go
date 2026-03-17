@@ -1,10 +1,9 @@
 package transport
 
-type URI string
-
 const (
 	UriApiVersion = "/v1"
-	UriKvUri      = UriApiVersion + "/kv"
+	UriKv         = UriApiVersion + "/kv"
+	UriLease      = UriApiVersion + "/lease"
 	UriCluster    = UriApiVersion + "/cluster"
 )
 

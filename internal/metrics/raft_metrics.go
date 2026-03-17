@@ -1,12 +1,16 @@
 package metrics
 
 import (
+	"strconv"
+
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 type RaftMetrics struct {
+	raftLibDerivedMetrics
+
 	ElectionsTotal     prometheus.Counter
 	LeaderChangesTotal prometheus.Counter
 	ApplyTotal         prometheus.Counter
@@ -23,7 +27,10 @@ type RaftMetrics struct {
 
 func NewRaftMetrics(reg prometheus.Registerer, r *raft.Raft, applyLagThresholt uint) *RaftMetrics {
 	factory := promauto.With(reg)
+
 	return &RaftMetrics{
+		raftLibDerivedMetrics: newRaftLibDerivedMetrics(reg, r),
+
 		ElectionsTotal: factory.NewCounter(prometheus.CounterOpts{
 			Namespace: "kave",
 			Subsystem: "raft",
@@ -105,4 +112,128 @@ func NewRaftMetrics(reg prometheus.Registerer, r *raft.Raft, applyLagThresholt u
 			Buckets: prometheus.DefBuckets,
 		}),
 	}
+}
+
+type raftLibDerivedMetrics struct {
+	RaftState         prometheus.GaugeFunc // UnknownError = -1, follower = 0, candidate = 1, leader = 2, Shutdown 3
+	RaftTerm          prometheus.GaugeFunc
+	LastLogIndex      prometheus.GaugeFunc
+	LastLogTerm       prometheus.GaugeFunc
+	CommitIndex       prometheus.GaugeFunc
+	AppliedIndex      prometheus.GaugeFunc
+	FsmPending        prometheus.GaugeFunc
+	LastSnapshotIndex prometheus.GaugeFunc
+	LastSnapshotTerm  prometheus.GaugeFunc
+}
+
+func newRaftLibDerivedMetrics(reg prometheus.Registerer, r *raft.Raft) raftLibDerivedMetrics {
+	var (
+		factory = promauto.With(reg)
+		stats   = r.Stats()
+	)
+
+	raftState := func() float64 {
+		switch stats["state"] {
+		case "Follower":
+			return float64(0)
+		case "Candidate":
+			return float64(1)
+		case "Leader":
+			return float64(2)
+		case "Shutdown":
+			return float64(3)
+		default:
+			// UnknownError
+			return float64(-1)
+		}
+	}
+	raftTerm := func() float64 {
+		return parseUint(stats["term"])
+	}
+	lastLogIndex := func() float64 {
+		return parseUint(stats["last_log_index"])
+	}
+	lastLogTerm := func() float64 {
+		return parseUint(stats["last_log_term"])
+	}
+	commitIndex := func() float64 {
+		return parseUint(stats["commit_index"])
+	}
+	appliedIndex := func() float64 {
+		return parseUint(stats["applied_index"])
+	}
+	fsmPending := func() float64 {
+		return parseUint(stats["fsm_pending"])
+	}
+	lastSnapshotIndex := func() float64 {
+		return parseUint(stats["last_snapshot_index"])
+	}
+	lastSnapshotTerm := func() float64 {
+		return parseUint(stats["last_snapshot_term"])
+	}
+
+	return raftLibDerivedMetrics{
+		RaftState: factory.NewGaugeFunc(prometheus.GaugeOpts{
+			Namespace: "kave",
+			Subsystem: "raft",
+			Name:      "state",
+			Help:      "Current state of the Raft node (0=follower, 1=candidate, 2=leader, 3=shutdown, -1=unknown/error).",
+		}, raftState),
+		RaftTerm: factory.NewGaugeFunc(prometheus.GaugeOpts{
+			Namespace: "kave",
+			Subsystem: "raft",
+			Name:      "term",
+			Help:      "Current term of the Raft node.",
+		}, raftTerm),
+		LastLogIndex: factory.NewGaugeFunc(prometheus.GaugeOpts{
+			Namespace: "kave",
+			Subsystem: "raft",
+			Name:      "last_log_index",
+			Help:      "Index of the last log entry.",
+		}, lastLogIndex),
+		LastLogTerm: factory.NewGaugeFunc(prometheus.GaugeOpts{
+			Namespace: "kave",
+			Subsystem: "raft",
+			Name:      "last_log_term",
+			Help:      "Term of the last log entry.",
+		}, lastLogTerm),
+		CommitIndex: factory.NewGaugeFunc(prometheus.GaugeOpts{
+			Namespace: "kave",
+			Subsystem: "raft",
+			Name:      "cobmmit_index_lib",
+			Help:      "Highest commited log entry.",
+		}, commitIndex),
+		AppliedIndex: factory.NewGaugeFunc(prometheus.GaugeOpts{
+			Namespace: "kave",
+			Subsystem: "raft",
+			Name:      "applied_index_lib",
+			Help:      "Index of the last log entry applied to the FSM.",
+		}, appliedIndex),
+		FsmPending: factory.NewGaugeFunc(prometheus.GaugeOpts{
+			Namespace: "kave",
+			Subsystem: "raft",
+			Name:      "fsm_pending",
+			Help:      "Number of FSM commands pending.",
+		}, fsmPending),
+		LastSnapshotIndex: factory.NewGaugeFunc(prometheus.GaugeOpts{
+			Namespace: "kave",
+			Subsystem: "raft",
+			Name:      "last_snapshot_index_lib",
+			Help:      "Index of the last snapshot.",
+		}, lastSnapshotIndex),
+		LastSnapshotTerm: factory.NewGaugeFunc(prometheus.GaugeOpts{
+			Namespace: "kave",
+			Subsystem: "raft",
+			Name:      "last_snapshot_term_lib",
+			Help:      "Term of the last snapshot.",
+		}, lastSnapshotTerm),
+	}
+}
+
+func parseUint(s string) float64 {
+	u, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return -1
+	}
+	return float64(u)
 }

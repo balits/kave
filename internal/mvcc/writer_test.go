@@ -16,7 +16,7 @@ func Test_WriterPutSingleKey(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	rev, err := w.Put([]byte("foo"), []byte("bar"))
+	rev, err := w.Put([]byte("foo"), []byte("bar"), 0)
 	require.NoError(t, err, "unexpected error from Put()")
 	w.End()
 
@@ -35,9 +35,9 @@ func Test_WriterPutMultipleKeys(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("a"), []byte("1"))
-	w.Put([]byte("b"), []byte("2"))
-	w.Put([]byte("c"), []byte("3"))
+	w.Put([]byte("a"), []byte("1"), 0)
+	w.Put([]byte("b"), []byte("2"), 0)
+	w.Put([]byte("c"), []byte("3"), 0)
 	w.End()
 
 	currRev, _ := s.Revisions()
@@ -56,11 +56,11 @@ func Test_WriterPutSameKeyTwice(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("k"), []byte("v1"))
+	w.Put([]byte("k"), []byte("v1"), 0)
 	w.End()
 
 	w = s.NewWriter()
-	w.Put([]byte("k"), []byte("v2"))
+	w.Put([]byte("k"), []byte("v2"), 0)
 	w.End()
 
 	rev, _ := s.Revisions()
@@ -74,11 +74,11 @@ func Test_WriterPutPreservesCreateRev(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("k"), []byte("v1"))
+	w.Put([]byte("k"), []byte("v1"), 0)
 	w.End()
 
 	w = s.NewWriter()
-	w.Put([]byte("k"), []byte("v2"))
+	w.Put([]byte("k"), []byte("v2"), 0)
 	w.End()
 
 	changes := w.Changes()
@@ -98,7 +98,7 @@ func Test_WriterPutEntryFields(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("mykey"), []byte("myval"))
+	w.Put([]byte("mykey"), []byte("myval"), 0)
 	w.End()
 
 	changes := w.Changes()
@@ -130,7 +130,7 @@ func Test_WriterRevisionReturnsStartRev(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("a"), []byte("1"))
+	w.Put([]byte("a"), []byte("1"), 0)
 	w.End()
 
 	w = s.NewWriter()
@@ -148,7 +148,7 @@ func Test_WriterDeleteKey(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("foo"), []byte("bar"))
+	w.Put([]byte("foo"), []byte("bar"), 0)
 	w.End()
 
 	w = s.NewWriter()
@@ -186,7 +186,7 @@ func Test_WriterDeleteKeyThenReCreate(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("foo"), []byte("v1"))
+	w.Put([]byte("foo"), []byte("v1"), 0)
 	w.End()
 
 	w = s.NewWriter()
@@ -194,7 +194,7 @@ func Test_WriterDeleteKeyThenReCreate(t *testing.T) {
 	w.End()
 
 	w = s.NewWriter()
-	w.Put([]byte("foo"), []byte("v2"))
+	w.Put([]byte("foo"), []byte("v2"), 0)
 	w.End()
 
 	currRev, _ := s.Revisions()
@@ -221,10 +221,10 @@ func Test_WriterDeleteRange(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("a"), []byte("1"))
-	w.Put([]byte("b"), []byte("2"))
-	w.Put([]byte("c"), []byte("3"))
-	w.Put([]byte("d"), []byte("4"))
+	w.Put([]byte("a"), []byte("1"), 0)
+	w.Put([]byte("b"), []byte("2"), 0)
+	w.Put([]byte("c"), []byte("3"), 0)
+	w.Put([]byte("d"), []byte("4"), 0)
 	w.End()
 
 	w = s.NewWriter()
@@ -245,7 +245,7 @@ func Test_WriterDeleteRangeEmpty(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("a"), []byte("1"))
+	w.Put([]byte("a"), []byte("1"), 0)
 	w.End()
 
 	w = s.NewWriter()
@@ -277,7 +277,7 @@ func Test_WriterChangesIncludesTombstones(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("foo"), []byte("bar"))
+	w.Put([]byte("foo"), []byte("bar"), 0)
 	w.End()
 
 	w = s.NewWriter()
@@ -313,9 +313,9 @@ func Test_WriterEndBumpsRevisionOnce(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("a"), []byte("1"))
-	w.Put([]byte("b"), []byte("2"))
-	w.Put([]byte("c"), []byte("3"))
+	w.Put([]byte("a"), []byte("1"), 0)
+	w.Put([]byte("b"), []byte("2"), 0)
+	w.Put([]byte("c"), []byte("3"), 0)
 	w.End()
 
 	currRev, _ := s.Revisions()
@@ -331,7 +331,7 @@ func Test_WriterEndPersistsRaftMeta(t *testing.T) {
 	s.UpdateRaftMeta(42, 7)
 
 	w := s.NewWriter()
-	w.Put([]byte("k"), []byte("v"))
+	w.Put([]byte("k"), []byte("v"), 0)
 	w.End()
 
 	rtx := s.backend.ReadTx()
@@ -356,7 +356,7 @@ func Test_WriterEndNoRaftMetaWhenZero(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("k"), []byte("v"))
+	w.Put([]byte("k"), []byte("v"), 0)
 	w.End()
 
 	rtx := s.backend.ReadTx()

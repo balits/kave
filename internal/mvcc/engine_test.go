@@ -13,6 +13,58 @@ import (
 	"github.com/balits/kave/internal/storage/backend"
 )
 
+type fakeAttacher struct {
+	attached []attachCall
+	detached []detachCall
+}
+
+type attachCall struct {
+	leaseID int64
+	key     []byte
+}
+
+type detachCall struct {
+	leaseID int64
+	key     []byte
+}
+
+func (f *fakeAttacher) AttachKey(leaseID int64, key []byte) {
+	f.attached = append(f.attached, attachCall{leaseID: leaseID, key: key})
+}
+
+func (f *fakeAttacher) DetachKey(leaseID int64, key []byte) {
+	f.detached = append(f.detached, detachCall{leaseID: leaseID, key: key})
+}
+
+func (f *fakeAttacher) attachCount() int { return len(f.attached) }
+func (f *fakeAttacher) detachCount() int { return len(f.detached) }
+
+func (f *fakeAttacher) wasAttached(leaseID int64, key []byte) bool {
+	for _, c := range f.attached {
+		if c.leaseID == leaseID && string(c.key) == string(key) {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *fakeAttacher) wasDetached(leaseID int64, key []byte) bool {
+	for _, c := range f.detached {
+		if c.leaseID == leaseID && string(c.key) == string(key) {
+			return true
+		}
+	}
+	return false
+}
+
+// newTestEngineWithAttacher creates an Engine wired with a fakeAttacher.
+func newTestEngineWithAttacher() (*Engine, *KVStore, *fakeAttacher) {
+	e, s := newTestEngine()
+	fa := &fakeAttacher{}
+	e.attacher = fa
+	return e, s, fa
+}
+
 func newTestEngine() (*Engine, *KVStore) {
 	reg := metrics.InitTestPrometheus()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -41,10 +93,10 @@ func Test_EngineApplyPut(t *testing.T) {
 	if result.Header.Revision != 1 {
 		t.Errorf("rev = %d, want 1", result.Header.Revision)
 	}
-	if result.Put == nil {
+	if result.PutResult == nil {
 		t.Fatal("Put result is nil")
 	}
-	if result.Put.PrevEntry != nil {
+	if result.PutResult.PrevEntry != nil {
 		t.Error("PrevEntry should be nil when not requested")
 	}
 }
@@ -109,14 +161,14 @@ func Test_EngineApplyPutWithPrevEntry(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Put == nil {
+	if result.PutResult == nil {
 		t.Fatal("Put result is nil")
 	}
-	if result.Put.PrevEntry == nil {
+	if result.PutResult.PrevEntry == nil {
 		t.Fatal("PrevEntry should not be nil when requested")
 	}
-	if !bytes.Equal(result.Put.PrevEntry.Value, []byte("v1")) {
-		t.Errorf("PrevEntry.Value = %q, want %q", result.Put.PrevEntry.Value, "v1")
+	if !bytes.Equal(result.PutResult.PrevEntry.Value, []byte("v1")) {
+		t.Errorf("PrevEntry.Value = %q, want %q", result.PutResult.PrevEntry.Value, "v1")
 	}
 }
 
@@ -132,8 +184,8 @@ func Test_EngineApplyPutWithPrevEntryNonExistent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Put.PrevEntry != nil {
-		t.Errorf("PrevEntry should be nil for new key, got %+v", result.Put.PrevEntry)
+	if result.PutResult.PrevEntry != nil {
+		t.Errorf("PrevEntry should be nil for new key, got %+v", result.PutResult.PrevEntry)
 	}
 }
 
@@ -154,11 +206,11 @@ func Test_EngineApplyDeleteSingleKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Delete == nil {
+	if result.DeleteResult == nil {
 		t.Fatal("Delete result is nil")
 	}
-	if result.Delete.NumDeleted != 1 {
-		t.Errorf("deleted = %d, want 1", result.Delete.NumDeleted)
+	if result.DeleteResult.NumDeleted != 1 {
+		t.Errorf("deleted = %d, want 1", result.DeleteResult.NumDeleted)
 	}
 	if result.Header.Revision != 2 {
 		t.Errorf("rev = %d, want 2", result.Header.Revision)
@@ -181,8 +233,8 @@ func Test_EngineApplyDeleteNonExistent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Delete.NumDeleted != 0 {
-		t.Errorf("deleted = %d, want 0", result.Delete.NumDeleted)
+	if result.DeleteResult.NumDeleted != 0 {
+		t.Errorf("deleted = %d, want 0", result.DeleteResult.NumDeleted)
 	}
 }
 
@@ -211,8 +263,8 @@ func Test_EngineApplyDeleteRange(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Delete.NumDeleted != 2 {
-		t.Errorf("deleted = %d, want 2 (b and c)", result.Delete.NumDeleted)
+	if result.DeleteResult.NumDeleted != 2 {
+		t.Errorf("deleted = %d, want 2 (b and c)", result.DeleteResult.NumDeleted)
 	}
 }
 
@@ -235,14 +287,14 @@ func Test_EngineApplyDeleteWithPrevEntries(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Delete.NumDeleted != 2 {
-		t.Errorf("deleted = %d, want 2", result.Delete.NumDeleted)
+	if result.DeleteResult.NumDeleted != 2 {
+		t.Errorf("deleted = %d, want 2", result.DeleteResult.NumDeleted)
 	}
-	if len(result.Delete.PrevEntries) != 2 {
-		t.Fatalf("PrevEntries = %d, want 2", len(result.Delete.PrevEntries))
+	if len(result.DeleteResult.PrevEntries) != 2 {
+		t.Fatalf("PrevEntries = %d, want 2", len(result.DeleteResult.PrevEntries))
 	}
-	if !bytes.Equal(result.Delete.PrevEntries[0].Value, []byte("xv")) {
-		t.Errorf("PrevEntries[0].Value = %q, want %q", result.Delete.PrevEntries[0].Value, "xv")
+	if !bytes.Equal(result.DeleteResult.PrevEntries[0].Value, []byte("xv")) {
+		t.Errorf("PrevEntries[0].Value = %q, want %q", result.DeleteResult.PrevEntries[0].Value, "xv")
 	}
 }
 
@@ -258,11 +310,11 @@ func Test_EngineApplyDeleteWithPrevEntriesNonExistent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Delete.NumDeleted != 0 {
-		t.Errorf("deleted = %d, want 0", result.Delete.NumDeleted)
+	if result.DeleteResult.NumDeleted != 0 {
+		t.Errorf("deleted = %d, want 0", result.DeleteResult.NumDeleted)
 	}
-	if len(result.Delete.PrevEntries) != 0 {
-		t.Errorf("PrevEntries should be empty, got %d", len(result.Delete.PrevEntries))
+	if len(result.DeleteResult.PrevEntries) != 0 {
+		t.Errorf("PrevEntries should be empty, got %d", len(result.DeleteResult.PrevEntries))
 	}
 }
 
@@ -299,10 +351,10 @@ func Test_EngineApplyTxn_SuccessBranch(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Txn == nil {
+	if result.TxnResult == nil {
 		t.Fatal("TxnResult is nil")
 	}
-	if !result.Txn.Success {
+	if !result.TxnResult.Success {
 		t.Error("expected success branch")
 	}
 
@@ -349,10 +401,10 @@ func Test_EngineApplyTxn_FailureBranch(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Txn == nil {
+	if result.TxnResult == nil {
 		t.Fatal("TxnResult is nil")
 	}
-	if result.Txn.Success {
+	if result.TxnResult.Success {
 		t.Error("expected failure branch")
 	}
 
@@ -381,7 +433,7 @@ func Test_EngineApplyTxn_NoComparisonsAlwaysSuccess(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !result.Txn.Success {
+	if !result.TxnResult.Success {
 		t.Error("no comparisons should always succeed")
 	}
 
@@ -408,11 +460,11 @@ func Test_EngineApplyTxn_EmptyOps(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !result.Txn.Success {
+	if !result.TxnResult.Success {
 		t.Error("expected success with empty comparisons")
 	}
-	if len(result.Txn.Results) != 0 {
-		t.Errorf("results = %d, want 0", len(result.Txn.Results))
+	if len(result.TxnResult.Results) != 0 {
+		t.Errorf("results = %d, want 0", len(result.TxnResult.Results))
 	}
 	_ = s
 }
@@ -441,7 +493,7 @@ func Test_EngineApplyTxn_WithDeleteOp(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !result.Txn.Success {
+	if !result.TxnResult.Success {
 		t.Error("expected success")
 	}
 
@@ -481,7 +533,7 @@ func Test_EngineApplyTxn_CompareNonExistentKey(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !result.Txn.Success {
+	if !result.TxnResult.Success {
 		t.Error("comparing version==0 for non-existent key should succeed")
 	}
 
@@ -522,7 +574,7 @@ func Test_EngineApplyTxn_MultipleComparisonsAllPass(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !result.Txn.Success {
+	if !result.TxnResult.Success {
 		t.Error("both comparisons should pass")
 	}
 	_ = s
@@ -556,7 +608,7 @@ func Test_EngineApplyTxn_OneComparisonFails(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Txn.Success {
+	if result.TxnResult.Success {
 		t.Error("one comparison failed, should take failure branch")
 	}
 	_ = s
@@ -584,14 +636,14 @@ func Test_EngineApplyTxn_PutWithPrevEntry(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !result.Txn.Success {
+	if !result.TxnResult.Success {
 		t.Fatal("expected success")
 	}
-	if len(result.Txn.Results) < 1 {
+	if len(result.TxnResult.Results) < 1 {
 		t.Fatal("expected at least 1 result")
 	}
 
-	putRes := result.Txn.Results[0].Put
+	putRes := result.TxnResult.Results[0].Put
 	if putRes == nil {
 		t.Fatal("Put result is nil")
 	}
@@ -624,10 +676,10 @@ func Test_EngineApplyTxn_DeleteWithPrevEntries(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(result.Txn.Results) < 1 {
+	if len(result.TxnResult.Results) < 1 {
 		t.Fatal("expected at least 1 result")
 	}
-	delRes := result.Txn.Results[0].Delete
+	delRes := result.TxnResult.Results[0].Delete
 	if delRes == nil {
 		t.Fatal("Delete result is nil")
 	}
@@ -671,7 +723,7 @@ func Test_EngineApplyTxn_MixedOps(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !result.Txn.Success {
+	if !result.TxnResult.Success {
 		t.Error("expected success")
 	}
 
@@ -724,7 +776,7 @@ func Test_EngineApplyTxn_CompareValue(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !result.Txn.Success {
+	if !result.TxnResult.Success {
 		t.Error("value comparison should succeed")
 	}
 	_ = s
@@ -759,7 +811,7 @@ func Test_EngineApplyTxn_CompareValueMismatch(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Txn.Success {
+	if result.TxnResult.Success {
 		t.Error("value comparison should fail")
 	}
 	_ = s
@@ -797,7 +849,7 @@ func Test_EngineApplyTxn_CompareCreateRev(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !result.Txn.Success {
+	if !result.TxnResult.Success {
 		t.Error("createRev should be 1 despite update at rev 2")
 	}
 	_ = s
@@ -835,7 +887,7 @@ func Test_EngineApplyTxn_CompareModRev(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !result.Txn.Success {
+	if !result.TxnResult.Success {
 		t.Error("modRev should be 2 after second put")
 	}
 	_ = s
@@ -868,10 +920,10 @@ func Test_EngineApplyTxn_ResultCount(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(result.Txn.Results) != 3 {
-		t.Errorf("results = %d, want 3 (one per op)", len(result.Txn.Results))
+	if len(result.TxnResult.Results) != 3 {
+		t.Errorf("results = %d, want 3 (one per op)", len(result.TxnResult.Results))
 	}
-	for i, r := range result.Txn.Results {
+	for i, r := range result.TxnResult.Results {
 		if r.Put == nil {
 			t.Errorf("results[%d].Put is nil", i)
 		}

@@ -70,15 +70,17 @@ func (cs *CheckpointScheduler) tick() {
 		return
 	}
 
-	subcmd := cs.lm.genereteCheckpoints()
-	if len(subcmd.Checkpoints) == 0 {
+	cps := cs.lm.Checkpoint()
+	if len(cps) == 0 {
 		cs.logger.Info("checkpoint: no live leases, skipping tick")
 		return
 	}
 
 	cmd := command.Command{
-		Type:            command.CmdLeaseCheckpoint,
-		LeaseCheckpoint: &subcmd,
+		Type: command.CmdLeaseCheckpoint,
+		LeaseCheckpoint: &command.LeaseCheckpointCmd{
+			Checkpoints: cps,
+		},
 	}
 
 	applyFut, err := cs.propose(cmd)

@@ -10,7 +10,6 @@ import (
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/fsm"
 	"github.com/balits/kave/internal/lease"
-	"github.com/balits/kave/internal/logutil"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/service"
@@ -18,6 +17,7 @@ import (
 	"github.com/balits/kave/internal/storage/backend"
 	transport "github.com/balits/kave/internal/transport/http"
 	"github.com/balits/kave/internal/util"
+	"github.com/balits/kave/internal/util/logutil"
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sync/errgroup"
@@ -38,6 +38,7 @@ type Node struct {
 
 	// services
 	kvService      service.KVService
+	leaseService   service.LeaseService
 	peerService    service.PeerService
 	clusterService service.ClusterService
 
@@ -76,7 +77,16 @@ func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*No
 		return nil, fmt.Errorf("failed to setup services: %v", err)
 	}
 
-	n.httpServer = transport.NewHTTPServer(cfg.Me.HttpPort, n.kvService, n.clusterService, n.peerService, cfg, reg, logger)
+	n.httpServer = transport.NewHTTPServer(
+		logger,
+		cfg.Me.HttpPort,
+		n.kvService,
+		n.leaseService,
+		n.clusterService,
+		n.peerService,
+		cfg,
+		reg,
+	)
 	return n, nil
 }
 
@@ -240,6 +250,7 @@ func (n *Node) initBackgroundProcesses(interval time.Duration, opts compactor.Co
 
 func (n *Node) initServices(cfg *config.Config, propose util.ProposeFunc) error {
 	n.peerService = service.NewPeerService(n.raft, cfg)
+	n.leaseService = service.NewLeaseService(n.logger, propose)
 	n.kvService = service.NewKVService(n.logger, n.kvstore, n.peerService, propose)
 	n.clusterService = service.NewClusterService(n.raft, cfg, n.logger)
 	return nil

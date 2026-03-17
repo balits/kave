@@ -7,9 +7,9 @@ import (
 	"syscall"
 
 	"github.com/balits/kave/internal/config"
-	"github.com/balits/kave/internal/logutil"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/node"
+	"github.com/balits/kave/internal/util/logutil"
 )
 
 func main() {

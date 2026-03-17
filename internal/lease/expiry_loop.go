@@ -12,28 +12,28 @@ import (
 
 const expiryLoopInterval = 500 * time.Millisecond
 
-type ExpiredLeaseCollector interface {
-	ExpiredLeases() []*Lease
+type ExpiredLeaseDrainer interface {
+	DrainExpiredLeases() []*Lease
 }
 
 type ExpiryLoop struct {
-	expiredCollector ExpiredLeaseCollector
-	interval         time.Duration
-	propose          util.ProposeFunc
-	isLeader         util.IsLeaderFunc
-	running          atomic.Bool
-	ctx              context.Context
-	cancel           context.CancelFunc
-	logger           *slog.Logger
+	drainer  ExpiredLeaseDrainer
+	ticker   util.Ticker
+	propose  util.ProposeFunc
+	isLeader util.IsLeaderFunc
+	running  atomic.Bool
+	ctx      context.Context
+	cancel   context.CancelFunc
+	logger   *slog.Logger
 }
 
-func NewExpiryLoop(logger *slog.Logger, collector ExpiredLeaseCollector, propose util.ProposeFunc, isLeader util.IsLeaderFunc) *ExpiryLoop {
+func NewExpiryLoop(logger *slog.Logger, collector ExpiredLeaseDrainer, propose util.ProposeFunc, isLeader util.IsLeaderFunc) *ExpiryLoop {
 	return &ExpiryLoop{
-		expiredCollector: collector,
-		interval:         expiryLoopInterval,
-		propose:          propose,
-		isLeader:         isLeader,
-		logger:           logger.With("component", "expiry_loop"),
+		drainer:  collector,
+		ticker:   util.NewRealTicker(expiryLoopInterval),
+		propose:  propose,
+		isLeader: isLeader,
+		logger:   logger.With("component", "expiry_loop"),
 	}
 }
 
@@ -50,14 +50,13 @@ func (ex *ExpiryLoop) Run(ctx context.Context) {
 }
 
 func (ex *ExpiryLoop) run() {
-	ticker := time.NewTicker(ex.interval)
-	defer ticker.Stop()
+	defer ex.ticker.Stop()
 	for {
 		select {
 		case <-ex.ctx.Done():
 			ex.logger.Debug("context cancelled")
 			return
-		case <-ticker.C:
+		case <-ex.ticker.C():
 		}
 
 		if !ex.isLeader() {
@@ -66,7 +65,7 @@ func (ex *ExpiryLoop) run() {
 			continue
 		}
 
-		for _, l := range ex.expiredCollector.ExpiredLeases() {
+		for _, l := range ex.drainer.DrainExpiredLeases() {
 			fut, err := ex.propose(command.Command{
 				LeaseRevoke: &command.LeaseRevokeCmd{
 					LeaseID: l.ID,

@@ -10,7 +10,7 @@ func TestReaderRangeSingleKey(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("foo"), []byte("bar"))
+	w.Put([]byte("foo"), []byte("bar"), 0)
 	w.End()
 
 	r := s.NewReader()
@@ -37,11 +37,11 @@ func TestReaderRangeAtSpecificRev(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("foo"), []byte("v1"))
+	w.Put([]byte("foo"), []byte("v1"), 0)
 	w.End()
 
 	w = s.NewWriter()
-	w.Put([]byte("foo"), []byte("v2"))
+	w.Put([]byte("foo"), []byte("v2"), 0)
 	w.End()
 
 	r := s.NewReader()
@@ -70,11 +70,11 @@ func TestReaderRangeRevZeroUsesCurrentRev(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("k"), []byte("v1"))
+	w.Put([]byte("k"), []byte("v1"), 0)
 	w.End()
 
 	w = s.NewWriter()
-	w.Put([]byte("k"), []byte("v2"))
+	w.Put([]byte("k"), []byte("v2"), 0)
 	w.End()
 
 	r := s.NewReader()
@@ -92,7 +92,7 @@ func TestReaderRangeFutureRevError(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("k"), []byte("v"))
+	w.Put([]byte("k"), []byte("v"), 0)
 	w.End()
 
 	r := s.NewReader()
@@ -107,10 +107,10 @@ func TestReaderRangeMultipleKeys(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("a"), []byte("1"))
-	w.Put([]byte("b"), []byte("2"))
-	w.Put([]byte("c"), []byte("3"))
-	w.Put([]byte("d"), []byte("4"))
+	w.Put([]byte("a"), []byte("1"), 0)
+	w.Put([]byte("b"), []byte("2"), 0)
+	w.Put([]byte("c"), []byte("3"), 0)
+	w.Put([]byte("d"), []byte("4"), 0)
 	w.End()
 
 	r := s.NewReader()
@@ -131,9 +131,9 @@ func TestReaderRangeWithLimit(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("a"), []byte("1"))
-	w.Put([]byte("b"), []byte("2"))
-	w.Put([]byte("c"), []byte("3"))
+	w.Put([]byte("a"), []byte("1"), 0)
+	w.Put([]byte("b"), []byte("2"), 0)
+	w.Put([]byte("c"), []byte("3"), 0)
 	w.End()
 
 	r := s.NewReader()
@@ -154,7 +154,7 @@ func TestReaderRangeNonExistentKey(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("foo"), []byte("bar"))
+	w.Put([]byte("foo"), []byte("bar"), 0)
 	w.End()
 
 	r := s.NewReader()
@@ -172,7 +172,7 @@ func TestReaderRangeDeletedKey(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("foo"), []byte("bar"))
+	w.Put([]byte("foo"), []byte("bar"), 0)
 	w.End()
 
 	w = s.NewWriter()
@@ -194,7 +194,7 @@ func TestReaderRangeDeletedKeyAtOldRev(t *testing.T) {
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("foo"), []byte("bar"))
+	w.Put([]byte("foo"), []byte("bar"), 0)
 	w.End()
 
 	w = s.NewWriter()

@@ -26,7 +26,7 @@ type KVService interface {
 	Ping() error
 }
 
-type raftKvService struct {
+type kvSvc struct {
 	store       *mvcc.KVStore
 	proposeFunc util.ProposeFunc
 	peerSvc     PeerService
@@ -34,7 +34,7 @@ type raftKvService struct {
 }
 
 func NewKVService(logger *slog.Logger, store *mvcc.KVStore, peerSvc PeerService, proposeFunc util.ProposeFunc) KVService {
-	return &raftKvService{
+	return &kvSvc{
 		store:       store,
 		proposeFunc: proposeFunc,
 		peerSvc:     peerSvc,
@@ -42,7 +42,7 @@ func NewKVService(logger *slog.Logger, store *mvcc.KVStore, peerSvc PeerService,
 	}
 }
 
-func (s *raftKvService) Range(ctx context.Context, cmd command.RangeCmd) (*command.Result, error) {
+func (s *kvSvc) Range(ctx context.Context, cmd command.RangeCmd) (*command.Result, error) {
 	s.logger.WithGroup("cmd").
 		Debug("Range command received",
 			"key", cmd.Key,
@@ -82,11 +82,11 @@ func (s *raftKvService) Range(ctx context.Context, cmd command.RangeCmd) (*comma
 			RaftIndex: raftIndex,
 			NodeID:    s.peerSvc.Me().NodeID,
 		},
-		Range: res,
+		RangeResult: res,
 	}, nil
 }
 
-func (s *raftKvService) Put(ctx context.Context, subcmd command.PutCmd) (*command.Result, error) {
+func (s *kvSvc) Put(ctx context.Context, subcmd command.PutCmd) (*command.Result, error) {
 	s.logger.WithGroup("cmd").
 		Debug("Put command received",
 			"key", subcmd.Key,
@@ -120,13 +120,13 @@ func (s *raftKvService) Put(ctx context.Context, subcmd command.PutCmd) (*comman
 		return nil, fmt.Errorf("%w: %v", errKVService, result.Error)
 	}
 
-	if result.Put == nil {
-		return nil, fmt.Errorf("%w: nil result from fsm", errKVService)
+	if result.PutResult == nil {
+		return nil, fsm.ErrNilApplyResult
 	}
 	return &result, nil
 }
 
-func (s *raftKvService) Delete(ctx context.Context, subcmd command.DeleteCmd) (*command.Result, error) {
+func (s *kvSvc) Delete(ctx context.Context, subcmd command.DeleteCmd) (*command.Result, error) {
 	s.logger.WithGroup("cmd").
 		Debug("Delete command received",
 			"key", subcmd.Key,
@@ -157,12 +157,12 @@ func (s *raftKvService) Delete(ctx context.Context, subcmd command.DeleteCmd) (*
 		return nil, fmt.Errorf("%w: %v", errKVService, result.Error)
 	}
 
-	if result.Delete == nil {
-		return nil, fmt.Errorf("%w: nil result from fsm", errKVService)
+	if result.DeleteResult == nil {
+		return nil, fsm.ErrNilApplyResult
 	}
 	return &result, nil
 }
 
-func (s *raftKvService) Ping() error {
+func (s *kvSvc) Ping() error {
 	return s.store.Ping()
 }

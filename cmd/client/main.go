@@ -155,21 +155,21 @@ func main() {
 	fmt.Printf("< Body: %+v\n", responseBody)
 	switch operation {
 	case "get":
-		if responseBody.Range != nil {
-			fmt.Printf("< Payload: count: %+v\n", responseBody.Range.Count)
-			for i, entry := range responseBody.Range.Entries {
+		if responseBody.RangeResult != nil {
+			fmt.Printf("< Payload: count: %+v\n", responseBody.RangeResult.Count)
+			for i, entry := range responseBody.RangeResult.Entries {
 				fmt.Printf("< Payload: entry %d: %s\n", i, entry)
 			}
 			return
 		}
 		fmt.Println("< No range result in response")
 	case "put":
-		if responseBody.Put.PrevEntry != nil {
-			fmt.Printf("< Payload: %+v\n", responseBody.Put.PrevEntry)
+		if responseBody.PutResult.PrevEntry != nil {
+			fmt.Printf("< Payload: %+v\n", responseBody.PutResult.PrevEntry)
 			return
 		}
 		fmt.Println("< No previous entry in response")
 	case "del":
-		fmt.Printf("< Payload: %+v\n", responseBody.Delete)
+		fmt.Printf("< Payload: %+v\n", responseBody.DeleteResult)
 	}
 }

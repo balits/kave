@@ -29,6 +29,14 @@ func WaitFuture(ctx context.Context, fut raft.Future) error {
 // waitApply megvárja egy raft.ApplyFuture értékét, vagy a kontextus lejártát.
 // A visszaadott hiba vagy belső fsm hibát, vagy a kontextus lezárását jelzi
 func WaitApply(ctx context.Context, fut raft.ApplyFuture) (any, error) {
+	if ctx == nil {
+		panic("context was nil")
+	}
+
+	if fut == nil {
+		panic("future was nil")
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- fut.Error()
