@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/balits/kave/internal/logutil"
-	util "github.com/balits/kave/internal/logutil"
+	"github.com/balits/kave/internal/util/logutil"
+	util "github.com/balits/kave/internal/util/logutil"
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
 )

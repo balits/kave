@@ -5,12 +5,15 @@ import "github.com/balits/kave/internal/types"
 // A Result a Command végrehajtásának eredményét tartalmazza, a Header pedig a művelethez tartozó reviziót
 type Result struct {
 	Header ResultHeader `json:"header"`
+	Error  error        `json:"error,omitempty"`
 
-	Error  error         `json:"error,omitempty"`
-	Put    *PutResult    `json:"put,omitempty"`
-	Delete *DeleteResult `json:"delete,omitempty"`
-	Txn    *TxnResult    `json:"txn,omitempty"`
-	Range  *RangeResult  `json:"range,omitempty"`
+	PutResult            *PutResult            `json:"put,omitempty"`
+	DeleteResult         *DeleteResult         `json:"delete,omitempty"`
+	TxnResult            *TxnResult            `json:"txn,omitempty"`
+	RangeResult          *RangeResult          `json:"range,omitempty"`
+	LeaseGrantResult     *LeaseGrantResult     `json:"lease_grant,omitempty"`
+	LeaseRevokeResult    *LeaseRevokeResult    `json:"lease_revoke,omitempty"`
+	LeaseKeepAliveResult *LeaseKeepAliveResult `json:"lease_keep_alive,omitempty"`
 }
 
 // A ResultHeader minden eredmény közös metaadatait tartalmazza
@@ -27,7 +30,7 @@ type ResultHeader struct {
 
 type PutResult struct {
 	// PrevEntry az előző értéket tartalmazza, ha PrevEntry kapcsolóval kértük, egyébként nil
-	PrevEntry *types.Entry `json:"prev_entry,omitempty"`
+	PrevEntry *types.KvEntry `json:"prev_entry,omitempty"`
 }
 
 type DeleteResult struct {
@@ -35,7 +38,7 @@ type DeleteResult struct {
 	NumDeleted int64 `json:"num_deleted"`
 
 	// PrevEntries az eltávolított kulcsok előző értékeit tartalmazza, ha PrevEntry kapcsolóval kértük, egyébként nil
-	PrevEntries []types.Entry `json:"prev_entries,omitempty"`
+	PrevEntries []types.KvEntry `json:"prev_entries,omitempty"`
 }
 
 type TxnResult struct {
@@ -56,6 +59,6 @@ type TxnOpResult struct {
 
 // A RangeResult egy Range művelet eredménye
 type RangeResult struct {
-	Entries []types.Entry `json:"entries"`
-	Count   int           `json:"count"` // teljes egyezésű kulcsok száma (nagyobb lehet, mint len(Entries) ha limit volt alkalmazva)
+	Entries []types.KvEntry `json:"entries"`
+	Count   int             `json:"count"` // teljes egyezésű kulcsok száma (nagyobb lehet, mint len(Entries) ha limit volt alkalmazva)
 }

@@ -10,7 +10,7 @@ func Test_ComparisonEvalEqual(t *testing.T) {
 	tests := []struct {
 		name       string
 		comparison Comparison
-		target     types.Entry
+		target     types.KvEntry
 		expected   bool
 	}{
 		{
@@ -21,7 +21,7 @@ func Test_ComparisonEvalEqual(t *testing.T) {
 				Target:      FieldValue,
 				TargetUnion: CompareTargetValue{Value: []byte("expected_value")},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:   []byte("test_key"),
 				Value: []byte("expected_value"),
 			},
@@ -35,7 +35,7 @@ func Test_ComparisonEvalEqual(t *testing.T) {
 				Target:      FieldValue,
 				TargetUnion: CompareTargetValue{Value: []byte("expected_value")},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:   []byte("test_key"),
 				Value: []byte("different_value"),
 			},
@@ -51,7 +51,7 @@ func Test_ComparisonEvalEqual(t *testing.T) {
 					Version: intPtr(5),
 				},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:     []byte("test_key"),
 				Version: 5,
 			},
@@ -67,7 +67,7 @@ func Test_ComparisonEvalEqual(t *testing.T) {
 					Version: intPtr(5),
 				},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:     []byte("test_key"),
 				Version: 3,
 			},
@@ -83,7 +83,7 @@ func Test_ComparisonEvalEqual(t *testing.T) {
 					CreateRevision: intPtr(100),
 				},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:       []byte("test_key"),
 				CreateRev: 100,
 			},
@@ -99,7 +99,7 @@ func Test_ComparisonEvalEqual(t *testing.T) {
 					ModRevision: intPtr(200),
 				},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:    []byte("test_key"),
 				ModRev: 200,
 			},
@@ -113,7 +113,7 @@ func Test_ComparisonEvalEqual(t *testing.T) {
 				Target:      FieldValue,
 				TargetUnion: CompareTargetValue{Value: []byte("")},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:   []byte("test_key"),
 				Value: []byte(""),
 			},
@@ -135,7 +135,7 @@ func Test_ComparisonEvalNotEqual(t *testing.T) {
 	tests := []struct {
 		name       string
 		comparison Comparison
-		target     types.Entry
+		target     types.KvEntry
 		expected   bool
 	}{
 		{
@@ -146,7 +146,7 @@ func Test_ComparisonEvalNotEqual(t *testing.T) {
 				Target:      FieldValue,
 				TargetUnion: CompareTargetValue{Value: []byte("value1")},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:   []byte("test_key"),
 				Value: []byte("value2"),
 			},
@@ -160,7 +160,7 @@ func Test_ComparisonEvalNotEqual(t *testing.T) {
 				Target:      FieldValue,
 				TargetUnion: CompareTargetValue{Value: []byte("value1")},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:   []byte("test_key"),
 				Value: []byte("value1"),
 			},
@@ -176,7 +176,7 @@ func Test_ComparisonEvalNotEqual(t *testing.T) {
 					Version: intPtr(5),
 				},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:     []byte("test_key"),
 				Version: 3,
 			},
@@ -192,7 +192,7 @@ func Test_ComparisonEvalNotEqual(t *testing.T) {
 					Version: intPtr(5),
 				},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:     []byte("test_key"),
 				Version: 5,
 			},
@@ -214,7 +214,7 @@ func Test_ComparisonEvalGreaterThan(t *testing.T) {
 	tests := []struct {
 		name       string
 		comparison Comparison
-		target     types.Entry
+		target     types.KvEntry
 		expected   bool
 	}{
 		{
@@ -225,7 +225,7 @@ func Test_ComparisonEvalGreaterThan(t *testing.T) {
 				Target:      FieldValue,
 				TargetUnion: CompareTargetValue{Value: []byte("aaa")},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:   []byte("test_key"),
 				Value: []byte("zzz"),
 			},
@@ -239,7 +239,7 @@ func Test_ComparisonEvalGreaterThan(t *testing.T) {
 				Target:      FieldValue,
 				TargetUnion: CompareTargetValue{Value: []byte("zzz")},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:   []byte("test_key"),
 				Value: []byte("aaa"),
 			},
@@ -253,7 +253,7 @@ func Test_ComparisonEvalGreaterThan(t *testing.T) {
 				Target:      FieldValue,
 				TargetUnion: CompareTargetValue{Value: []byte("equal")},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:   []byte("test_key"),
 				Value: []byte("equal"),
 			},
@@ -269,7 +269,7 @@ func Test_ComparisonEvalGreaterThan(t *testing.T) {
 					Version: intPtr(5),
 				},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:     []byte("test_key"),
 				Version: 10,
 			},
@@ -285,7 +285,7 @@ func Test_ComparisonEvalGreaterThan(t *testing.T) {
 					CreateRevision: intPtr(100),
 				},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:       []byte("test_key"),
 				CreateRev: 150,
 			},
@@ -301,7 +301,7 @@ func Test_ComparisonEvalGreaterThan(t *testing.T) {
 					ModRevision: intPtr(200),
 				},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:    []byte("test_key"),
 				ModRev: 150,
 			},
@@ -323,7 +323,7 @@ func Test_ComparisonEvalGreaterOrEqual(t *testing.T) {
 	tests := []struct {
 		name       string
 		comparison Comparison
-		target     types.Entry
+		target     types.KvEntry
 		expected   bool
 	}{
 		{
@@ -334,7 +334,7 @@ func Test_ComparisonEvalGreaterOrEqual(t *testing.T) {
 				Target:      FieldValue,
 				TargetUnion: CompareTargetValue{Value: []byte("aaa")},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:   []byte("test_key"),
 				Value: []byte("zzz"),
 			},
@@ -348,7 +348,7 @@ func Test_ComparisonEvalGreaterOrEqual(t *testing.T) {
 				Target:      FieldValue,
 				TargetUnion: CompareTargetValue{Value: []byte("equal")},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:   []byte("test_key"),
 				Value: []byte("equal"),
 			},
@@ -362,7 +362,7 @@ func Test_ComparisonEvalGreaterOrEqual(t *testing.T) {
 				Target:      FieldValue,
 				TargetUnion: CompareTargetValue{Value: []byte("zzz")},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:   []byte("test_key"),
 				Value: []byte("aaa"),
 			},
@@ -378,7 +378,7 @@ func Test_ComparisonEvalGreaterOrEqual(t *testing.T) {
 					Version: intPtr(5),
 				},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:     []byte("test_key"),
 				Version: 10,
 			},
@@ -394,7 +394,7 @@ func Test_ComparisonEvalGreaterOrEqual(t *testing.T) {
 					Version: intPtr(5),
 				},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:     []byte("test_key"),
 				Version: 5,
 			},
@@ -416,7 +416,7 @@ func Test_ComparisonEvalLessThan(t *testing.T) {
 	tests := []struct {
 		name       string
 		comparison Comparison
-		target     types.Entry
+		target     types.KvEntry
 		expected   bool
 	}{
 		{
@@ -427,7 +427,7 @@ func Test_ComparisonEvalLessThan(t *testing.T) {
 				Target:      FieldValue,
 				TargetUnion: CompareTargetValue{Value: []byte("zzz")},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:   []byte("test_key"),
 				Value: []byte("aaa"),
 			},
@@ -441,7 +441,7 @@ func Test_ComparisonEvalLessThan(t *testing.T) {
 				Target:      FieldValue,
 				TargetUnion: CompareTargetValue{Value: []byte("aaa")},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:   []byte("test_key"),
 				Value: []byte("zzz"),
 			},
@@ -457,7 +457,7 @@ func Test_ComparisonEvalLessThan(t *testing.T) {
 					Version: intPtr(10),
 				},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:     []byte("test_key"),
 				Version: 5,
 			},
@@ -473,7 +473,7 @@ func Test_ComparisonEvalLessThan(t *testing.T) {
 					CreateRevision: intPtr(150),
 				},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:       []byte("test_key"),
 				CreateRev: 100,
 			},
@@ -495,7 +495,7 @@ func Test_ComparisonEvalLessOrEqual(t *testing.T) {
 	tests := []struct {
 		name       string
 		comparison Comparison
-		target     types.Entry
+		target     types.KvEntry
 		expected   bool
 	}{
 		{
@@ -506,7 +506,7 @@ func Test_ComparisonEvalLessOrEqual(t *testing.T) {
 				Target:      FieldValue,
 				TargetUnion: CompareTargetValue{Value: []byte("zzz")},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:   []byte("test_key"),
 				Value: []byte("aaa"),
 			},
@@ -520,7 +520,7 @@ func Test_ComparisonEvalLessOrEqual(t *testing.T) {
 				Target:      FieldValue,
 				TargetUnion: CompareTargetValue{Value: []byte("equal")},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:   []byte("test_key"),
 				Value: []byte("equal"),
 			},
@@ -534,7 +534,7 @@ func Test_ComparisonEvalLessOrEqual(t *testing.T) {
 				Target:      FieldValue,
 				TargetUnion: CompareTargetValue{Value: []byte("aaa")},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:   []byte("test_key"),
 				Value: []byte("zzz"),
 			},
@@ -550,7 +550,7 @@ func Test_ComparisonEvalLessOrEqual(t *testing.T) {
 					Version: intPtr(10),
 				},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:     []byte("test_key"),
 				Version: 5,
 			},
@@ -566,7 +566,7 @@ func Test_ComparisonEvalLessOrEqual(t *testing.T) {
 					Version: intPtr(5),
 				},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:     []byte("test_key"),
 				Version: 5,
 			},
@@ -704,7 +704,7 @@ func Test_InvalidOperator(t *testing.T) {
 		TargetUnion: CompareTargetValue{Value: []byte("test")},
 	}
 
-	result := comparison.Eval(types.Entry{
+	result := comparison.Eval(types.KvEntry{
 		Key:   []byte("test_key"),
 		Value: []byte("test"),
 	})
@@ -718,7 +718,7 @@ func Test_ComplexTransactionComparisons(t *testing.T) {
 	tests := []struct {
 		name        string
 		comparisons []Comparison
-		target      types.Entry
+		target      types.KvEntry
 		allMatch    bool
 	}{
 		{
@@ -739,7 +739,7 @@ func Test_ComplexTransactionComparisons(t *testing.T) {
 					},
 				},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:     []byte("key1"),
 				Value:   []byte("value1"),
 				Version: 5,
@@ -764,7 +764,7 @@ func Test_ComplexTransactionComparisons(t *testing.T) {
 					},
 				},
 			},
-			target: types.Entry{
+			target: types.KvEntry{
 				Key:     []byte("key1"),
 				Value:   []byte("value1"),
 				Version: 5,

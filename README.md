@@ -98,19 +98,38 @@ Hello world
     - [ ] LICENSE from etcd: http://www.apache.org/licenses/LICENSE-2.0
     - [ ] batch kvindex updates, rollback on commit failure
     - [ ] mvcc.writer: support revision.sub++ on txn ops
-    - [ ] lease:
+    - [s] lease:
         - [x] type Lease
         - [x] type LeaseManager
-        - [x] type LeaseQueue
-        - [x] type Checkpoint / CHeckpointScheduler
-        - [ ] expiry loo
+            - [x] impl
+            - [x] test
+        - [x] type LeaseHeap
+            - [x] impl
+            - [x] test
+        - [s] type Checkpoint / CheckpointScheduler
+            - [x] impl
+            - [s] test
+        - [x] type ExpiryLoop
+            - [x] impl
+            - [x] test
+        - [x] lm.Restore()
+            - [x] impl
+            - [x] test
+
+    - [ ] background routines
+        - [ ] create an interface with OnLeadershipGranted(f) bool or have a channel that returns leadership grants/revocatinos
+            and set ticker to nil if granted := <- C; granted == false or to the real one if granted == true
+
     - [ ] metrics
         - meaningful grafana
         - figure out where and how to collect every kind of metric
+
     - [ ] combined compactor
         - [ ] periodic ticks, candidateRev = rev at last tick
         - [ ] threshold under which we shouldnt compact
         - [ ] BUT if were between periods, but writes have accumulated fast -> lets compact
+        - [ ] use util.Ticker
+        - [ ] instead of calling compactable.Compact(), propose a command.CompactCmd to the fsm and let fsm.store handle it
 
 # CHORES
 - [ ] use require in every test insteaf of if err != nil ...

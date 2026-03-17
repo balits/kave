@@ -16,7 +16,7 @@ type Writer interface {
 	// returns the writers start revision
 	Revision() kv.Revision
 
-	Put(key, value []byte) (rev kv.Revision, err error)
+	Put(key, value []byte, leaseID int64) (rev kv.Revision, err error)
 	DeleteRange(key, end []byte) (count int64, rev kv.Revision, err error)
 	DeleteKey(key []byte) (count int64, rev kv.Revision, err error)
 
@@ -30,14 +30,14 @@ type Writer interface {
 
 	// Abort discards all changes and releases locks. It should be called if the caller decides not to commit the transaction.
 	Abort()
-	Changes() []types.Entry
+	Changes() []types.KvEntry
 }
 
 type writer struct {
 	store    *KVStore
 	writeTx  backend.WriteTx
 	startRev kv.Revision
-	changes  []types.Entry
+	changes  []types.KvEntry
 	txnMode  bool
 
 	startTime time.Time
@@ -56,12 +56,12 @@ func newWriter(
 	}
 }
 
-func (w *writer) Revision() kv.Revision  { return w.startRev }
-func (w *writer) Changes() []types.Entry { return w.changes }
+func (w *writer) Revision() kv.Revision    { return w.startRev }
+func (w *writer) Changes() []types.KvEntry { return w.changes }
 
 // delegates
 
-func (w *writer) Get(key []byte, rev int64) *types.Entry {
+func (w *writer) Get(key []byte, rev int64) *types.KvEntry {
 	entries, _, _, err := w.Range(key, nil, rev, 1)
 	if err != nil {
 		return nil
@@ -72,7 +72,7 @@ func (w *writer) Get(key []byte, rev int64) *types.Entry {
 	return &entries[0]
 }
 
-func (w *writer) Range(key, end []byte, rev int64, limit int64) (entries []types.Entry, count int, currentRev int64, err error) {
+func (w *writer) Range(key, end []byte, rev int64, limit int64) (entries []types.KvEntry, count int, currentRev int64, err error) {
 	start := time.Now()
 	w.store.revMu.RLock()
 	curRevMain := w.store.currentRev.Main
@@ -80,7 +80,7 @@ func (w *writer) Range(key, end []byte, rev int64, limit int64) (entries []types
 	w.store.revMu.RUnlock()
 
 	w.store.metrics.ReadsTotal.Inc()
-	defer w.store.metrics.ReadDurationSec.Observe(time.Since(start).Seconds())
+	defer func() { w.store.metrics.ReadDurationSec.Observe(time.Since(start).Seconds()) }()
 
 	if rev > curRevMain {
 		return nil, 0, curRevMain, fmt.Errorf("future revision requested")
@@ -102,16 +102,16 @@ func (w *writer) Range(key, end []byte, rev int64, limit int64) (entries []types
 		lim = len(revpairs)
 	}
 
-	entries = make([]types.Entry, 0, lim)
+	entries = make([]types.KvEntry, 0, lim)
 	revBytes := kv.NewRevBytes()
 	for _, rp := range revpairs[:lim] {
-		revBytes = kv.EncodeRevision(rp, revBytes)
+		revBytes = kv.EncodeRevisionAsBucketKey(rp, revBytes)
 		entryBytes, err := w.writeTx.UnsafeGet(schema.BucketKV, revBytes)
 		if err != nil || entryBytes == nil {
 			w.store.logger.Error("range: revision not found in backend", "main", rp.Main, "sub", rp.Sub)
 			continue
 		}
-		entry, err := types.DecodeEntry(entryBytes)
+		entry, err := types.DecodeKvEntry(entryBytes)
 		if err != nil {
 			w.store.logger.Error("range: failed to unmarshal entry", "err", err)
 			continue
@@ -122,8 +122,8 @@ func (w *writer) Range(key, end []byte, rev int64, limit int64) (entries []types
 	return entries, total, curRevMain, nil
 }
 
-func (w *writer) Put(key []byte, value []byte) (kv.Revision, error) {
-	if err := w.put(key, value); err != nil {
+func (w *writer) Put(key []byte, value []byte, leaseID int64) (kv.Revision, error) {
+	if err := w.put(key, value, leaseID); err != nil {
 		w.store.logger.Error("mvcc.Writer.Put() failed", "error", err)
 		w.store.metrics.PutErrorsTotal.Inc()
 		return kv.Revision{}, err
@@ -131,7 +131,7 @@ func (w *writer) Put(key []byte, value []byte) (kv.Revision, error) {
 	return kv.Revision{Main: w.startRev.Main + 1}, nil
 }
 
-func (w *writer) put(key, value []byte) error {
+func (w *writer) put(key, value []byte, leaseID int64) error {
 	nextRev := w.startRev.Main + 1
 	createRev := nextRev // create revision defaults to this nextRev
 
@@ -143,17 +143,18 @@ func (w *writer) put(key, value []byte) error {
 
 	idxRev := kv.Revision{Main: nextRev, Sub: int64(len(w.changes))}
 	idxRevBytes := kv.NewRevBytes()
-	idxRevBytes = kv.EncodeRevision(idxRev, idxRevBytes)
+	idxRevBytes = kv.EncodeRevisionAsBucketKey(idxRev, idxRevBytes)
 
-	entry := types.Entry{
+	entry := types.KvEntry{
 		Key:       key,
 		Value:     value,
 		CreateRev: createRev,
 		ModRev:    nextRev,
 		Version:   version + 1,
+		LeaseID:   leaseID,
 	}
 
-	d, err := types.EncodeEntry(entry)
+	d, err := types.EncodeKvEntry(entry)
 	if err != nil {
 		return fmt.Errorf("failed to encode entry: %v", err)
 	}
@@ -214,12 +215,12 @@ func (w *writer) DeleteKey(key []byte) (count int64, rev kv.Revision, err error)
 }
 
 func (w *writer) deleteKey(key []byte) error {
-	bk := kv.NewKVBucketKey(w.store.currentRev.Main+1, int64(len(w.changes)), true)
+	bk := kv.NewKvBucketKey(w.startRev.Main+1, int64(len(w.changes)), true)
 	bkBytes := kv.NewRevBytes()
-	bkBytes = kv.EncodeKVBucketKey(bk, bkBytes)
+	bkBytes = kv.EncodeKvBucketKey(bk, bkBytes)
 
-	entry := types.Entry{Key: key}
-	entryBytes, err := types.EncodeEntry(entry)
+	entry := types.KvEntry{Key: key}
+	entryBytes, err := types.EncodeKvEntry(entry)
 	if err != nil {
 		return fmt.Errorf("writer.deleteKey(): failed to encode entry: %v", err)
 	}

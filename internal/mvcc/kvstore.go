@@ -21,7 +21,7 @@ type SmartRevisionGetter interface {
 	Revisions() (currentRev kv.Revision, compacted int64)
 }
 
-const COMPACTION_BATCH_LIMIT int = 100
+const MAX_COMPACTION_BATCH_SIZE int = 100
 
 type KVStore struct {
 	rwlock           sync.RWMutex    // mutex for the whole store, not for backend transactions, used for raft meta and compaction
@@ -96,20 +96,20 @@ func (s *KVStore) Restore(r io.Reader) error {
 	}
 
 	lastRev := kv.Revision{Main: 0, Sub: 0}
-	min := kv.EncodeRevision(lastRev, kv.NewRevBytes())
-	max := kv.EncodeRevision(kv.Revision{Main: math.MaxInt64, Sub: math.MaxInt64}, kv.NewRevBytes())
+	min := kv.EncodeRevisionAsBucketKey(lastRev, kv.NewRevBytes())
+	max := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: math.MaxInt64, Sub: math.MaxInt64}, kv.NewRevBytes())
 
 	s.kvIndex.Clear()
 	rtx := s.backend.ReadTx()
 	rtx.RLock()
 	rtx.UnsafeScan(schema.BucketKV, min, max, func(k, v []byte) error {
-		bk := kv.DecodeKVBucketKey(k)
-		entry, err := types.DecodeEntry(v)
+		bk := kv.DecodeKvBucketKey(k)
+		entry, err := types.DecodeKvEntry(v)
 		if err != nil {
-			s.logger.Error("restore error: failed to decode entry", "error", err)
+			s.logger.Debug("restore error: failed to decode entry", "error", err)
 		}
 		if err := s.kvIndex.Put(entry.Key, bk.Revision); err != nil {
-			s.logger.Error("restore error: failed to put entry into kvIndex", "error", err)
+			s.logger.Debug("restore error: failed to put entry into kvIndex", "error", err)
 		}
 		lastRev = bk.Revision
 		return nil
@@ -169,7 +169,7 @@ func (s *KVStore) Compact(rev int64) (<-chan struct{}, error) {
 	{
 		wtx := s.backend.WriteTx()
 		wtx.Lock()
-		revBytes := kv.EncodeRevision(kv.Revision{Main: rev}, kv.NewRevBytes())
+		revBytes := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: rev}, kv.NewRevBytes())
 		wtx.UnsafePut(schema.BucketMeta, schema.MetaKeyCompactScheduled, revBytes)
 		wtx.Commit()
 		wtx.Unlock()
@@ -197,27 +197,26 @@ func (s *KVStore) doCompact(rev int64) {
 	}
 
 	// 2) delete en-masse entries where entry.modRev <= rev
-	start := kv.EncodeRevision(kv.Revision{Main: s.compactedMainRev}, kv.NewRevBytes())
-	endExcluded := kv.EncodeRevision(kv.Revision{Main: rev + 1}, kv.NewRevBytes())
+	start := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: s.compactedMainRev}, kv.NewRevBytes())
+	endExcluded := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: rev + 1}, kv.NewRevBytes())
 
 	// batch deletes
 	var (
 		done           bool
 		numDeleted     int
 		lastRevVisited kv.Revision
-		maxBatchSize   = COMPACTION_BATCH_LIMIT
-		batch          = make([][]byte, 0, maxBatchSize)
+		batch          = make([][]byte, 0, MAX_COMPACTION_BATCH_SIZE)
 	)
 	for {
 		wtx := s.backend.WriteTx()
 		wtx.Lock()
-		clear(batch)
+		batch := batch[:0]
 
 		err := wtx.UnsafeScan(schema.BucketKV, start, endExcluded, func(k, v []byte) error {
-			if len(batch) == maxBatchSize {
-				return fmt.Errorf("maxBatchSize exceeded")
+			if len(batch) == MAX_COMPACTION_BATCH_SIZE {
+				return fmt.Errorf("MAX_COMPACTION_BATCH_SIZE exceeded")
 			}
-			bk := kv.DecodeKVBucketKey(k)
+			bk := kv.DecodeKvBucketKey(k)
 			lastRevVisited = bk.Revision
 
 			if _, shouldRetain := retain[bk.Revision]; !shouldRetain {
@@ -238,14 +237,14 @@ func (s *KVStore) doCompact(rev int64) {
 			}
 		}
 
-		if err == nil || len(batch) < maxBatchSize {
+		if err == nil || len(batch) < MAX_COMPACTION_BATCH_SIZE {
 			// were finished
 			done = true
 		}
 
 		if done {
 			// persist meta
-			revBytes := kv.EncodeRevision(kv.Revision{Main: rev}, kv.NewRevBytes())
+			revBytes := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: rev}, kv.NewRevBytes())
 			wtx.UnsafePut(schema.BucketMeta, schema.MetaKeyCompactFinished, revBytes)
 		}
 
@@ -260,7 +259,13 @@ func (s *KVStore) doCompact(rev int64) {
 			break
 		}
 
-		start = kv.EncodeRevision(lastRevVisited.AddSub(1), kv.NewRevBytes())
+		nextRev, ok := nextMainRevOverflowing(s.logger, lastRevVisited, 1)
+		if ok {
+			start = kv.EncodeRevisionAsBucketKey(nextRev, kv.NewRevBytes())
+		} else {
+			s.logger.Error("compaction error: attempted to increment revision past the end range (math.MaxInt64)")
+			done = true
+		}
 	}
 
 	s.revMu.Lock()
@@ -279,4 +284,19 @@ func (s *KVStore) Ping() error {
 // Doesnt clear the index or anything
 func (s *KVStore) Close() error {
 	return s.backend.Close()
+}
+
+func nextMainRevOverflowing(l *slog.Logger, r kv.Revision, delta int64) (rev kv.Revision, ok bool) {
+	if r.Main > math.MaxInt64-delta {
+		errMsg := fmt.Sprintf(
+			"tried to add %d to current revision %d, but that would overflow int64",
+			delta, r.Main,
+		)
+		l.Error(errMsg)
+		return kv.Revision{}, false
+	}
+	return kv.Revision{
+		Main: r.Main + delta,
+		Sub:  r.Sub,
+	}, true
 }

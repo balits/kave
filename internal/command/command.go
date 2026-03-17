@@ -16,7 +16,9 @@ type Command struct {
 	Txn             *TxnCmd             `json:"txn,omitempty"`
 	LeaseGrant      *LeaseGrantCmd      `json:"lease_grant,omitempty"`
 	LeaseRevoke     *LeaseRevokeCmd     `json:"lease_revoke,omitempty"`
-	LeaseCheckpoint *LeaseCheckpointCmd // `json:"lease_checkpoint,omitempty"` its not a client facing command, so no need for json tag
+	LeaseKeepAlive  *LeaseKeepAliveCmd  `json:"lease_keep_alive,omitempty"`
+	LeaseCheckpoint *LeaseCheckpointCmd // its not a client facing command, so no need for json tag
+	LeaseExpired    *LeaseExpiredCmd    // its not a client facing command, so no need for json tag
 }
 
 type CmdType string
@@ -27,7 +29,9 @@ const (
 	CmdTxn             CmdType = "KV_TXN"
 	CmdLeaseGrant      CmdType = "LEASE_GRANT"
 	CmdLeaseRevoke     CmdType = "LEASE_REVOKE"
+	CmdLeaseKeepAlive  CmdType = "LEASE_KEEP_ALIVE"
 	CmdLeaseCheckpoint CmdType = "LEASE_CHECKPOINT"
+	CmdLeaseExpired    CmdType = "LEASE_EXPIRED"
 )
 
 func Encode(cmd Command) ([]byte, error) {

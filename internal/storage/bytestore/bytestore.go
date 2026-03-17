@@ -16,7 +16,7 @@ import (
 // Wether the store uses mutexes or internal transactions is up to the implementation.
 //
 // While not providing transactions in the strict sense, it does offer a Batch interface,
-// which allows callers to group multiple operations together and commit them atomically.
+// which allows callers to group multiple ops together and commit them atomically.
 //
 // The store should only return ErrBucketNotFound or any errors wrapped in ErrInternalStorageError.
 
