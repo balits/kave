@@ -26,7 +26,4 @@ up3build: ## Builds image and runs 3-node cluster
 test:
 	go test -v ./internal/...
 
-test-slow:
-	go test -tags slowtest -v ./internal/...
-
 .PHONY: build build-img up3 down3 up3build

@@ -54,9 +54,12 @@ func (f *Fsm) SetMetrics(m *metrics.RaftMetrics) {
 // Apply should be as fast as possible, therefore:
 // 1) validate command structure and arguments before callig Apply
 func (f *Fsm) Apply(log *raft.Log) interface{} {
-	start := time.Now()
-	defer func() { f.metrics.ApplyDurationSec.Observe(time.Since(start).Seconds()) }()
-	f.metrics.ApplyTotal.Inc()
+	// this makes test way easier
+	if f.metrics != nil {
+		start := time.Now()
+		defer func() { f.metrics.ApplyDurationSec.Observe(time.Since(start).Seconds()) }()
+		f.metrics.ApplyTotal.Inc()
+	}
 
 	cmd, err := command.Decode(log.Data)
 	if err != nil {
@@ -76,11 +79,10 @@ func (f *Fsm) Apply(log *raft.Log) interface{} {
 		panic(fmt.Sprintf("Unsupported command type: %v", cmd.Type))
 	}
 
-	res.Header = command.ResultHeader{
-		RaftTerm:  log.Term,
-		RaftIndex: log.Index,
-		NodeID:    f._nodeID,
-	}
+	// res.Header = &Header{...} would override previous headers revision set by appyling commands
+	res.Header.RaftTerm = log.Term
+	res.Header.RaftIndex = log.Index
+	res.Header.NodeID = f._nodeID
 
 	return res
 }
