@@ -2,6 +2,7 @@ package lease
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"testing"
 	"time"
@@ -12,12 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestExpiryLoop(t *testing.T, lm *LeaseManager, ticker util.Ticker) (*ExpiryLoop, <-chan command.LeaseRevokeResult) {
+func newTestExpiryLoop(t *testing.T, lm *LeaseManager, ticker util.Ticker, isLeaderValue bool) (*ExpiryLoop, <-chan command.LeaseRevokeResult) {
 	t.Helper()
 	var (
-		isLeader = func() bool { return true }
-		resultC  = make(chan command.LeaseRevokeResult)
-		propose  = func(cmd command.Command) (raft.ApplyFuture, error) {
+		isLeader    = func() bool { return isLeaderValue }
+		resultC     = make(chan command.LeaseRevokeResult)
+		leadershipC = make(chan bool, 1)
+		propose     = func(cmd command.Command) (raft.ApplyFuture, error) {
 			if cmd.LeaseRevoke == nil {
 				panic("expected LEASE_REVOKE cmd")
 			}
@@ -38,11 +40,12 @@ func newTestExpiryLoop(t *testing.T, lm *LeaseManager, ticker util.Ticker) (*Exp
 	})
 
 	return &ExpiryLoop{
-		drainer:  lm,
-		ticker:   ticker,
-		propose:  propose,
-		isLeader: isLeader,
-		logger:   slog.Default(),
+		drainer:     lm,
+		innerTicker: ticker,
+		propose:     propose,
+		isLeader:    isLeader,
+		leadershipC: leadershipC,
+		logger:      slog.Default(),
 	}, resultC
 }
 
@@ -52,7 +55,7 @@ func Test_ExpiryLoop_Run(t *testing.T) {
 		ft = util.NewFakeTicker().(*util.FakeTicker)
 		lm = lmWithClock(t, fc)
 	)
-	ex, resultC := newTestExpiryLoop(t, lm, ft)
+	ex, resultC := newTestExpiryLoop(t, lm, ft, true)
 	loop(t, ex)
 
 	l1, _ := lm.Grant(0, 10)
@@ -78,19 +81,16 @@ func Test_ExpiryLoop_Run(t *testing.T) {
 
 }
 
-func Test_ExpiryLoop_NonLeader_NoProposals(t *testing.T) {
-	var (
-		fc = util.NewFakeClock(time.Now()).(*util.FakeClock)
-		ft = util.NewFakeTicker().(*util.FakeTicker)
-		lm = lmWithClock(t, fc)
-	)
-	ex, resultC := newTestExpiryLoop(t, lm, ft)
-	ex.isLeader = func() bool { return false }
+func Test_ExpiryLoop_StartAsNonLeader_NoProposals(t *testing.T) {
+	fc := util.NewFakeClock(time.Now()).(*util.FakeClock)
+	ft := util.NewFakeTicker().(*util.FakeTicker)
+	lm := lmWithClock(t, fc)
+
+	ex, resultC := newTestExpiryLoop(t, lm, ft, false)
 	loop(t, ex)
 
 	lm.Grant(0, 10)
 	fc.AdvanceSeconds(11)
-	ft.Tick()
 
 	select {
 	case res := <-resultC:
@@ -99,7 +99,74 @@ func Test_ExpiryLoop_NonLeader_NoProposals(t *testing.T) {
 	}
 }
 
-// ── no expired leases ─────────────────────────────────────────────────────────
+func Test_ExpiryLoop_LosesLeadership_StopsProposing(t *testing.T) {
+	fc := util.NewFakeClock(time.Now()).(*util.FakeClock)
+	ft := util.NewFakeTicker().(*util.FakeTicker)
+	lm := lmWithClock(t, fc)
+
+	ex, resultC := newTestExpiryLoop(t, lm, ft, true)
+	loop(t, ex)
+
+	// as leader, tick
+	l1, _ := lm.Grant(0, 10)
+	fc.AdvanceSeconds(11)
+	ft.Tick()
+
+	select {
+	case res := <-resultC:
+		require.True(t, res.Revoked, "expected revoke to succeed as leader")
+		require.Nil(t, lm.Lookup(l1.ID))
+	case <-time.After(500 * time.Millisecond):
+		t.Errorf("timed out waiting for revoke as leader")
+	}
+
+	ex.OnLeadershipLost()
+	time.Sleep(50 * time.Millisecond)
+
+	l2, _ := lm.Grant(0, 10)
+	fc.AdvanceSeconds(11)
+	go func() {
+		defer func() {
+			r := recover()
+			fmt.Println(r)
+		}()
+		ft.Tick() // this should block until tickerC is not nil which will never happen
+	}()
+
+	select {
+	case <-resultC:
+		t.Errorf("expected no revoke after losing leadership")
+	case <-time.After(500 * time.Millisecond):
+	}
+	require.NotNil(t, lm.Lookup(l2.ID), "expected lease to still live as no revoke shouldve been called as non leader")
+}
+
+func Test_ExpiryLoop_RegainsLeadership_ResumesProposing(t *testing.T) {
+	fc := util.NewFakeClock(time.Now()).(*util.FakeClock)
+	ft := util.NewFakeTicker().(*util.FakeTicker)
+	lm := lmWithClock(t, fc)
+
+	ex, resultC := newTestExpiryLoop(t, lm, ft, true)
+	loop(t, ex)
+
+	// lose then regain leadership
+	ex.OnLeadershipLost()
+	time.Sleep(20 * time.Millisecond)
+	ex.OnLeadershipGranted()
+	time.Sleep(20 * time.Millisecond)
+
+	l, _ := lm.Grant(0, 10)
+	fc.AdvanceSeconds(11)
+	ft.Tick()
+
+	select {
+	case res := <-resultC:
+		require.True(t, res.Revoked, "expected revoke after regaining leadership")
+		require.Nil(t, lm.Lookup(l.ID))
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for revoke after regaining leadership")
+	}
+}
 
 func Test_ExpiryLoop_NoExpiredLeases_NoProposals(t *testing.T) {
 	var (
@@ -107,7 +174,7 @@ func Test_ExpiryLoop_NoExpiredLeases_NoProposals(t *testing.T) {
 		ft = util.NewFakeTicker().(*util.FakeTicker)
 		lm = lmWithClock(t, fc)
 	)
-	ex, resultC := newTestExpiryLoop(t, lm, ft)
+	ex, resultC := newTestExpiryLoop(t, lm, ft, true)
 	loop(t, ex)
 
 	lm.Grant(0, 3600)
@@ -120,15 +187,11 @@ func Test_ExpiryLoop_NoExpiredLeases_NoProposals(t *testing.T) {
 	}
 }
 
-// ── multiple leases, only expired ones revoked ────────────────────────────────
-
 func Test_ExpiryLoop_MultipleLeases_OnlyExpiredProposed(t *testing.T) {
-	var (
-		fc      = util.NewFakeClock(time.Now()).(*util.FakeClock)
-		ft      = util.NewFakeTicker().(*util.FakeTicker)
-		lm      = lmWithClock(t, fc)
-		resultC = make(chan command.LeaseRevokeResult, 10)
-	)
+	fc := util.NewFakeClock(time.Now()).(*util.FakeClock)
+	ft := util.NewFakeTicker().(*util.FakeTicker)
+	lm := lmWithClock(t, fc)
+	resultC := make(chan command.LeaseRevokeResult, 10)
 
 	propose := func(cmd command.Command) (raft.ApplyFuture, error) {
 		require.NotNil(t, cmd.LeaseRevoke)
@@ -137,14 +200,16 @@ func Test_ExpiryLoop_MultipleLeases_OnlyExpiredProposed(t *testing.T) {
 		resultC <- result
 		return &expiryFuture{result: result}, nil
 	}
+
 	t.Cleanup(func() { close(resultC) })
 
 	ex := &ExpiryLoop{
-		drainer:  lm,
-		ticker:   ft,
-		propose:  propose,
-		isLeader: func() bool { return true },
-		logger:   slog.Default(),
+		drainer:     lm,
+		innerTicker: ft,
+		propose:     propose,
+		isLeader:    func() bool { return true },
+		leadershipC: make(chan bool, 1),
+		logger:      slog.Default(),
 	}
 	loop(t, ex)
 
@@ -155,7 +220,7 @@ func Test_ExpiryLoop_MultipleLeases_OnlyExpiredProposed(t *testing.T) {
 	fc.AdvanceSeconds(10)
 	ft.Tick()
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		select {
 		case <-time.After(500 * time.Millisecond):
 			t.Fatalf("timed out waiting for result %d/2", i+1)
@@ -174,15 +239,13 @@ func Test_ExpiryLoop_MultipleLeases_OnlyExpiredProposed(t *testing.T) {
 	}
 }
 
-// ── keepalive prevents expiry ─────────────────────────────────────────────────
-
 func Test_ExpiryLoop_KeepAlive_PreventsExpiry(t *testing.T) {
 	var (
 		fc = util.NewFakeClock(time.Now()).(*util.FakeClock)
 		ft = util.NewFakeTicker().(*util.FakeTicker)
 		lm = lmWithClock(t, fc)
 	)
-	ex, resultC := newTestExpiryLoop(t, lm, ft)
+	ex, resultC := newTestExpiryLoop(t, lm, ft, true)
 	loop(t, ex)
 
 	l, _ := lm.Grant(0, 10)
@@ -201,15 +264,13 @@ func Test_ExpiryLoop_KeepAlive_PreventsExpiry(t *testing.T) {
 	}
 }
 
-// ── proposed only once ────────────────────────────────────────────────────────
-
 func Test_ExpiryLoop_ExpiredLease_ProposedOnlyOnce(t *testing.T) {
 	var (
 		fc = util.NewFakeClock(time.Now()).(*util.FakeClock)
 		ft = util.NewFakeTicker().(*util.FakeTicker)
 		lm = lmWithClock(t, fc)
 	)
-	ex, resultC := newTestExpiryLoop(t, lm, ft)
+	ex, resultC := newTestExpiryLoop(t, lm, ft, true)
 	loop(t, ex)
 
 	l, _ := lm.Grant(0, 10)
@@ -233,15 +294,13 @@ func Test_ExpiryLoop_ExpiredLease_ProposedOnlyOnce(t *testing.T) {
 	}
 }
 
-// ── expiry across two ticks ───────────────────────────────────────────────────
-
 func Test_ExpiryLoop_ExpiryAcrossTwoTicks(t *testing.T) {
 	var (
 		fc = util.NewFakeClock(time.Now()).(*util.FakeClock)
 		ft = util.NewFakeTicker().(*util.FakeTicker)
 		lm = lmWithClock(t, fc)
 	)
-	ex, resultC := newTestExpiryLoop(t, lm, ft)
+	ex, resultC := newTestExpiryLoop(t, lm, ft, true)
 	loop(t, ex)
 
 	l1, _ := lm.Grant(0, 5)
@@ -267,15 +326,13 @@ func Test_ExpiryLoop_ExpiryAcrossTwoTicks(t *testing.T) {
 	}
 }
 
-// ── empty manager ─────────────────────────────────────────────────────────────
-
 func Test_ExpiryLoop_EmptyManager_NoProposals(t *testing.T) {
 	var (
 		fc = util.NewFakeClock(time.Now()).(*util.FakeClock)
 		ft = util.NewFakeTicker().(*util.FakeTicker)
 		lm = lmWithClock(t, fc)
 	)
-	ex, resultC := newTestExpiryLoop(t, lm, ft)
+	ex, resultC := newTestExpiryLoop(t, lm, ft, true)
 	loop(t, ex)
 
 	fc.AdvanceSeconds(100)
@@ -288,14 +345,12 @@ func Test_ExpiryLoop_EmptyManager_NoProposals(t *testing.T) {
 	}
 }
 
-// ── double start is idempotent ────────────────────────────────────────────────
-
 func Test_ExpiryLoop_DoubleStart_Idempotent(t *testing.T) {
 	var (
 		ft = util.NewFakeTicker().(*util.FakeTicker)
 		lm = newTestLm(t)
 	)
-	ex, _ := newTestExpiryLoop(t, lm, ft)
+	ex, _ := newTestExpiryLoop(t, lm, ft, true)
 	loop(t, ex)
 
 	time.Sleep(10 * time.Millisecond)

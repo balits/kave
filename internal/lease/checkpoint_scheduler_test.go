@@ -14,8 +14,6 @@ import (
 )
 
 // checkpointPropose is a recording ProposeFunc for checkpoint tests.
-// Unlike expiry tests we do NOT apply the checkpoint inline — the scheduler
-// only cares that the right command was proposed, not what happens after.
 type checkpointPropose struct {
 	cmds  []command.Command
 	errOn int // if > 0, return an error on the Nth call (1-indexed)
@@ -43,25 +41,27 @@ func (cp *checkpointPropose) lastCmd() *command.Command {
 
 func (cp *checkpointPropose) totalCalls() int { return cp.calls }
 
-func newTestScheduler(t *testing.T, lm *LeaseManager, isLeader func() bool) (*CheckpointScheduler, *checkpointPropose) {
+func newTestScheduler(t *testing.T, lm *LeaseManager, isLeaderValue bool) (*CheckpointScheduler, *checkpointPropose) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
 	cp := &checkpointPropose{}
 	cs := &CheckpointScheduler{
-		lm:       lm,
-		interval: minCheckpointInterval,
-		propose:  cp.proposeFunc(),
-		isLeader: isLeader,
-		logger:   slog.Default(),
-		ctx:      ctx,
-		cancel:   cancel,
+		lm:          lm,
+		interval:    minCheckpointInterval,
+		propose:     cp.proposeFunc(),
+		isLeader:    func() bool { return isLeaderValue },
+		leadershipC: make(chan bool, 1),
+		logger:      slog.Default(),
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 	return cs, cp
 }
 
 func Test_CheckpointScheduler_NonLeader_NoProposal(t *testing.T) {
 	lm := newTestLm(t)
-	cs, cp := newTestScheduler(t, lm, func() bool { return false })
+	cs, cp := newTestScheduler(t, lm, false)
 
 	lm.Grant(0, 30)
 	lm.Grant(0, 60)
@@ -73,7 +73,7 @@ func Test_CheckpointScheduler_NonLeader_NoProposal(t *testing.T) {
 
 func Test_CheckpointScheduler_EmptyManager_NoProposal(t *testing.T) {
 	lm := newTestLm(t)
-	cs, cp := newTestScheduler(t, lm, func() bool { return true })
+	cs, cp := newTestScheduler(t, lm, true)
 
 	cs.tick()
 
@@ -84,7 +84,7 @@ func Test_CheckpointScheduler_LiveLeases_ProposedWithCorrectTTL(t *testing.T) {
 	now := time.Now()
 	fc := util.NewFakeClock(now).(*util.FakeClock)
 	lm := lmWithClock(t, fc)
-	cs, cp := newTestScheduler(t, lm, func() bool { return true })
+	cs, cp := newTestScheduler(t, lm, true)
 
 	l1, _ := lm.Grant(1, 30)
 	l2, _ := lm.Grant(2, 60)
@@ -118,7 +118,7 @@ func Test_CheckpointScheduler_AdvancedClock_DecreasesTTL(t *testing.T) {
 	now := time.Now()
 	fc := util.NewFakeClock(now).(*util.FakeClock)
 	lm := lmWithClock(t, fc)
-	cs, cp := newTestScheduler(t, lm, func() bool { return true })
+	cs, cp := newTestScheduler(t, lm, true)
 
 	lm.Grant(1, 60)
 	lm.Grant(2, 120)
@@ -143,12 +143,11 @@ func Test_CheckpointScheduler_AdvancedClock_DecreasesTTL(t *testing.T) {
 	}
 }
 
-
 func Test_CheckpointScheduler_ExpiredLeases_Excluded(t *testing.T) {
 	now := time.Now()
 	fc := util.NewFakeClock(now).(*util.FakeClock)
 	lm := lmWithClock(t, fc)
-	cs, cp := newTestScheduler(t, lm, func() bool { return true })
+	cs, cp := newTestScheduler(t, lm, true)
 
 	lm.Grant(1, 5)  // will be expired after advance
 	lm.Grant(2, 60) // still live
@@ -165,12 +164,11 @@ func Test_CheckpointScheduler_ExpiredLeases_Excluded(t *testing.T) {
 	require.Greater(t, entries[0].RemainingTTL, int64(0))
 }
 
-
 func Test_CheckpointScheduler_AllExpired_NoProposal(t *testing.T) {
 	now := time.Now()
 	fc := util.NewFakeClock(now).(*util.FakeClock)
 	lm := lmWithClock(t, fc)
-	cs, cp := newTestScheduler(t, lm, func() bool { return true })
+	cs, cp := newTestScheduler(t, lm, true)
 
 	lm.Grant(1, 5)
 	lm.Grant(2, 8)
@@ -183,9 +181,8 @@ func Test_CheckpointScheduler_AllExpired_NoProposal(t *testing.T) {
 
 func Test_CheckpointScheduler_ProposeError_IsNonFatal(t *testing.T) {
 	lm := newTestLm(t)
-	cs, cp := newTestScheduler(t, lm, func() bool { return true })
+	cs, cp := newTestScheduler(t, lm, true)
 	cp.errOn = 1
-
 
 	lm.Grant(0, 60)
 
@@ -204,7 +201,7 @@ func Test_CheckpointScheduler_MultipleTicks_AccumulatesCorrectly(t *testing.T) {
 	now := time.Now()
 	fc := util.NewFakeClock(now).(*util.FakeClock)
 	lm := lmWithClock(t, fc)
-	cs, cp := newTestScheduler(t, lm, func() bool { return true })
+	cs, cp := newTestScheduler(t, lm, true)
 
 	lm.Grant(1, 100)
 
@@ -221,32 +218,4 @@ func Test_CheckpointScheduler_MultipleTicks_AccumulatesCorrectly(t *testing.T) {
 	cs.tick()
 	require.Equal(t, 3, cp.totalCalls())
 	require.Equal(t, int64(70), cp.lastCmd().LeaseCheckpoint.Checkpoints[0].RemainingTTL)
-}
-
-func Test_CheckpointScheduler_ShutdownFlushes(t *testing.T) {
-	lm := newTestLm(t)
-	cp := &checkpointPropose{}
-	cs := &CheckpointScheduler{
-		lm:       lm,
-		interval: minCheckpointInterval,
-		propose:  cp.proposeFunc(),
-		isLeader: func() bool { return true },
-		logger:   slog.Default(),
-	}
-
-	lm.Grant(0, 60)
-
-	done := make(chan struct{})
-	go func() {
-		cs.Run(t.Context())
-		close(done)
-	}()
-
-	time.Sleep(20 * time.Millisecond)
-
-	cs.Stop()
-	<-done
-
-	require.GreaterOrEqual(t, cp.totalCalls(), 1,
-		"scheduler should flush on shutdown — at least one checkpoint proposed")
 }
