@@ -7,12 +7,12 @@ Hello world
 - dirty reads -> Leader, follower GET, no VerifyLeader()
 
 # TODO
-- [ ] fix cluster tests
+- ~~[ ]fix cluster tests~~
+- [ ] finish workload generator/checker
 - [x] simplify http server handlers
 - [ ] BatchingFSM
-- [ ] lease
 - [ ] Snapshot metrics too
-- [ ] prune random string(bytes) and []byte(string)
+- [x] prune random string(bytes) and []byte(string)
 - [ ] bytestrore.Defragment
 - [ ] raft index -> mvcc 
     - [x] Global monotonic revision
@@ -25,32 +25,32 @@ Hello world
         - gonna be either periodic or retention window
     - [ ] Linearizable read path
     - [x] DELETE -> tombstone marker
-    - [ ] Transactions
+    - [x] Transactions
         - [x] applyTxnOp
             - distinguishing between txn ending errors and regural errors that should be converted into TxnOpResult
             - encode/decode should use binary so it doesnt return errors
         - [x] add TxnOpTypeGet = ~~"GET"~~ "RANGE" (if no writes chosen ops then then return early, no new rev needed)
-    - [ ] Compaction
+    - ~~Compaction~~  (see combined compactor below)
         - automatic retention window: currentRev - compactedRev > THRESHOLD
         - deterministic
         - run from raft apply or by a fsm command directly
             - [ ] or let it be configurable: could be set to periodic (--compact-timer_hourly INT), could be window retention
-        - [ ] simple :
+        - simple :
             - at revision C:
             - for each key:
                 - find all revisions
                 - determine latest <= C
                 - delete others
             - _meta/compacted_revision = C
-        - [ ] advanced:
+        - advanced:
             - keep a separate (revision, key) -> nil bucket
             - lexicographically sotred for revision, way faster to scan and delete old versions for a key
-        - [ ] or even better:
+        - or even better:
             - store _meta/compacted_revision
             - during compaction, only iterate keys whose latest rev < C
                 - key_index: key -> metadata{modRev}
                 - if modRev < C then: key is fully below compaction window AND all but latest can be pruned aggressively
-        - [ ] production grade: incremental compaction
+        - production grade: incremental compaction
             - store _meta/compaction_cursor
             - process 10K entries or so
             - return and let raft do the rest of the commands
@@ -58,7 +58,10 @@ Hello world
     - [x] Snapshot
         - Storage layer already handles this
         - on restore, load _meta keys into RevisionManager
-    - [ ] BUCKETS
+        - and also restore leases
+    - [x] BUCKETS
+        - [x] "kv/"
+        - [x] "lease/"
         - [x] "_meta/"
             - current_revision
             - consistent_index
@@ -97,7 +100,7 @@ Hello world
     - [x] TODO: ~~snapshot  storage~~ compaction metrics too
     - [ ] LICENSE from etcd: http://www.apache.org/licenses/LICENSE-2.0
     - [ ] batch kvindex updates, rollback on commit failure
-    - [ ] mvcc.writer: support revision.sub++ on txn ops
+    - [x] mvcc.writer: support revision.sub++ on txn ops
     - [s] lease:
         - [x] type Lease
         - [x] type LeaseManager
@@ -106,24 +109,22 @@ Hello world
         - [x] type LeaseHeap
             - [x] impl
             - [x] test
-        - [s] type Checkpoint / CheckpointScheduler
+        - [x] type Checkpoint / CheckpointScheduler
             - [x] impl
-            - [s] test
+            - [x] test
         - [x] type ExpiryLoop
             - [x] impl
             - [x] test
         - [x] lm.Restore()
             - [x] impl
             - [x] test
-
-    - [ ] background routines
+    - [x] background routines
         - [ ] create an interface with OnLeadershipGranted(f) bool or have a channel that returns leadership grants/revocatinos
             and set ticker to nil if granted := <- C; granted == false or to the real one if granted == true
-
+    - [x] fix kvservice tests with mocked raft or similar
     - [ ] metrics
         - meaningful grafana
         - figure out where and how to collect every kind of metric
-
     - [ ] combined compactor
         - [ ] periodic ticks, candidateRev = rev at last tick
         - [ ] threshold under which we shouldnt compact
