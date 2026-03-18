@@ -47,7 +47,7 @@ type Node struct {
 
 	// background processes
 	observer            *raft.Observer
-	eventWatcher        *fsm.RaftEventWatcher
+	raftEventWatcher    *fsm.RaftEventWatcher
 	compactor           compactor.Compactor
 	checkpointScheduler *lease.CheckpointScheduler
 	expiryLoop          *lease.ExpiryLoop
@@ -121,7 +121,7 @@ func (n *Node) Run(ctx context.Context) error {
 	})
 
 	g.Go(func() error {
-		n.eventWatcher.Run()
+		n.raftEventWatcher.Run()
 		return nil
 	})
 
@@ -177,7 +177,7 @@ func (n *Node) Shutdown(ctx context.Context) error {
 
 	// 0.1) deregister observer
 	n.raft.DeregisterObserver(n.observer)
-	n.eventWatcher.Stop()
+	n.raftEventWatcher.Stop()
 
 	// 0.2) stop compactor
 	n.compactor.Stop()
@@ -232,19 +232,22 @@ func (n *Node) initRaft(reg prometheus.Registerer, cfg *config.Config) error {
 
 	raftMetrics := metrics.NewRaftMetrics(reg, r, config.ApplyLagReadinessThreshold)
 	n.fsm.SetMetrics(raftMetrics)
-
 	c := make(chan raft.Observation)
-	n.eventWatcher = fsm.NewRaftEventWatcher(c, raftMetrics, raft.ServerID(cfg.Me.NodeID))
-	n.observer = raft.NewObserver(c, false, n.eventWatcher.FilterFn())
-	r.RegisterObserver(n.observer)
+	n.raftEventWatcher = fsm.NewRaftEventWatcher(c, raftMetrics, raft.ServerID(cfg.Me.NodeID))
+	n.observer = raft.NewObserver(c, false, n.raftEventWatcher.FilterFn())
 
 	return nil
 }
 
+// registering the raft observer happens here, so that our background routines have the most up to date info
 func (n *Node) initBackgroundProcesses(interval time.Duration, opts compactor.CompactorOptions, propose util.ProposeFunc, isLeader util.IsLeaderFunc) error {
 	n.checkpointScheduler = lease.NewCheckpointScheduler(n.logger, n.leaseMgr, interval, propose, isLeader)
 	n.expiryLoop = lease.NewExpiryLoop(n.logger, n.leaseMgr, propose, isLeader)
 	n.compactor = compactor.New(n.logger, n.kvstore, opts)
+
+	n.raftEventWatcher.RegisterLeadershipObservers(n.checkpointScheduler, n.expiryLoop)
+	n.raft.RegisterObserver(n.observer)
+
 	return nil
 }
 
