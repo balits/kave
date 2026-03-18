@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,8 +18,6 @@ import (
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
-	"github.com/balits/kave/internal/util"
-	"github.com/balits/kave/internal/util/logutil"
 	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/require"
 )
@@ -32,71 +30,43 @@ type testKVService struct {
 
 func newTestKVService(t *testing.T) *testKVService {
 	t.Helper()
-	port := fmt.Sprintf("%d", 19100+time.Now().UnixNano()%10000)
-
-	cfg := config.Config{
-		Me: config.Peer{
-			NodeID:   "testnode",
-			RaftPort: port,
-			Hostname: "127.0.0.1",
-		},
-		StorageOpts: storage.StorageOptions{
-			Kind:           storage.StorageKindInMemory,
-			InitialBuckets: schema.AllBuckets,
-			Dir:            t.TempDir(),
-		},
-		LogLevel: slog.LevelDebug,
+	me := config.Peer{
+		NodeID: "test",
 	}
-	logger := logutil.NewLoggerWithKind(cfg.LogLevel, os.Stdout, logutil.TextLoggerKind)
+	logger := slog.Default()
 	reg := metrics.InitTestPrometheus()
-	b := backend.NewBackend(reg, cfg.StorageOpts)
-	kvstore := mvcc.NewKVStore(reg, logger, b)
-	fsmInst := fsm.NewFsm(logger, kvstore, nil, cfg.Me.NodeID)
-
-	hclogger := logutil.NewHcLogAdapter(logger, cfg.LogLevel)
-	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, hclogger, cfg.LogLevel)
-	raftDeps, err := config.NewRaftDependencies(cfg.Me.GetRaftAddress(), cfg.StorageOpts.Dir, hclogger)
-	require.NoError(t, err, "failed to create raft deps")
-
-	r, err := raft.NewRaft(raftCfg, fsmInst, raftDeps.LogStore, raftDeps.StableStore, raftDeps.SnapshotStore, raftDeps.Transport)
-	require.NoError(t, err, "failed to create raft")
-	fsmInst.SetMetrics(metrics.NewRaftMetrics(reg, r, config.ApplyLagReadinessThreshold))
-
-	raftcfg := raft.Configuration{
-		Servers: []raft.Server{
-			{
-				ID:       raft.ServerID(cfg.Me.NodeID),
-				Address:  cfg.Me.GetRaftAddress(),
-				Suffrage: raft.Voter,
-			},
-		},
-	}
-
-	require.NoError(t, r.BootstrapCluster(raftcfg).Error(), "failed to bootstrap cluster")
-
-	// Wait for leadership
-	select {
-	case isLeader := <-r.LeaderCh():
-		require.True(t, isLeader, "expected to become leader")
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for leadership")
-	}
-	time.Sleep(10 * time.Millisecond)
-
-	t.Cleanup(func() {
-		future := r.Shutdown()
-		_ = future.Error()
-		_ = b.Close()
+	backend := backend.NewBackend(reg, storage.StorageOptions{
+		Kind:           storage.StorageKindInMemory,
+		InitialBuckets: schema.AllBuckets,
 	})
+	kvstore := mvcc.NewKVStore(reg, logger, backend)
+	t.Cleanup(func() { kvstore.Close() })
+	fsm := fsm.NewFsm(logger, kvstore, nil, me.NodeID)
 
-	svc := NewKVService(
-		logger,
-		kvstore,
-		NewPeerService(r, &cfg),
-		util.NewProposeFunc(r),
-	)
+	isLeader := func() bool { return true }
+	var logIndex atomic.Uint64
+	propose := func(cmd command.Command) (raft.ApplyFuture, error) {
+		bs, err := command.Encode(cmd)
+		if err != nil {
+			return nil, err
+		}
+		index := logIndex.Add(1)
+		log := &raft.Log{
+			Index: logIndex.Add(1),
+			Data:  bs,
+			Term:  1,
+			Type:  raft.LogCommand,
+		}
+		result := fsm.Apply(log)
+		return &mockApplyFuture{
+			index:  index,
+			result: result,
+		}, nil
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	peersvc := &mockPeerService{me: me, isLeader: isLeader}
+	svc := NewKVService(logger, kvstore, peersvc, propose)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	t.Cleanup(cancel)
 
 	return &testKVService{
