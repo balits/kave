@@ -63,7 +63,9 @@ func NewFakeTicker() Ticker {
 }
 
 func (ft *FakeTicker) Tick() {
-	ft.c <- time.Now()
+	if ft.c != nil {
+		ft.c <- time.Now()
+	}
 }
 
 func (ft *FakeTicker) C() <-chan time.Time { return ft.c }
