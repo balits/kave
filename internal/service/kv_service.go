@@ -15,8 +15,6 @@ import (
 
 var errKVService = errors.New("kvservice error")
 
-// TODO: move cmd.Check() to transport layer
-// TODO: return command.Result instead of subresults <- fill out raft header fields inside fsm
 type KVService interface {
 	// NOTE: since reads usually dont go through raft, the resulitng Header.NodeID will be "", the caller should set it themselves
 	Range(ctx context.Context, cmd command.RangeCmd) (*command.Result, error)
