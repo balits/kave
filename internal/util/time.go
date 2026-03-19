@@ -1,6 +1,9 @@
 package util
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 type Clock interface {
 	Now() time.Time
@@ -65,6 +68,13 @@ func NewFakeTicker() Ticker {
 func (ft *FakeTicker) Tick() {
 	if ft.c != nil {
 		ft.c <- time.Now()
+	}
+}
+
+func (ft *FakeTicker) TickOrDone(ctx context.Context) {
+	select {
+	case ft.c <- time.Now():
+	case <-ctx.Done():
 	}
 }
 

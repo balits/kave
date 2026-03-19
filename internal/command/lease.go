@@ -22,6 +22,11 @@ type Checkpoint struct {
 	RemainingTTL int64
 }
 
-type LeaseExpiredCmd struct {
-	LeaseIDs []int64 // kitörlendő lease-ek ID-jai
+type LeaseExpireCmd struct {
+	ExpiredIDs []int64 // kitörlendő lease-ek ID-jai
+}
+
+type LeaseExpireResult struct {
+	RemovedLeaseCount int
+	RemovedKeyCount   int
 }

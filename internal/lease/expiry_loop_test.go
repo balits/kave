@@ -9,29 +9,28 @@ import (
 
 	"github.com/balits/kave/internal/command"
 	"github.com/balits/kave/internal/util"
-	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/require"
 )
 
-func newTestExpiryLoop(t *testing.T, lm *LeaseManager, ticker util.Ticker, isLeaderValue bool) (*ExpiryLoop, <-chan command.LeaseRevokeResult) {
+func newTestExpiryLoop(t *testing.T, lm *LeaseManager, ticker util.Ticker, isLeaderValue bool) (*ExpiryLoop, <-chan command.LeaseExpireResult) {
 	t.Helper()
 	var (
 		isLeader    = func() bool { return isLeaderValue }
-		resultC     = make(chan command.LeaseRevokeResult)
+		resultC     = make(chan command.LeaseExpireResult)
 		leadershipC = make(chan bool, 1)
-		propose     = func(cmd command.Command) (raft.ApplyFuture, error) {
-			if cmd.LeaseRevoke == nil {
-				panic("expected LEASE_REVOKE cmd")
+		propose     = func(_ context.Context, cmd command.Command) (*command.Result, error) {
+			if cmd.LeaseExpired == nil {
+				panic("expected LEASE_EXPIRED cmd")
 			}
-			found, revoked := lm.Revoke(cmd.LeaseRevoke.LeaseID)
-			result := command.LeaseRevokeResult{
-				Found:   found,
-				Revoked: revoked,
+			res, err := lm.ApplyExpired(*cmd.LeaseExpired)
+			if err != nil {
+				return nil, err
 			}
-			resultC <- result
-			return &expiryFuture{
-				result: result,
-			}, nil
+			resultC <- *res
+			result := command.Result{
+				LeaseExpireResult: res,
+			}
+			return &result, nil
 		}
 	)
 
@@ -63,11 +62,10 @@ func Test_ExpiryLoop_Run(t *testing.T) {
 	ft.Tick()
 
 	select {
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(50 * time.Millisecond):
 		t.Fatal("apply result timed out after 500ms")
 	case res := <-resultC:
-		require.True(t, res.Found, "expected expiry loop's revoke command to find lease")
-		require.True(t, res.Revoked, "expected expiry loop's revoke command to revoke lease")
+		require.Equal(t, 1, res.RemovedLeaseCount, "expected expiry loop to remove lease")
 		require.Nil(t, lm.Lookup(l1.ID), "expected backend to no longer contain revoked lease")
 	}
 
@@ -76,7 +74,7 @@ func Test_ExpiryLoop_Run(t *testing.T) {
 	select {
 	case <-resultC:
 		t.Fatal("expected expiry loop to not propose")
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(50 * time.Millisecond):
 	}
 
 }
@@ -95,7 +93,7 @@ func Test_ExpiryLoop_StartAsNonLeader_NoProposals(t *testing.T) {
 	select {
 	case res := <-resultC:
 		t.Errorf("non-leader should not propose, got result: %+v", res)
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 
@@ -114,9 +112,9 @@ func Test_ExpiryLoop_LosesLeadership_StopsProposing(t *testing.T) {
 
 	select {
 	case res := <-resultC:
-		require.True(t, res.Revoked, "expected revoke to succeed as leader")
+		require.Equal(t, 1, res.RemovedLeaseCount, "expected revoke to succeed as leader")
 		require.Nil(t, lm.Lookup(l1.ID))
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(50 * time.Millisecond):
 		t.Errorf("timed out waiting for revoke as leader")
 	}
 
@@ -136,7 +134,7 @@ func Test_ExpiryLoop_LosesLeadership_StopsProposing(t *testing.T) {
 	select {
 	case <-resultC:
 		t.Errorf("expected no revoke after losing leadership")
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(50 * time.Millisecond):
 	}
 	require.NotNil(t, lm.Lookup(l2.ID), "expected lease to still live as no revoke shouldve been called as non leader")
 }
@@ -161,14 +159,14 @@ func Test_ExpiryLoop_RegainsLeadership_ResumesProposing(t *testing.T) {
 
 	select {
 	case res := <-resultC:
-		require.True(t, res.Revoked, "expected revoke after regaining leadership")
+		require.Equal(t, 1, res.RemovedLeaseCount, "expected revoke after regaining leadership")
 		require.Nil(t, lm.Lookup(l.ID))
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(50 * time.Millisecond):
 		t.Fatal("timed out waiting for revoke after regaining leadership")
 	}
 }
 
-func Test_ExpiryLoop_NoExpiredLeases_NoProposals(t *testing.T) {
+func Test_ExpiryLoop_NoExpiredLeases(t *testing.T) {
 	var (
 		fc = util.NewFakeClock(time.Now()).(*util.FakeClock)
 		ft = util.NewFakeTicker().(*util.FakeTicker)
@@ -182,8 +180,10 @@ func Test_ExpiryLoop_NoExpiredLeases_NoProposals(t *testing.T) {
 
 	select {
 	case res := <-resultC:
-		t.Errorf("live lease should not be proposed, got: %+v", res)
-	case <-time.After(500 * time.Millisecond):
+		require.Equal(t, 0, res.RemovedLeaseCount)
+		require.Equal(t, 0, res.RemovedKeyCount)
+	case <-time.After(50 * time.Millisecond):
+		t.Fatal("expected empty proposal")
 	}
 }
 
@@ -191,26 +191,7 @@ func Test_ExpiryLoop_MultipleLeases_OnlyExpiredProposed(t *testing.T) {
 	fc := util.NewFakeClock(time.Now()).(*util.FakeClock)
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	lm := lmWithClock(t, fc)
-	resultC := make(chan command.LeaseRevokeResult, 10)
-
-	propose := func(cmd command.Command) (raft.ApplyFuture, error) {
-		require.NotNil(t, cmd.LeaseRevoke)
-		found, revoked := lm.Revoke(cmd.LeaseRevoke.LeaseID)
-		result := command.LeaseRevokeResult{Found: found, Revoked: revoked}
-		resultC <- result
-		return &expiryFuture{result: result}, nil
-	}
-
-	t.Cleanup(func() { close(resultC) })
-
-	ex := &ExpiryLoop{
-		drainer:     lm,
-		innerTicker: ft,
-		propose:     propose,
-		isLeader:    func() bool { return true },
-		leadershipC: make(chan bool, 1),
-		logger:      slog.Default(),
-	}
+	ex, resultC := newTestExpiryLoop(t, lm, ft, true)
 	loop(t, ex)
 
 	expired1, _ := lm.Grant(0, 5)
@@ -220,12 +201,10 @@ func Test_ExpiryLoop_MultipleLeases_OnlyExpiredProposed(t *testing.T) {
 	fc.AdvanceSeconds(10)
 	ft.Tick()
 
-	for i := range 2 {
-		select {
-		case <-time.After(500 * time.Millisecond):
-			t.Fatalf("timed out waiting for result %d/2", i+1)
-		case <-resultC:
-		}
+	select {
+	case <-time.After(50 * time.Millisecond):
+		t.Fatalf("timed out waiting for result")
+	case <-resultC:
 	}
 
 	require.Nil(t, lm.Lookup(expired1.ID), "expired1 should be revoked")
@@ -259,8 +238,9 @@ func Test_ExpiryLoop_KeepAlive_PreventsExpiry(t *testing.T) {
 
 	select {
 	case res := <-resultC:
-		t.Errorf("kept-alive lease must not be proposed, got: %+v", res)
-	case <-time.After(500 * time.Millisecond):
+		require.Equal(t, 0, res.RemovedLeaseCount)
+		require.NotNil(t, lm.Lookup(l.ID))
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 
@@ -278,19 +258,19 @@ func Test_ExpiryLoop_ExpiredLease_ProposedOnlyOnce(t *testing.T) {
 
 	ft.Tick()
 	select {
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("timed out waiting for first revoke")
+	case <-time.After(50 * time.Millisecond):
+		t.Fatal("timed out waiting for first tick")
 	case res := <-resultC:
-		require.True(t, res.Found)
-		require.True(t, res.Revoked)
+		require.Equal(t, 1, res.RemovedLeaseCount)
 		require.Nil(t, lm.Lookup(l.ID))
 	}
 
 	ft.Tick()
 	select {
 	case res := <-resultC:
-		t.Errorf("lease should only be proposed once, got second result: %+v", res)
-	case <-time.After(500 * time.Millisecond):
+		require.Equal(t, 0, res.RemovedLeaseCount)
+	case <-time.After(50 * time.Millisecond):
+		t.Fatal("timed out waiting for second tick")
 	}
 }
 
@@ -309,7 +289,7 @@ func Test_ExpiryLoop_ExpiryAcrossTwoTicks(t *testing.T) {
 	fc.AdvanceSeconds(6)
 	ft.Tick()
 	select {
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(50 * time.Millisecond):
 		t.Fatal("timed out waiting for l1 revoke")
 	case <-resultC:
 		require.Nil(t, lm.Lookup(l1.ID), "l1 should be revoked on first tick")
@@ -319,7 +299,7 @@ func Test_ExpiryLoop_ExpiryAcrossTwoTicks(t *testing.T) {
 	fc.AdvanceSeconds(10)
 	ft.Tick()
 	select {
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(50 * time.Millisecond):
 		t.Fatal("timed out waiting for l2 revoke")
 	case <-resultC:
 		require.Nil(t, lm.Lookup(l2.ID), "l2 should be revoked on second tick")
@@ -340,8 +320,9 @@ func Test_ExpiryLoop_EmptyManager_NoProposals(t *testing.T) {
 
 	select {
 	case res := <-resultC:
-		t.Errorf("empty manager should produce no proposals, got: %+v", res)
-	case <-time.After(500 * time.Millisecond):
+		require.Equal(t, 0, res.RemovedLeaseCount)
+	case <-time.After(50 * time.Millisecond):
+		t.Errorf("timed out waiting for proposal")
 	}
 }
 
@@ -363,7 +344,7 @@ func Test_ExpiryLoop_DoubleStart_Idempotent(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(200 * time.Millisecond):
+	case <-time.After(50 * time.Millisecond):
 		t.Error("second Run() did not return quickly — atomic guard may be broken")
 	}
 }

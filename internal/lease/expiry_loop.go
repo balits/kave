@@ -62,7 +62,7 @@ func (ex *ExpiryLoop) OnLeadershipLost() {
 
 func (ex *ExpiryLoop) Run(ctx context.Context) {
 	if !ex.running.CompareAndSwap(false, true) {
-		ex.logger.Warn("Attempted to run expiry loop that was already running")
+		ex.logger.Warn("Attempted to run expiry loop while it was already running")
 		return
 	}
 	ctx, cancel := context.WithCancel(ctx)
@@ -84,6 +84,7 @@ func (ex *ExpiryLoop) run() {
 		select {
 		case granted, ok := <-ex.leadershipC:
 			if !ok {
+				ex.logger.Error("leadership channel closed, stopping main loop")
 				return
 			}
 			if granted && ex.isLeader() {
@@ -92,9 +93,7 @@ func (ex *ExpiryLoop) run() {
 				tickerC = nil
 			}
 		case <-ex.ctx.Done():
-			ex.logger.Info("context cancelled, stopping ExpiryLoop",
-				"cause", ex.ctx.Err(),
-			)
+			ex.logger.Info("context cancelled, stopping main loop", "cause", ex.ctx.Err())
 			return
 		case <-tickerC:
 			ex.tick()
@@ -103,27 +102,45 @@ func (ex *ExpiryLoop) run() {
 }
 
 func (ex *ExpiryLoop) tick() {
-	for _, l := range ex.drainer.DrainExpiredLeases() {
-		fut, err := ex.propose(command.Command{
-			LeaseRevoke: &command.LeaseRevokeCmd{
-				LeaseID: l.ID,
-			},
-		})
-		if err != nil {
-			ex.logger.Warn(
-				"error proposing LeaseRevokedCommand to the fsm",
-				"error", err,
-				"lease_id", l.ID,
-			)
-		}
-		if _, err = util.WaitApply(ex.ctx, fut); err != nil {
-			ex.logger.Warn(
-				"error proposing LeaseRevokedCommand to the fsm",
-				"error", err,
-				"lease_id", l.ID,
-			)
-		}
+	expired := ex.drainer.DrainExpiredLeases()
+	ids := make([]int64, 0, len(expired))
+	for _, l := range expired {
+		ids = append(ids, l.ID)
 	}
+
+	cmd := command.Command{
+		Kind: command.KindLeaseExpire,
+		LeaseExpired: &command.LeaseExpireCmd{
+			ExpiredIDs: ids,
+		},
+	}
+	result, err := ex.propose(ex.ctx, cmd)
+	if err != nil {
+		ex.logger.Warn(
+			"expiry loop error: failed to propose LeaseExpireCmd",
+			"error", err,
+		)
+		return
+	}
+
+	if result.Error != nil {
+		ex.logger.Warn(
+			"expiry loop error: failed to remove expired leases",
+			"error", err,
+		)
+		return
+	}
+	if result.LeaseExpireResult == nil {
+		ex.logger.Warn(
+			"expiry loop error: LeaseExpireResult was nil",
+		)
+		return
+	}
+
+	ex.logger.Info("successfuly removed expired leases and their keys",
+		"lease_count", result.LeaseExpireResult.RemovedLeaseCount,
+		"key_count", result.LeaseExpireResult.RemovedKeyCount,
+	)
 }
 
 func (ex *ExpiryLoop) Stop() {

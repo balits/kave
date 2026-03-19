@@ -21,7 +21,7 @@ func newTestKVStore(t *testing.T) *KVStore {
 	// 	Kind:           storage.StorageKindInmemory,
 	// 	InitialBuckets: schema.AllBuckets,
 	// })
-	b := backend.NewBackend(reg, storage.StorageOptions{
+	b := backend.New(reg, storage.StorageOptions{
 		Kind:           storage.StorageKindBoltdb,
 		Dir:            t.TempDir(),
 		InitialBuckets: schema.AllBuckets,
@@ -219,12 +219,12 @@ func Test_KVStoreMultipleWritersSameKey(t *testing.T) {
 func Test_KVStoreRestoreInmem(t *testing.T) {
 	reg1 := prometheus.NewRegistry()
 	reg2 := prometheus.NewRegistry()
-	s := NewKVStore(reg1, slog.Default(), backend.NewBackend(reg2, storage.StorageOptions{
+	s := NewKVStore(reg1, slog.Default(), backend.New(reg2, storage.StorageOptions{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	}))
 	defer s.Close()
-	s2 := NewKVStore(reg2, slog.Default(), backend.NewBackend(reg1, storage.StorageOptions{
+	s2 := NewKVStore(reg2, slog.Default(), backend.New(reg1, storage.StorageOptions{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	}))
@@ -263,7 +263,7 @@ func Test_KVStoreRestoreBoltdb(t *testing.T) {
 	opts1 := storage.StorageOptions{Kind: storage.StorageKindBoltdb, Dir: dir1, InitialBuckets: schema.AllBuckets}
 	opts2 := storage.StorageOptions{Kind: storage.StorageKindBoltdb, Dir: dir2, InitialBuckets: schema.AllBuckets}
 
-	b1 := backend.NewBackend(prometheus.NewRegistry(), opts1)
+	b1 := backend.New(prometheus.NewRegistry(), opts1)
 	s1 := NewKVStore(prometheus.NewRegistry(), slog.Default(), b1)
 	defer s1.Close()
 
@@ -279,7 +279,7 @@ func Test_KVStoreRestoreBoltdb(t *testing.T) {
 	require.NoError(t, snap.Persist(sink))
 
 	// Restore into a fresh store
-	b2 := backend.NewBackend(prometheus.NewRegistry(), opts2)
+	b2 := backend.New(prometheus.NewRegistry(), opts2)
 	s2 := NewKVStore(prometheus.NewRegistry(), slog.Default(), b2)
 	defer s2.Close()
 

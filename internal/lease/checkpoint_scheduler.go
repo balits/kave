@@ -61,7 +61,7 @@ func (cs *CheckpointScheduler) OnLeadershipLost() {
 
 func (cs *CheckpointScheduler) Run(ctx context.Context) {
 	if !cs.running.CompareAndSwap(false, true) {
-		cs.logger.Warn("Attempted to run checkpoint scheduler that was already running")
+		cs.logger.Warn("Attempted to run checkpoint scheduler while it was already running")
 		return
 	}
 	ctx, cancel := context.WithCancel(ctx)
@@ -91,6 +91,7 @@ func (cs *CheckpointScheduler) run() {
 		select {
 		case granted, ok := <-cs.leadershipC:
 			if !ok {
+				cs.logger.Error("leadership channel closed, stopping main loop")
 				return
 			}
 			if granted && cs.isLeader() {
@@ -102,9 +103,7 @@ func (cs *CheckpointScheduler) run() {
 				tickerC = nil
 			}
 		case <-cs.ctx.Done():
-			cs.logger.Info("context cancelled, stopping CheckpointScheduler",
-				"cause", cs.ctx.Err(),
-			)
+			cs.logger.Info("context cancelled, stopping main loop", "cause", cs.ctx.Err())
 			return
 		case <-tickerC:
 			cs.tick()
@@ -120,31 +119,32 @@ func (cs *CheckpointScheduler) tick() {
 
 	cps := cs.lm.Checkpoint()
 	if len(cps) == 0 {
-		cs.logger.Info("checkpoint: no live leases, skipping tick")
+		cs.logger.Info("checkpoint error: no live leases, skipping tick")
 		return
 	}
 
 	cmd := command.Command{
-		Type: command.CmdLeaseCheckpoint,
+		Kind: command.KindLeaseCheckpoint,
 		LeaseCheckpoint: &command.LeaseCheckpointCmd{
 			Checkpoints: cps,
 		},
 	}
 
-	applyFut, err := cs.propose(cmd)
+	result, err := cs.propose(cs.ctx, cmd)
 	if err != nil {
-		cs.logger.Warn("checkpoint: failed to propose checkpoints",
+		cs.logger.Warn("checkpoint error: failed to propose checkpoint",
 			"error", err,
 		)
 		return
 	}
-	_, err = util.WaitApply(cs.ctx, applyFut)
-	if err != nil {
-		cs.logger.Warn("checkpoint: failed to await apply response",
-			"error", err,
+
+	if result.Error != nil {
+		cs.logger.Warn("checkpoint error: checkpoint failed",
+			"error", result.Error,
 		)
 		return
 	}
+
 	cs.lm.metrics.CheckpointsTotal.Inc()
 }
 

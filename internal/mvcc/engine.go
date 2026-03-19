@@ -26,15 +26,15 @@ func NewEngine(store *KVStore, attacher LeaseAttacher) *Engine {
 }
 
 func (e *Engine) ApplyWrite(cmd command.Command) (command.Result, error) {
-	switch cmd.Type {
-	case command.CmdPut:
+	switch cmd.Kind {
+	case command.KindPut:
 		return e.applyPut(cmd.Put)
-	case command.CmdDelete:
+	case command.KindDelete:
 		return e.applyDelete(cmd.Delete)
-	case command.CmdTxn:
+	case command.KindTxn:
 		return e.applyTxn(cmd.Txn)
 	default:
-		return command.Result{}, fmt.Errorf("unknown command type: %s", cmd.Type)
+		return command.Result{}, fmt.Errorf("unknown command type: %s", cmd.Kind)
 	}
 }
 

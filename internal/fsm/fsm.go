@@ -16,7 +16,8 @@ import (
 
 var (
 	ErrStateMachineError = errors.New("FSM error")
-	ErrNilApplyResult    = fmt.Errorf("%w: nil result from FSM", ErrStateMachineError)
+	// Hiba ha az fsm üres értékkel tér vissza, vagy ha a kívánt subresult üres
+	ErrNilApplyResult = fmt.Errorf("%w: nil result from FSM", ErrStateMachineError)
 )
 
 type Fsm struct {
@@ -30,7 +31,7 @@ type Fsm struct {
 	metrics *metrics.RaftMetrics
 }
 
-func NewFsm(logger *slog.Logger, store *mvcc.KVStore, lm *lease.LeaseManager, nodeID string) *Fsm {
+func New(logger *slog.Logger, store *mvcc.KVStore, lm *lease.LeaseManager, nodeID string) *Fsm {
 	f := &Fsm{
 		engine:  mvcc.NewEngine(store, lm),
 		lm:      lm,
@@ -70,13 +71,15 @@ func (f *Fsm) Apply(log *raft.Log) interface{} {
 
 	var res command.Result
 
-	switch cmd.Type {
-	case command.CmdPut, command.CmdDelete, command.CmdTxn:
+	switch cmd.Kind {
+	case command.KindPut, command.KindDelete, command.KindTxn:
 		res = f.applyKv(cmd)
-	case command.CmdLeaseGrant, command.CmdLeaseRevoke, command.CmdLeaseKeepAlive, command.CmdLeaseCheckpoint:
+	case command.KindLeaseGrant, command.KindLeaseRevoke, command.KindLeaseKeepAlive, command.KindLeaseCheckpoint:
 		res = f.applyLease(cmd)
+	case command.KindCompact:
+		res = f.applyCompaction(cmd)
 	default:
-		panic(fmt.Sprintf("Unsupported command type: %v", cmd.Type))
+		panic(fmt.Sprintf("Unsupported command type: %v", cmd.Kind))
 	}
 
 	// res.Header = &Header{...} would override previous headers revision set by appyling commands
@@ -102,8 +105,8 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 		err error
 	)
 
-	switch cmd.Type {
-	case command.CmdLeaseGrant:
+	switch cmd.Kind {
+	case command.KindLeaseGrant:
 		var lease *lease.Lease
 		lease, err = f.lm.Grant(cmd.LeaseGrant.LeaseID, cmd.LeaseGrant.TTL)
 		if err == nil {
@@ -113,7 +116,7 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 			}
 		}
 
-	case command.CmdLeaseRevoke:
+	case command.KindLeaseRevoke:
 		var found, revoked bool
 		found, revoked = f.lm.Revoke(cmd.LeaseRevoke.LeaseID)
 		res.LeaseRevokeResult = &command.LeaseRevokeResult{
@@ -121,7 +124,7 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 			Revoked: revoked,
 		}
 
-	case command.CmdLeaseKeepAlive:
+	case command.KindLeaseKeepAlive:
 		var ttl int64
 		ttl, err = f.lm.KeepAlive(cmd.LeaseKeepAlive.LeaseID)
 		if err == nil {
@@ -131,14 +134,18 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 			}
 		}
 
-	case command.CmdLeaseCheckpoint:
+	case command.KindLeaseCheckpoint:
 		f.lm.ApplyCheckpoint(*cmd.LeaseCheckpoint)
 
-	case command.CmdLeaseExpired:
-		err = f.lm.ApplyExpired(*cmd.LeaseExpired)
+	case command.KindLeaseExpire:
+		var subres *command.LeaseExpireResult
+		subres, err = f.lm.ApplyExpired(*cmd.LeaseExpired)
+		if err != nil {
+			res.LeaseExpireResult = subres
+		}
 
 	default:
-		panic(fmt.Sprintf("Unsupported lease command type: %v", cmd.Type))
+		panic(fmt.Sprintf("Unsupported lease command type: %v", cmd.Kind))
 	}
 
 	// Lease resultoknál legyen mind az error, mind a result kitölrve
@@ -148,6 +155,16 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 		res.Error = err
 	}
 	return res
+}
+
+func (f *Fsm) applyCompaction(cmd command.Command) command.Result {
+	doneC, err := f.store.Compact(cmd.Compact.TargetRev)
+	return command.Result{
+		CompactResult: &command.CompactResult{
+			DoneC: doneC,
+			Err:   err,
+		},
+	}
 }
 
 // Snapshot also should be fast, just take a pointer to the data

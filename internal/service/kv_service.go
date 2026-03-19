@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -12,8 +11,6 @@ import (
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/util"
 )
-
-var errKVService = errors.New("kvservice error")
 
 type KVService interface {
 	// NOTE: since reads usually dont go through raft, the resulitng Header.NodeID will be "", the caller should set it themselves
@@ -52,7 +49,7 @@ func (s *kvSvc) Range(ctx context.Context, cmd command.RangeCmd) (*command.Resul
 		)
 	// for now, only allow queries on leader
 	if err := s.peerSvc.VerifyLeader(ctx); err != nil {
-		return nil, fmt.Errorf("%w: failed to verify leader: %v", errKVService, err)
+		return nil, fmt.Errorf("failed to verify leader: %v", err)
 	}
 
 	if cmd.Prefix {
@@ -62,7 +59,7 @@ func (s *kvSvc) Range(ctx context.Context, cmd command.RangeCmd) (*command.Resul
 	r := s.store.NewReader()
 	entries, count, _, err := r.Range(cmd.Key, cmd.End, cmd.Revision, cmd.Limit)
 	if err != nil {
-		return nil, fmt.Errorf("%w: range failed: %v", errKVService, err)
+		return nil, fmt.Errorf("range failed: %v", err)
 	}
 
 	res := new(command.RangeResult)
@@ -96,32 +93,21 @@ func (s *kvSvc) Put(ctx context.Context, subcmd command.PutCmd) (*command.Result
 		)
 
 	cmd := command.Command{
-		Type: command.CmdPut,
+		Kind: command.KindPut,
 		Put:  &subcmd,
 	}
 
-	applyFut, err := s.proposeFunc(cmd)
+	result, err := s.proposeFunc(ctx, cmd)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errKVService, err)
+		return nil, fmt.Errorf("put failed: %v", err)
 	}
-	returned, err := util.WaitApply(ctx, applyFut)
-	if err != nil {
-		return nil, fmt.Errorf("%w: apply failed: %v", errKVService, err)
-	}
-
-	result, ok := returned.(command.Result)
-	if !ok {
-		return nil, fmt.Errorf("%w: %v: unexpected result type", errKVService, fsm.ErrStateMachineError)
-	}
-
 	if result.Error != nil {
-		return nil, fmt.Errorf("%w: %v", errKVService, result.Error)
+		return nil, fmt.Errorf("put failed: %v", result.Error)
 	}
-
 	if result.PutResult == nil {
-		return nil, fsm.ErrNilApplyResult
+		return nil, fmt.Errorf("put failed: %v", fsm.ErrNilApplyResult)
 	}
-	return &result, nil
+	return result, nil
 }
 
 func (s *kvSvc) Delete(ctx context.Context, subcmd command.DeleteCmd) (*command.Result, error) {
@@ -133,32 +119,21 @@ func (s *kvSvc) Delete(ctx context.Context, subcmd command.DeleteCmd) (*command.
 		)
 
 	cmd := command.Command{
-		Type:   command.CmdDelete,
+		Kind:   command.KindDelete,
 		Delete: &subcmd,
 	}
 
-	applyFut, err := s.proposeFunc(cmd)
+	result, err := s.proposeFunc(ctx, cmd)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errKVService, err)
+		return nil, fmt.Errorf("delete failed: %v", err)
 	}
-	returned, err := util.WaitApply(ctx, applyFut)
-	if err != nil {
-		return nil, fmt.Errorf("%w: apply failed: %v", errKVService, err)
-	}
-
-	result, ok := returned.(command.Result)
-	if !ok {
-		return nil, fmt.Errorf("%w: %v: unexpected result type", errKVService, fsm.ErrStateMachineError)
-	}
-
 	if result.Error != nil {
-		return nil, fmt.Errorf("%w: %v", errKVService, result.Error)
+		return nil, fmt.Errorf("delete failed: %v", result.Error)
 	}
-
 	if result.DeleteResult == nil {
-		return nil, fsm.ErrNilApplyResult
+		return nil, fmt.Errorf("delete failed: %v", fsm.ErrNilApplyResult)
 	}
-	return &result, nil
+	return result, nil
 }
 
 func (s *kvSvc) Ping() error {

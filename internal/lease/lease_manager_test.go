@@ -25,7 +25,7 @@ func lmWithClock(t *testing.T, c util.Clock) *LeaseManager {
 func newTestLm(t *testing.T) *LeaseManager {
 	logger := slog.Default()
 	reg := metrics.InitTestPrometheus()
-	backend := backend.NewBackend(reg, storage.StorageOptions{
+	backend := backend.New(reg, storage.StorageOptions{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})
@@ -213,13 +213,14 @@ func Test_LeaseManager_ApplyExpired(t *testing.T) {
 	expired := lm.DrainExpiredLeases()
 	require.Equal(t, 2, len(expired))
 
-	ids := make([]int64, len(expired))
+	ids := make([]int64, 0)
 	for _, l := range expired {
 		ids = append(ids, l.ID)
 	}
 
-	err := lm.ApplyExpired(command.LeaseExpiredCmd{LeaseIDs: ids})
+	res, err := lm.ApplyExpired(command.LeaseExpireCmd{ExpiredIDs: ids})
 	require.NoError(t, err)
+	require.Equal(t, len(ids), res.RemovedLeaseCount)
 
 	for _, id := range ids {
 		require.Nil(t, lm.Lookup(id), "expected lease to be deleted after ApplyExpired")
@@ -295,8 +296,8 @@ func Test_LeaseManager_Restore_BasicRoundTrip_WithKeys(t *testing.T) {
 	for _, l := range lm.DrainExpiredLeases() {
 		ids = append(ids, l.ID)
 	}
-	err = lm.ApplyExpired(command.LeaseExpiredCmd{
-		LeaseIDs: ids,
+	res, err := lm.ApplyExpired(command.LeaseExpireCmd{
+		ExpiredIDs: ids,
 	})
 	require.NoError(t, err, "apply expired")
 	require.NotNil(t, lm.Lookup(3), "lease3 shouldve survived restore (was kept alive)")
@@ -306,6 +307,7 @@ func Test_LeaseManager_Restore_BasicRoundTrip_WithKeys(t *testing.T) {
 
 	require.Nil(t, lm.Lookup(1), "lease1 shouldve been dropped while restoring")
 	require.Nil(t, lm.Lookup(2), "lease2 shouldve been dropped while restoring")
+	require.Equal(t, len(ids), res.RemovedLeaseCount, "two leases shouldve been expired")
 	require.NotNil(t, lm.Lookup(3), "lease3 shouldve survived restore (was kept alive)")
 	require.NotNil(t, lm.Lookup(4), "lease4 shouldve survived restore (ttl was larger than clock.Advance())")
 

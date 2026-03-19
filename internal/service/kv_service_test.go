@@ -35,33 +35,33 @@ func newTestKVService(t *testing.T) *testKVService {
 	}
 	logger := slog.Default()
 	reg := metrics.InitTestPrometheus()
-	backend := backend.NewBackend(reg, storage.StorageOptions{
+	backend := backend.New(reg, storage.StorageOptions{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})
 	kvstore := mvcc.NewKVStore(reg, logger, backend)
 	t.Cleanup(func() { kvstore.Close() })
-	fsm := fsm.NewFsm(logger, kvstore, nil, me.NodeID)
+	fsm := fsm.New(logger, kvstore, nil, me.NodeID)
 
 	isLeader := func() bool { return true }
 	var logIndex atomic.Uint64
-	propose := func(cmd command.Command) (raft.ApplyFuture, error) {
+	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {
 		bs, err := command.Encode(cmd)
 		if err != nil {
 			return nil, err
 		}
-		index := logIndex.Add(1)
-		log := &raft.Log{
-			Index: logIndex.Add(1),
+		idx := logIndex.Add(1) // exactly one increment per call
+		res := fsm.Apply(&raft.Log{
+			Index: idx,
 			Data:  bs,
 			Term:  1,
 			Type:  raft.LogCommand,
+		})
+		result, ok := res.(command.Result)
+		if !ok {
+			return nil, fmt.Errorf("unexpected result type from FSM")
 		}
-		result := fsm.Apply(log)
-		return &mockApplyFuture{
-			index:  index,
-			result: result,
-		}, nil
+		return &result, nil
 	}
 
 	peersvc := &mockPeerService{me: me, isLeader: isLeader}
