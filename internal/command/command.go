@@ -17,6 +17,7 @@ type Command struct {
 	LeaseGrant      *LeaseGrantCmd      `json:"lease_grant,omitempty"`
 	LeaseRevoke     *LeaseRevokeCmd     `json:"lease_revoke,omitempty"`
 	LeaseKeepAlive  *LeaseKeepAliveCmd  `json:"lease_keep_alive,omitempty"`
+	LeaseLookup     *LeaseLookupCmd     `json:"lease_lookup,omitempty"`
 	LeaseCheckpoint *LeaseCheckpointCmd // its not a client facing command, so no need for json tag
 	LeaseExpired    *LeaseExpireCmd     // its not a client facing command, so no need for json tag
 	Compact         *CompactCmd         // its not a client facing command, so no need for json tag
@@ -31,6 +32,7 @@ const (
 	KindLeaseGrant      CmdKind = "LEASE_GRANT"
 	KindLeaseRevoke     CmdKind = "LEASE_REVOKE"
 	KindLeaseKeepAlive  CmdKind = "LEASE_KEEP_ALIVE"
+	KindLeaseLookup     CmdKind = "LEASE_LOOKUP"
 	KindLeaseCheckpoint CmdKind = "LEASE_CHECKPOINT"
 	KindLeaseExpire     CmdKind = "LEASE_EXPIRE"
 	KindCompact         CmdKind = "COMPACT"

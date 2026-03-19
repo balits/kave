@@ -12,6 +12,7 @@ type Result struct {
 	LeaseGrantResult     *LeaseGrantResult     `json:"lease_grant,omitempty"`
 	LeaseRevokeResult    *LeaseRevokeResult    `json:"lease_revoke,omitempty"`
 	LeaseKeepAliveResult *LeaseKeepAliveResult `json:"lease_keep_alive,omitempty"`
+	LeaseLookupResult    *LeaseLookupResult    `json:"lease_lookup,omitempty"`
 
 	LeaseExpireResult *LeaseExpireResult
 	CompactResult     *CompactResult

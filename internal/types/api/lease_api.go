@@ -33,6 +33,7 @@ type LeaseLookupRequest struct {
 }
 
 type LeaseLookupResponse struct {
-	TTL     int64 `json:"ttl"`
-	LeaseID int64 `json:"id"`
+	LeaseID      int64 `json:"id"`
+	OriginalTTL  int64 `json:"original_ttl"`
+	RemainingTTL int64 `json:"remaining_ttl"`
 }

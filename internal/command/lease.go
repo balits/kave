@@ -13,6 +13,9 @@ type LeaseRevokeResult = api.LeaseRevokeResponse
 type LeaseKeepAliveCmd = api.LeaseKeepAliveRequest
 type LeaseKeepAliveResult = api.LeaseKeepAliveResponse
 
+type LeaseLookupCmd = api.LeaseLookupRequest
+type LeaseLookupResult = api.LeaseLookupResponse
+
 type LeaseCheckpointCmd struct {
 	Checkpoints []Checkpoint
 }
