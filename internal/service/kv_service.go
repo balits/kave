@@ -77,7 +77,7 @@ func (s *kvSvc) Range(ctx context.Context, cmd command.RangeCmd) (*command.Resul
 			RaftIndex: raftIndex,
 			NodeID:    s.peerSvc.Me().NodeID,
 		},
-		RangeResult: res,
+		Range: res,
 	}, nil
 }
 
@@ -104,7 +104,7 @@ func (s *kvSvc) Put(ctx context.Context, subcmd command.PutCmd) (*command.Result
 	if result.Error != nil {
 		return nil, fmt.Errorf("put failed: %v", result.Error)
 	}
-	if result.PutResult == nil {
+	if result.Put == nil {
 		return nil, fmt.Errorf("put failed: %v", fsm.ErrNilApplyResult)
 	}
 	return result, nil
@@ -130,7 +130,7 @@ func (s *kvSvc) Delete(ctx context.Context, subcmd command.DeleteCmd) (*command.
 	if result.Error != nil {
 		return nil, fmt.Errorf("delete failed: %v", result.Error)
 	}
-	if result.DeleteResult == nil {
+	if result.Delete == nil {
 		return nil, fmt.Errorf("delete failed: %v", fsm.ErrNilApplyResult)
 	}
 	return result, nil

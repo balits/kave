@@ -74,7 +74,7 @@ func mustPut(t *testing.T, propose util.ProposeFunc, key, value string) {
 	result, err := propose(t.Context(), cmd)
 	require.NoError(t, err, "proposing Put(%s,%s) failed", key, value)
 	require.NotNil(t, result)
-	require.NotNil(t, result.PutResult)
+	require.NotNil(t, result.Put)
 }
 
 func Test_CompactionScheduler_ThresholdNotMet(t *testing.T) {

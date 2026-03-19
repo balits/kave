@@ -60,10 +60,10 @@ func (e *Engine) applyPut(cmd *command.PutCmd) (command.Result, error) {
 		Header: command.ResultHeader{
 			Revision: rev.Main,
 		},
-		PutResult: &command.PutResult{},
+		Put: &command.PutResult{},
 	}
 	if cmd.PrevEntry {
-		res.PutResult.PrevEntry = prev
+		res.Put.PrevEntry = prev
 	}
 	return res, nil
 }
@@ -98,7 +98,7 @@ func (e *Engine) applyDelete(cmd *command.DeleteCmd) (command.Result, error) {
 		Header: command.ResultHeader{
 			Revision: rev.Main,
 		},
-		DeleteResult: &command.DeleteResult{
+		Delete: &command.DeleteResult{
 			NumDeleted:  cnt,
 			PrevEntries: prevs,
 		},
@@ -130,7 +130,7 @@ func (e *Engine) applyTxn(cmd *command.TxnCmd) (command.Result, error) {
 		Header: command.ResultHeader{
 			Revision: finalRev.Main,
 		},
-		TxnResult: &command.TxnResult{
+		Txn: &command.TxnResult{
 			Success: cond,
 			Results: res,
 		},
