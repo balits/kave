@@ -23,7 +23,7 @@ import (
 var (
 	errLease           = errors.New("lease error")
 	errLeaseIDConflict = fmt.Errorf("%w: lease ID conflict", errLease)
-	errLeaseNotFound   = fmt.Errorf("%w: lease not found", errLease)
+	ErrLeaseNotFound   = fmt.Errorf("%w: lease not found", errLease)
 	errLeaseInvalidTTL = fmt.Errorf("%w: TTL must be bigger than 0", errLease)
 )
 
@@ -118,7 +118,7 @@ func (lm *LeaseManager) Revoke(id int64) (found, revoked bool) {
 	lease.keysMu.Lock()
 	toDelete := make([][]byte, len(lease.keySet))
 	for lk := range lease.keySet {
-		toDelete = append(toDelete, []byte(lk.Key))
+		toDelete = append(toDelete, []byte(lk))
 		delete(lease.keySet, lk)
 	}
 	lease.keysMu.Unlock()
@@ -168,7 +168,7 @@ func (lm *LeaseManager) KeepAlive(id int64) (remainingTTL int64, err error) {
 	lease, ok := lm.leaseMap[id]
 	if !ok {
 		lm.metrics.KeepAliveErrors.Inc()
-		return 0, errLeaseNotFound
+		return 0, ErrLeaseNotFound
 	}
 
 	newExpiry := lm.clock.Now().Add(time.Second * time.Duration(lease.TTL))
@@ -299,7 +299,7 @@ func (lm *LeaseManager) ApplyExpired(cmd command.LeaseExpireCmd) (*command.Lease
 
 		l.keysMu.RLock()
 		for k := range l.keySet {
-			attachedKeys = append(attachedKeys, []byte(k.Key))
+			attachedKeys = append(attachedKeys, []byte(k))
 		}
 		l.keysMu.RUnlock()
 

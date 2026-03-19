@@ -74,7 +74,7 @@ func (f *Fsm) Apply(log *raft.Log) interface{} {
 	switch cmd.Kind {
 	case command.KindPut, command.KindDelete, command.KindTxn:
 		res = f.applyKv(cmd)
-	case command.KindLeaseGrant, command.KindLeaseRevoke, command.KindLeaseKeepAlive, command.KindLeaseCheckpoint:
+	case command.KindLeaseGrant, command.KindLeaseRevoke, command.KindLeaseKeepAlive, command.KindLeaseLookup, command.KindLeaseCheckpoint:
 		res = f.applyLease(cmd)
 	case command.KindCompact:
 		res = f.applyCompaction(cmd)
@@ -134,6 +134,18 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 			}
 		}
 
+	case command.KindLeaseLookup:
+		l := f.lm.Lookup(cmd.LeaseLookup.LeaseID)
+		if l != nil {
+			res.LeaseLookupResult = &command.LeaseLookupResult{
+				LeaseID:      l.ID,
+				OriginalTTL:  l.TTL,
+				RemainingTTL: l.RemainingTTL(),
+			}
+		} else {
+			err = lease.ErrLeaseNotFound
+		}
+
 	case command.KindLeaseCheckpoint:
 		f.lm.ApplyCheckpoint(*cmd.LeaseCheckpoint)
 
@@ -143,6 +155,9 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 		if err != nil {
 			res.LeaseExpireResult = subres
 		}
+
+	case "":
+		panic("Command Kind not specified")
 
 	default:
 		panic(fmt.Sprintf("Unsupported lease command type: %v", cmd.Kind))

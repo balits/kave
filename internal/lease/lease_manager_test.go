@@ -113,6 +113,7 @@ func Test_LeaseManager_KeepAlive(t *testing.T) {
 	rem, err := lm.KeepAlive(l.ID)
 	require.GreaterOrEqual(t, int64(time.Until(l.expiry).Seconds()), rem, "lease keep alive: ttl shouldve updated")
 	require.Greater(t, l.expiry, oldExpiry, "lease keep alive: expiry shouldve updated")
+	require.GreaterOrEqual(t, rem, l.remainingTTL, "lease keep alive: remTTL shouldve updated")
 
 	_, err = lm.KeepAlive(-2)
 	require.Error(t, err, "lease keep alive: wanted error on lease not found")
