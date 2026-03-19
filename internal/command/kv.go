@@ -3,6 +3,8 @@ package command
 import (
 	"errors"
 	"fmt"
+
+	"github.com/balits/kave/internal/types"
 )
 
 // A PutCmd alparancs a PUT művelethez szükséges adatokat tartalmazza
@@ -43,6 +45,11 @@ func (c *PutCmd) Check() error {
 	return nil
 }
 
+type PutResult struct {
+	// PrevEntry az előző értéket tartalmazza, ha PrevEntry kapcsolóval kértük, egyébként nil
+	PrevEntry *types.KvEntry `json:"prev_entry,omitempty"`
+}
+
 // A DeleteCmd alparancs a DELETE művelethez szükséges adatokat tartalmazza
 type DeleteCmd struct {
 	// A kulcs
@@ -60,6 +67,14 @@ func (c *DeleteCmd) Check() error {
 		return errors.New("key is required")
 	}
 	return nil
+}
+
+type DeleteResult struct {
+	// NumDeleted az eltávolított kulcsok számát tartalmazza
+	NumDeleted int64 `json:"num_deleted"`
+
+	// PrevEntries az eltávolított kulcsok előző értékeit tartalmazza, ha PrevEntry kapcsolóval kértük, egyébként nil
+	PrevEntries []types.KvEntry `json:"prev_entries,omitempty"`
 }
 
 type TxnCmd struct {
@@ -85,6 +100,14 @@ func (c *TxnCmd) Check() error {
 		}
 	}
 	return nil
+}
+
+type TxnResult struct {
+	// A Success jelzi, hogy melyik ág lett választva (true = összehasonlítások sikeresek voltak)
+	Success bool `json:"success"`
+
+	// A Results egy bejegyzést tartalmaz az összes operációhoz a választott ágban, sorrendben
+	Results []TxnOpResult `json:"results"`
 }
 
 type TxnOpType string
@@ -123,6 +146,14 @@ func (op *TxnOp) Check() error {
 	default:
 		return fmt.Errorf("invalid operation type: %s", op.Type)
 	}
+}
+
+// A TxnOpResult unió egy tranzakcióban szereplő műveleti eredményt tartalmazza
+// Pontosan egy mező nem nil, amely az operáció típusához illeszkedik
+type TxnOpResult struct {
+	Put    *PutResult    `json:"put,omitempty"`
+	Delete *DeleteResult `json:"delete,omitempty"`
+	Range  *RangeResult  `json:"range,omitempty"`
 }
 
 // A RangeCmd egy olvasási művelet, ami egy tranzakcióban szereplhet
@@ -165,4 +196,10 @@ func (c *RangeCmd) Check() error {
 	// 	return errors.New("revision cannot be negative")
 	// }
 	return nil
+}
+
+// A RangeResult egy Range művelet eredménye
+type RangeResult struct {
+	Entries []types.KvEntry `json:"entries"`
+	Count   int             `json:"count"` // teljes egyezésű kulcsok száma (nagyobb lehet, mint len(Entries) ha limit volt alkalmazva)
 }

@@ -68,7 +68,7 @@ func newTestEngineWithAttacher() (*Engine, *KVStore, *fakeAttacher) {
 func newTestEngine() (*Engine, *KVStore) {
 	reg := metrics.InitTestPrometheus()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	b := backend.NewBackend(reg, storage.StorageOptions{
+	b := backend.New(reg, storage.StorageOptions{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})
@@ -83,7 +83,7 @@ func Test_EngineApplyPut(t *testing.T) {
 	defer e.store.Close()
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdPut,
+		Kind: command.KindPut,
 		Put:  &command.PutCmd{Key: []byte("foo"), Value: []byte("bar")},
 	})
 
@@ -105,13 +105,13 @@ func Test_EngineApplyPutMultiple(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	result, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("c"), Value: []byte("3")}})
+	result, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("c"), Value: []byte("3")}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -129,10 +129,10 @@ func Test_EngineApplyPutOverwrite(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v2")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v2")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -150,11 +150,11 @@ func Test_EngineApplyPutWithPrevEntry(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdPut,
+		Kind: command.KindPut,
 		Put:  &command.PutCmd{Key: []byte("k"), Value: []byte("v2"), PrevEntry: true},
 	})
 	if err != nil {
@@ -177,7 +177,7 @@ func Test_EngineApplyPutWithPrevEntryNonExistent(t *testing.T) {
 	defer s.Close()
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdPut,
+		Kind: command.KindPut,
 		Put:  &command.PutCmd{Key: []byte("new"), Value: []byte("val"), PrevEntry: true},
 	})
 	if err != nil {
@@ -195,11 +195,11 @@ func Test_EngineApplyDeleteSingleKey(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("foo"), Value: []byte("bar")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("foo"), Value: []byte("bar")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	result, err := e.ApplyWrite(command.Command{
-		Type:   command.CmdDelete,
+		Kind:   command.KindDelete,
 		Delete: &command.DeleteCmd{Key: []byte("foo")},
 	})
 
@@ -226,7 +226,7 @@ func Test_EngineApplyDeleteNonExistent(t *testing.T) {
 	defer s.Close()
 
 	result, err := e.ApplyWrite(command.Command{
-		Type:   command.CmdDelete,
+		Kind:   command.KindDelete,
 		Delete: &command.DeleteCmd{Key: []byte("nope")},
 	})
 	if err != nil {
@@ -242,21 +242,21 @@ func Test_EngineApplyDeleteRange(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("c"), Value: []byte("3")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("c"), Value: []byte("3")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("d"), Value: []byte("4")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("d"), Value: []byte("4")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
-		Type:   command.CmdDelete,
+		Kind:   command.KindDelete,
 		Delete: &command.DeleteCmd{Key: []byte("b"), End: []byte("d")},
 	})
 	if err != nil {
@@ -272,15 +272,15 @@ func Test_EngineApplyDeleteWithPrevEntries(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("x"), Value: []byte("xv")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("x"), Value: []byte("xv")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("y"), Value: []byte("yv")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("y"), Value: []byte("yv")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
-		Type:   command.CmdDelete,
+		Kind:   command.KindDelete,
 		Delete: &command.DeleteCmd{Key: []byte("x"), End: []byte("z"), PrevEntries: true},
 	})
 	if err != nil {
@@ -303,7 +303,7 @@ func Test_EngineApplyDeleteWithPrevEntriesNonExistent(t *testing.T) {
 	defer s.Close()
 
 	result, err := e.ApplyWrite(command.Command{
-		Type:   command.CmdDelete,
+		Kind:   command.KindDelete,
 		Delete: &command.DeleteCmd{Key: []byte("nope"), PrevEntries: true},
 	})
 	if err != nil {
@@ -324,12 +324,12 @@ func Test_EngineApplyTxn_SuccessBranch(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("hello")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("hello")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdTxn,
+		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Comparisons: []command.Comparison{
 				{
@@ -374,12 +374,12 @@ func Test_EngineApplyTxn_FailureBranch(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("hello")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("hello")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdTxn,
+		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Comparisons: []command.Comparison{
 				{
@@ -420,7 +420,7 @@ func Test_EngineApplyTxn_NoComparisonsAlwaysSuccess(t *testing.T) {
 	defer s.Close()
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdTxn,
+		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Comparisons: nil,
 			Success: []command.TxnOp{
@@ -449,7 +449,7 @@ func Test_EngineApplyTxn_EmptyOps(t *testing.T) {
 	defer s.Close()
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdTxn,
+		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Comparisons: nil,
 			Success:     nil,
@@ -473,15 +473,15 @@ func Test_EngineApplyTxn_WithDeleteOp(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("k1"), Value: []byte("v1")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k1"), Value: []byte("v1")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("k2"), Value: []byte("v2")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k2"), Value: []byte("v2")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdTxn,
+		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Success: []command.TxnOp{
 				{Type: command.TxnOpDelete, Delete: &command.DeleteCmd{Key: []byte("k1")}},
@@ -513,7 +513,7 @@ func Test_EngineApplyTxn_CompareNonExistentKey(t *testing.T) {
 	defer s.Close()
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdTxn,
+		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Comparisons: []command.Comparison{
 				{
@@ -550,15 +550,15 @@ func Test_EngineApplyTxn_MultipleComparisonsAllPass(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdTxn,
+		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Comparisons: []command.Comparison{
 				{Key: []byte("a"), Operator: command.OperatorEqual, Target: command.FieldVersion, TargetUnion: command.CompareTargetValue{Version: intPtr(1)}},
@@ -584,15 +584,15 @@ func Test_EngineApplyTxn_OneComparisonFails(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdTxn,
+		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Comparisons: []command.Comparison{
 				{Key: []byte("a"), Operator: command.OperatorEqual, Target: command.FieldVersion, TargetUnion: command.CompareTargetValue{Version: intPtr(1)}},
@@ -620,12 +620,12 @@ func Test_EngineApplyTxn_PutWithPrevEntry(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("old")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("old")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdTxn,
+		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Success: []command.TxnOp{
 				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("new"), PrevEntry: true}},
@@ -660,12 +660,12 @@ func Test_EngineApplyTxn_DeleteWithPrevEntries(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("x"), Value: []byte("xv")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("x"), Value: []byte("xv")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdTxn,
+		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Success: []command.TxnOp{
 				{Type: command.TxnOpDelete, Delete: &command.DeleteCmd{Key: []byte("x"), PrevEntries: true}},
@@ -699,18 +699,18 @@ func Test_EngineApplyTxn_MixedOps(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("c"), Value: []byte("3")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("c"), Value: []byte("3")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdTxn,
+		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Success: []command.TxnOp{
 				{Type: command.TxnOpDelete, Delete: &command.DeleteCmd{Key: []byte("a")}},
@@ -751,12 +751,12 @@ func Test_EngineApplyTxn_CompareValue(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("expected")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("expected")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdTxn,
+		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Comparisons: []command.Comparison{
 				{
@@ -786,12 +786,12 @@ func Test_EngineApplyTxn_CompareValueMismatch(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("actual")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("actual")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdTxn,
+		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Comparisons: []command.Comparison{
 				{
@@ -821,15 +821,15 @@ func Test_EngineApplyTxn_CompareCreateRev(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v2")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v2")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdTxn,
+		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Comparisons: []command.Comparison{
 				{
@@ -859,15 +859,15 @@ func Test_EngineApplyTxn_CompareModRev(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
 
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := e.ApplyWrite(command.Command{Type: command.CmdPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v2")}}); err != nil {
+	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v2")}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdTxn,
+		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Comparisons: []command.Comparison{
 				{
@@ -896,7 +896,7 @@ func Test_EngineApplyTxn_CompareModRev(t *testing.T) {
 func Test_EngineApplyUnknownCommandError(t *testing.T) {
 	e, s := newTestEngine()
 	defer s.Close()
-	_, err := e.ApplyWrite(command.Command{Type: "UNKNOWN"})
+	_, err := e.ApplyWrite(command.Command{Kind: "UNKNOWN"})
 	if err == nil {
 		t.Error("expected error for unknown command type")
 	}
@@ -907,7 +907,7 @@ func Test_EngineApplyTxn_ResultCount(t *testing.T) {
 	defer s.Close()
 
 	result, err := e.ApplyWrite(command.Command{
-		Type: command.CmdTxn,
+		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Success: []command.TxnOp{
 				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}},

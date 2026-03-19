@@ -281,7 +281,7 @@ func (lm *LeaseManager) DrainExpiredLeases() []*Lease {
 	return expired
 }
 
-func (lm *LeaseManager) ApplyExpired(cmd command.LeaseExpiredCmd) error {
+func (lm *LeaseManager) ApplyExpired(cmd command.LeaseExpireCmd) (*command.LeaseExpireResult, error) {
 	lm.rwlock.Lock()
 	defer lm.rwlock.Unlock()
 	start := time.Now()
@@ -289,7 +289,7 @@ func (lm *LeaseManager) ApplyExpired(cmd command.LeaseExpiredCmd) error {
 
 	attachedKeys := make([][]byte, 0)
 	leaseCount := 0
-	for _, id := range cmd.LeaseIDs {
+	for _, id := range cmd.ExpiredIDs {
 		l, ok := lm.leaseMap[id]
 		if !ok {
 			continue
@@ -317,7 +317,7 @@ func (lm *LeaseManager) ApplyExpired(cmd command.LeaseExpiredCmd) error {
 				"error", err,
 				"key", key,
 			)
-			return err
+			return nil, err
 		}
 	}
 	w.End()
@@ -327,7 +327,7 @@ func (lm *LeaseManager) ApplyExpired(cmd command.LeaseExpiredCmd) error {
 	wtx := lm.backend.WriteTx()
 	wtx.Lock()
 	defer wtx.Unlock()
-	for _, id := range cmd.LeaseIDs {
+	for _, id := range cmd.ExpiredIDs {
 		bk := LeaseBucketKey(id)
 		if err := wtx.UnsafeDelete(schema.BucketLeaseWIP, EncodeLeaseBucketKey(bk)); err != nil {
 			lm.logger.Error("apply expired: failed to remove lease",
@@ -335,19 +335,23 @@ func (lm *LeaseManager) ApplyExpired(cmd command.LeaseExpiredCmd) error {
 				"lease_id", id,
 			)
 			wtx.Abort()
-			return err
+			return nil, err
 		}
 	}
 
 	if _, err := wtx.Commit(); err != nil {
 		lm.logger.Error("apply expired: failed to commit deleted keys", "error", err)
 		wtx.Abort()
-		return err
+		return nil, err
 	}
 
 	lm.logger.Info("apply expired: removed leases from backend", "lease_count", leaseCount)
 	lm.metrics.LeasesExpired.Add(float64(leaseCount))
-	return nil
+
+	return &command.LeaseExpireResult{
+		RemovedLeaseCount: leaseCount,
+		RemovedKeyCount:   len(attachedKeys),
+	}, nil
 }
 
 func (lm *LeaseManager) Restore() error {

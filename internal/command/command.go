@@ -10,7 +10,7 @@ import (
 // amivel ellenőrizhetjük a parancs helyességét a feldolgozás előtt
 // hogy ne a raft log apply előtt derüljön ki, hogy hibás a parancs (illetve ne vesztegessünk több időt az apply-ban)
 type Command struct {
-	Type            CmdType             `json:"type"`
+	Kind            CmdKind             `json:"kind"`
 	Put             *PutCmd             `json:"put,omitempty"`
 	Delete          *DeleteCmd          `json:"delete,omitempty"`
 	Txn             *TxnCmd             `json:"txn,omitempty"`
@@ -18,20 +18,22 @@ type Command struct {
 	LeaseRevoke     *LeaseRevokeCmd     `json:"lease_revoke,omitempty"`
 	LeaseKeepAlive  *LeaseKeepAliveCmd  `json:"lease_keep_alive,omitempty"`
 	LeaseCheckpoint *LeaseCheckpointCmd // its not a client facing command, so no need for json tag
-	LeaseExpired    *LeaseExpiredCmd    // its not a client facing command, so no need for json tag
+	LeaseExpired    *LeaseExpireCmd     // its not a client facing command, so no need for json tag
+	Compact         *CompactCmd         // its not a client facing command, so no need for json tag
 }
 
-type CmdType string
+type CmdKind string
 
 const (
-	CmdPut             CmdType = "KV_PUT"
-	CmdDelete          CmdType = "KV_DEL"
-	CmdTxn             CmdType = "KV_TXN"
-	CmdLeaseGrant      CmdType = "LEASE_GRANT"
-	CmdLeaseRevoke     CmdType = "LEASE_REVOKE"
-	CmdLeaseKeepAlive  CmdType = "LEASE_KEEP_ALIVE"
-	CmdLeaseCheckpoint CmdType = "LEASE_CHECKPOINT"
-	CmdLeaseExpired    CmdType = "LEASE_EXPIRED"
+	KindPut             CmdKind = "KV_PUT"
+	KindDelete          CmdKind = "KV_DEL"
+	KindTxn             CmdKind = "KV_TXN"
+	KindLeaseGrant      CmdKind = "LEASE_GRANT"
+	KindLeaseRevoke     CmdKind = "LEASE_REVOKE"
+	KindLeaseKeepAlive  CmdKind = "LEASE_KEEP_ALIVE"
+	KindLeaseCheckpoint CmdKind = "LEASE_CHECKPOINT"
+	KindLeaseExpire     CmdKind = "LEASE_EXPIRE"
+	KindCompact         CmdKind = "COMPACT"
 )
 
 func Encode(cmd Command) ([]byte, error) {

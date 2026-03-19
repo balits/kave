@@ -157,8 +157,8 @@ func (s *KVStore) Snapshot() Snapshot {
 func (s *KVStore) Compact(rev int64) (<-chan struct{}, error) {
 	s.revMu.Lock()
 	defer s.revMu.Unlock() // lock rev for the whole compaction, so that no other gorutine could schedule a compaction
-	if rev <= 0 {
-		return nil, fmt.Errorf("compaction error: compaction target revision cannot be negative")
+	if rev < 0 {
+		return nil, fmt.Errorf("compaction error: compaction target revision must be  be negative")
 	} else if rev > s.currentRev.Main {
 		return nil, fmt.Errorf("compaction error: compaction target revision cannot be higher than current revision")
 	} else if rev <= s.compactedMainRev {
@@ -272,7 +272,7 @@ func (s *KVStore) doCompact(rev int64) {
 	s.compactedMainRev = rev
 	s.revMu.Unlock()
 
-	s.logger.Info("finished compaction", "revision", rev, "num_deleted_keys", numDeleted)
+	s.logger.Info("finished compaction", "revision", rev, "deleted_key_count", numDeleted)
 }
 
 func (s *KVStore) Ping() error {

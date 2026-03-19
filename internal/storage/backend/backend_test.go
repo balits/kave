@@ -28,7 +28,7 @@ func newTestBackend(t *testing.T, kind storage.StorageKind) Backend {
 	switch kind {
 	case storage.StorageKindInMemory, storage.StorageKindBoltdb:
 		//t.Skip("boltdb tests require disk setup — skipping")
-		return NewBackend(metrics.InitPrometheus(), opts)
+		return New(metrics.InitPrometheus(), opts)
 	default:
 		t.Fatalf("unknown storage kind: %s", kind)
 		return nil

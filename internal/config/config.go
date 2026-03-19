@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/balits/kave/internal/compactor"
+	"github.com/balits/kave/internal/compaction"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
 )
@@ -21,7 +21,7 @@ type Config struct {
 	Me                 Peer
 	Bootstrap          bool
 	StorageOpts        storage.StorageOptions
-	CompactorOpts      compactor.CompactorOptions
+	CompactionOpts     compaction.Options
 	CheckpointInterval time.Duration
 	LogLevel           slog.Level
 	Peers              []Peer
@@ -29,7 +29,7 @@ type Config struct {
 
 type ConfigJson struct {
 	storage.StorageOptions
-	compactor.CompactorOptions
+	compaction.Options
 	CheckpointInterval time.Duration  `json:"checkpoint_interval_ns"`
 	LogLevel           configLogLevel `json:"log_level"`
 	Peers              string         `json:"peers"`
@@ -63,7 +63,7 @@ func (cj *ConfigJson) validate() error {
 		return errors.New("unrecognised loglevel kind")
 	}
 
-	return cj.CompactorOptions.Validate()
+	return cj.Options.Validate()
 }
 
 // ToConfig parses the raw json configuration, and turns them
@@ -111,7 +111,7 @@ func (cj *ConfigJson) ToConfig() (*Config, error) {
 		LogLevel:           logLevel,
 		Peers:              peers,
 		CheckpointInterval: cj.CheckpointInterval,
-		CompactorOpts:      cj.CompactorOptions,
+		CompactionOpts:     cj.Options,
 		StorageOpts: storage.StorageOptions{
 			Kind:           cj.StorageOptions.Kind,
 			Dir:            cj.Dir,
