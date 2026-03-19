@@ -28,7 +28,7 @@ func newTestExpiryLoop(t *testing.T, lm *LeaseManager, ticker util.Ticker, isLea
 			}
 			resultC <- *res
 			result := command.Result{
-				LeaseExpireResult: res,
+				LeaseExpire: res,
 			}
 			return &result, nil
 		}

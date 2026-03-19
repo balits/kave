@@ -174,7 +174,7 @@ func (cs *CompactionScheduler) tick() {
 		return
 	}
 
-	if result.CompactResult == nil {
+	if result.Compact == nil {
 		cs.logger.Error("compaction error: compact result was nil",
 			"current_rev", currentRev.Main,
 			"last_compacted_rev", lastCompacted,
@@ -182,17 +182,17 @@ func (cs *CompactionScheduler) tick() {
 		return
 	}
 
-	if result.CompactResult.Err != nil {
+	if result.Compact.Err != nil {
 		cs.logger.Warn("compaction error",
 			"current_rev", currentRev.Main,
 			"last_compacted_rev", lastCompacted,
-			"error", result.CompactResult.Err,
+			"error", result.Compact.Err,
 		)
 		return
 	}
 
 	select {
-	case <-result.CompactResult.DoneC:
+	case <-result.Compact.DoneC:
 		cs.logger.Info("compaction finished",
 			"current_rev", currentRev.Main,
 			"new_compacted_rev", prev,

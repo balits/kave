@@ -11,16 +11,22 @@ import (
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/service"
 	"github.com/balits/kave/internal/transport"
-	"github.com/balits/kave/internal/util"
+	"github.com/balits/kave/internal/types/api"
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
-	getErrMsg        string = "failed to get key-value pair"
-	setErrMsg        string = "failed to set key-value pair"
-	deleteErrMsg     string = "failed to delete key-value pair"
+	kvGetErrMsg    string = "failed to get key-value pair"
+	kvSetErrMsg    string = "failed to set key-value pair"
+	kvDeleteErrMsg string = "failed to delete key-value pair"
+
+	leaseGrantErrMsg     string = "failed to grant lease"
+	leaseRevokeErrMsg    string = "failed to revoke lease"
+	leaseKeepAliveErrMsg string = "failed to keep lease alive"
+	leaseLookupErrMsg    string = "failed to lookup lease"
+
 	addClusterErrMsg string = "failed to add peer to the cluster"
 
 	jsonEncodeErrMsg string = "failed to encode JSON body"
@@ -71,6 +77,7 @@ func NewHTTPServer(
 	mux.HandleFunc("POST "+transport.UriLease+"/grant", s.handleLeaseGrant)
 	mux.HandleFunc("DELETE "+transport.UriLease+"/revoke", s.handleLeaseRevoke)
 	mux.HandleFunc("POST "+transport.UriLease+"/keep-alive", s.handleLeaseKeepAlive)
+	mux.HandleFunc("POST "+transport.UriLease+"/lookup", s.handleLeaseLookup)
 
 	// cluster
 	mux.HandleFunc("POST "+transport.UriCluster+"/join", s.handleJoin)
@@ -107,9 +114,11 @@ func (s *HttpServer) Shutdown(ctx context.Context) error {
 }
 
 func (s *HttpServer) handleKvGet(w http.ResponseWriter, r *http.Request) {
+	s.logger.Debug("received KV_GET request")
+
 	leader, err := s.peerSvc.GetLeader()
 	if err != nil {
-		s.logger.Error("Failed to get leader info", "error", err)
+		s.logger.Error("failed to get leader info", "error", err)
 		writeError(w, fmt.Sprintf("failed to get leader info: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -129,7 +138,7 @@ func (s *HttpServer) handleKvGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := cmd.Check(); err != nil {
-		s.logger.Error("Invalid request body", "error", err)
+		s.logger.Error("invalid request body", "error", err)
 		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
 		writeError(w, err, http.StatusBadRequest)
 		return
@@ -137,8 +146,8 @@ func (s *HttpServer) handleKvGet(w http.ResponseWriter, r *http.Request) {
 
 	result, err := s.kvSvc.Range(r.Context(), cmd)
 	if err != nil {
-		s.logger.Error(getErrMsg, "error", err)
-		writeError(w, fmt.Sprintf("%s: %v", getErrMsg, err), http.StatusInternalServerError)
+		s.logger.Error(kvGetErrMsg, "error", err)
+		writeError(w, fmt.Sprintf("%s: %v", kvGetErrMsg, err), http.StatusInternalServerError)
 		return
 	}
 	result.Header.NodeID = s.peerSvc.Me().NodeID // setting nodeID, since some reads may not go through raft (and get their header set perfectly by our fsm)
@@ -146,10 +155,10 @@ func (s *HttpServer) handleKvGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HttpServer) handleKvPut(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("Received PUT request")
+	s.logger.Debug("received KV_PUT request")
 	leader, err := s.peerSvc.GetLeader()
 	if err != nil {
-		s.logger.Error("Failed to get leader info", "error", err)
+		s.logger.Error("failed to get leader info", "error", err)
 		writeError(w, fmt.Sprintf("failed to get leader info: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -168,7 +177,7 @@ func (s *HttpServer) handleKvPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := cmd.Check(); err != nil {
-		s.logger.Error("Invalid request body", "error", err)
+		s.logger.Error("invalid request body", "error", err)
 		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
 		writeError(w, err, http.StatusBadRequest)
 		return
@@ -176,18 +185,18 @@ func (s *HttpServer) handleKvPut(w http.ResponseWriter, r *http.Request) {
 
 	result, err := s.kvSvc.Put(r.Context(), cmd)
 	if err != nil {
-		s.logger.Error(setErrMsg, "error", err)
-		writeError(w, fmt.Sprintf("%s: %v", setErrMsg, err), http.StatusInternalServerError)
+		s.logger.Error(kvSetErrMsg, "error", err)
+		writeError(w, fmt.Sprintf("%s: %v", kvSetErrMsg, err), http.StatusInternalServerError)
 		return
 	}
 	s.writeJSON(w, *result, http.StatusOK)
 }
 
 func (s *HttpServer) handleKvDelete(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("Received DELETE request")
+	s.logger.Debug("received KV_DELETE request")
 	leader, err := s.peerSvc.GetLeader()
 	if err != nil {
-		s.logger.Error("Failed to get leader info", "error", err)
+		s.logger.Error("failed to get leader info", "error", err)
 		writeError(w, fmt.Sprintf("failed to get leader info: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -200,13 +209,13 @@ func (s *HttpServer) handleKvDelete(w http.ResponseWriter, r *http.Request) {
 
 	var cmd command.DeleteCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
-		s.logger.Error("Failed to decode request body", "error", err)
+		s.logger.Error(jsonDecodeErrMsg, "error", err)
 		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
 	if err := cmd.Check(); err != nil {
-		s.logger.Error("Invalid request body", "error", err)
+		s.logger.Error("invalid request body", "error", err)
 		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
 		writeError(w, err, http.StatusBadRequest)
 		return
@@ -214,8 +223,8 @@ func (s *HttpServer) handleKvDelete(w http.ResponseWriter, r *http.Request) {
 
 	result, err := s.kvSvc.Delete(r.Context(), cmd)
 	if err != nil {
-		s.logger.Error(deleteErrMsg, "error", err)
-		err := fmt.Sprintf("%s: %v", deleteErrMsg, err)
+		s.logger.Error(kvDeleteErrMsg, "error", err)
+		err := fmt.Sprintf("%s: %v", kvDeleteErrMsg, err)
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
@@ -224,7 +233,7 @@ func (s *HttpServer) handleKvDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HttpServer) handleJoin(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("Received JOIN request")
+	s.logger.Debug("Received CLUSTER_JOIN request")
 	leader, err := s.peerSvc.GetLeader()
 	if err != nil {
 		s.logger.Error("Failed to get leader info", "error", err)
@@ -268,13 +277,130 @@ func (s *HttpServer) handleJoin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HttpServer) handleLeaseGrant(w http.ResponseWriter, r *http.Request) {
-	util.Todo("http /lease/grant")
+	s.logger.Debug("received LEASE_GRANT request")
+	leader, err := s.peerSvc.GetLeader()
+	if err != nil {
+		s.logger.Error("failed to get leader info", "error", err)
+		writeError(w, fmt.Sprintf("failed to get leader info: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	me := s.peerSvc.Me()
+	if leader.NodeID != me.NodeID {
+		s.redirectToLeader(w, r, leader)
+		return
+	}
+
+	var req api.LeaseGrantRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error(jsonDecodeErrMsg, "error", err)
+		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+
+	result, err := s.leaseSvc.Grant(r.Context(), req)
+	if err != nil {
+		s.logger.Error(leaseGrantErrMsg, "error", err)
+		writeError(w, fmt.Sprintf("%s: %v", kvSetErrMsg, err), http.StatusInternalServerError)
+		return
+	}
+	s.writeJSON(w, command.Result{LeaseGrant: result}, http.StatusOK)
 }
 func (s *HttpServer) handleLeaseRevoke(w http.ResponseWriter, r *http.Request) {
-	util.Todo("http /lease/revoke")
+	s.logger.Debug("received LEASE_REVOKE request")
+	leader, err := s.peerSvc.GetLeader()
+	if err != nil {
+		s.logger.Error("failed to get leader info", "error", err)
+		writeError(w, fmt.Sprintf("failed to get leader info: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	me := s.peerSvc.Me()
+	if leader.NodeID != me.NodeID {
+		s.redirectToLeader(w, r, leader)
+		return
+	}
+
+	var req api.LeaseRevokeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error(jsonDecodeErrMsg, "error", err)
+		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+
+	result, err := s.leaseSvc.Revoke(r.Context(), req)
+	if err != nil {
+		s.logger.Error(leaseRevokeErrMsg, "error", err)
+		writeError(w, fmt.Sprintf("%s: %v", kvSetErrMsg, err), http.StatusInternalServerError)
+		return
+	}
+	s.writeJSON(w, command.Result{LeaseRevoke: result}, http.StatusOK)
 }
+
 func (s *HttpServer) handleLeaseKeepAlive(w http.ResponseWriter, r *http.Request) {
-	util.Todo("http /lease/keep-alive")
+	s.logger.Debug("received LEASE_KEEP_ALIVE request")
+	leader, err := s.peerSvc.GetLeader()
+	if err != nil {
+		s.logger.Error("failed to get leader info", "error", err)
+		writeError(w, fmt.Sprintf("failed to get leader info: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	me := s.peerSvc.Me()
+	if leader.NodeID != me.NodeID {
+		s.redirectToLeader(w, r, leader)
+		return
+	}
+
+	var req api.LeaseKeepAliveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error(jsonDecodeErrMsg, "error", err)
+		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+
+	result, err := s.leaseSvc.KeepAlive(r.Context(), req)
+	if err != nil {
+		s.logger.Error(leaseKeepAliveErrMsg, "error", err)
+		writeError(w, fmt.Sprintf("%s: %v", kvSetErrMsg, err), http.StatusInternalServerError)
+		return
+	}
+	s.writeJSON(w, command.Result{LeaseKeepAlive: result}, http.StatusOK)
+}
+
+func (s *HttpServer) handleLeaseLookup(w http.ResponseWriter, r *http.Request) {
+	s.logger.Debug("received LEASE_LOOKUP request")
+	leader, err := s.peerSvc.GetLeader()
+	if err != nil {
+		s.logger.Error("failed to get leader info", "error", err)
+		writeError(w, fmt.Sprintf("failed to get leader info: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	me := s.peerSvc.Me()
+	if leader.NodeID != me.NodeID {
+		s.redirectToLeader(w, r, leader)
+		return
+	}
+
+	var req api.LeaseLookupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error(jsonDecodeErrMsg, "error", err)
+		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+
+	result, err := s.leaseSvc.Lookup(r.Context(), req)
+	if err != nil {
+		s.logger.Error(leaseLookupErrMsg, "error", err)
+		writeError(w, fmt.Sprintf("%s: %v", kvSetErrMsg, err), http.StatusInternalServerError)
+		return
+	}
+	s.writeJSON(w, command.Result{LeaseLookup: result}, http.StatusOK)
 }
 
 func (s *HttpServer) handleStats(w http.ResponseWriter, r *http.Request) {
