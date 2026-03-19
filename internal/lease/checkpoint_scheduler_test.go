@@ -9,7 +9,6 @@ import (
 
 	"github.com/balits/kave/internal/command"
 	"github.com/balits/kave/internal/util"
-	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,13 +20,13 @@ type checkpointPropose struct {
 }
 
 func (cp *checkpointPropose) proposeFunc() util.ProposeFunc {
-	return func(cmd command.Command) (raft.ApplyFuture, error) {
+	return func(_ context.Context, cmd command.Command) (*command.Result, error) {
 		cp.calls++
 		cp.cmds = append(cp.cmds, cmd)
 		if cp.errOn > 0 && cp.calls == cp.errOn {
 			return nil, errors.New("simulated propose error")
 		}
-		return &expiryFuture{}, nil
+		return &command.Result{}, nil
 	}
 }
 
@@ -96,7 +95,7 @@ func Test_CheckpointScheduler_LiveLeases_ProposedWithCorrectTTL(t *testing.T) {
 	cmd := cp.lastCmd()
 	require.NotNil(t, cmd)
 	require.NotNil(t, cmd.LeaseCheckpoint, "proposed command must be a checkpoint")
-	require.Equal(t, command.CmdLeaseCheckpoint, cmd.Type)
+	require.Equal(t, command.KindLeaseCheckpoint, cmd.Kind)
 
 	entries := cmd.LeaseCheckpoint.Checkpoints
 	require.Len(t, entries, 3)

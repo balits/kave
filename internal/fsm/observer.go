@@ -1,6 +1,8 @@
 package fsm
 
 import (
+	"log/slog"
+
 	"github.com/balits/kave/internal/metrics"
 	"github.com/hashicorp/raft"
 )
@@ -24,28 +26,30 @@ type RaftEventWatcher struct {
 	myID     raft.ServerID
 	filterFn raft.FilterFn
 	obs      []LeadershipObserver
+	logger   *slog.Logger
 }
 
-func NewRaftEventWatcher(c chan raft.Observation, m *metrics.RaftMetrics, id raft.ServerID) *RaftEventWatcher {
+func NewRaftEventWatcher(logger *slog.Logger, c chan raft.Observation, m *metrics.RaftMetrics, id raft.ServerID) *RaftEventWatcher {
 	return &RaftEventWatcher{
 		c:        c,
 		metrics:  m,
 		myID:     id,
 		filterFn: defaultFilterFn,
+		logger:   logger.With("component", "raft_event_watcher"),
 	}
 }
 
-func (ew *RaftEventWatcher) RegisterLeadershipObservers(obs ...LeadershipObserver) {
-	ew.obs = append(ew.obs, obs...)
+func (w *RaftEventWatcher) RegisterLeadershipObservers(obs ...LeadershipObserver) {
+	w.obs = append(w.obs, obs...)
 }
 
-func (ew *RaftEventWatcher) FilterFn() raft.FilterFn {
-	return ew.filterFn
+func (w *RaftEventWatcher) FilterFn() raft.FilterFn {
+	return w.filterFn
 }
 
-func (ew *RaftEventWatcher) Run() {
+func (w *RaftEventWatcher) Run() {
 	for {
-		ev, ok := <-ew.c
+		ev, ok := <-w.c
 		if !ok {
 			return
 		}
@@ -53,19 +57,21 @@ func (ew *RaftEventWatcher) Run() {
 		switch eventType := ev.Data.(type) {
 		case raft.RaftState:
 			if eventType == raft.Candidate {
-				ew.metrics.ElectionsTotal.Inc()
+				w.metrics.ElectionsTotal.Inc()
+				w.logger.Debug("election")
 			}
 		case raft.LeaderObservation:
-			ew.metrics.LeaderChangesTotal.Inc()
-			leadershipGranted := eventType.LeaderID == ew.myID
+			w.metrics.LeaderChangesTotal.Inc()
+			leadershipGranted := eventType.LeaderID == w.myID
+			w.logger.Debug("leadership", "granted", leadershipGranted)
 
 			if leadershipGranted {
-				ew.metrics.IsLeader.Inc()
+				w.metrics.IsLeader.Inc()
 			} else {
-				ew.metrics.IsLeader.Dec()
+				w.metrics.IsLeader.Dec()
 			}
 
-			for _, ob := range ew.obs {
+			for _, ob := range w.obs {
 				if leadershipGranted {
 					ob.OnLeadershipGranted()
 				} else {
@@ -77,6 +83,6 @@ func (ew *RaftEventWatcher) Run() {
 
 }
 
-func (ew *RaftEventWatcher) Stop() {
-	close(ew.c)
+func (w *RaftEventWatcher) Stop() {
+	close(w.c)
 }

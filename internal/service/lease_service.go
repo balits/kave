@@ -37,26 +37,18 @@ func (ls *leaseSvc) Grant(ctx context.Context, req api.LeaseGrantRequest) (*api.
 			"ttl", req.TTL,
 		)
 
-	fut, err := ls.propse(command.Command{LeaseGrant: &req})
-	returned, err := util.WaitApply(ctx, fut)
+	result, err := ls.propse(ctx, command.Command{LeaseGrant: &req})
 	if err != nil {
-		return nil, fmt.Errorf("failed to grant lease: %w", err)
+		return nil, fmt.Errorf("grant failed: %w", err)
+	}
+	if result.Error != nil {
+		return nil, fmt.Errorf("grant failed: %w", result.Error)
+	}
+	if result.LeaseGrantResult == nil {
+		return nil, fmt.Errorf("grant failed: %w", fsm.ErrNilApplyResult)
 	}
 
-	res, ok := returned.(command.Result)
-	if !ok {
-		return nil, fmt.Errorf("%w: %v", fsm.ErrStateMachineError, ErrUnexpectedResultType)
-	}
-
-	if res.Error != nil {
-		return nil, fsm.ErrNilApplyResult
-	}
-
-	if res.LeaseGrantResult == nil {
-		return nil, fmt.Errorf("%w: %v", fsm.ErrStateMachineError, ErrUnexpectedResultType)
-	}
-
-	return res.LeaseGrantResult, nil
+	return result.LeaseGrantResult, nil
 }
 
 func (ls *leaseSvc) Revoke(ctx context.Context, req api.LeaseRevokeRequest) (*api.LeaseRevokeResponse, error) {
@@ -65,26 +57,18 @@ func (ls *leaseSvc) Revoke(ctx context.Context, req api.LeaseRevokeRequest) (*ap
 			"id", req.LeaseID,
 		)
 
-	fut, err := ls.propse(command.Command{LeaseRevoke: &req})
-	returned, err := util.WaitApply(ctx, fut)
+	result, err := ls.propse(ctx, command.Command{LeaseRevoke: &req})
 	if err != nil {
-		return nil, fmt.Errorf("failed to revoke lease: %w", err)
+		return nil, fmt.Errorf("revoke failed: %w", err)
+	}
+	if result.Error != nil {
+		return nil, fmt.Errorf("revoke failed: %w", result.Error)
+	}
+	if result.LeaseRevokeResult == nil {
+		return nil, fmt.Errorf("revoke failed: %w", fsm.ErrNilApplyResult)
 	}
 
-	res, ok := returned.(command.Result)
-	if !ok {
-		return nil, fmt.Errorf("%w: %v", fsm.ErrStateMachineError, ErrUnexpectedResultType)
-	}
-
-	if res.Error != nil {
-		return nil, fsm.ErrNilApplyResult
-	}
-
-	if res.LeaseRevokeResult == nil {
-		return nil, fmt.Errorf("%w: %v", fsm.ErrStateMachineError, ErrUnexpectedResultType)
-	}
-
-	return res.LeaseRevokeResult, nil
+	return result.LeaseRevokeResult, nil
 }
 
 func (ls *leaseSvc) KeepAlive(ctx context.Context, req api.LeaseKeepAliveRequest) (*api.LeaseKeepAliveResponse, error) {
@@ -93,24 +77,16 @@ func (ls *leaseSvc) KeepAlive(ctx context.Context, req api.LeaseKeepAliveRequest
 			"id", req.LeaseID,
 		)
 
-	fut, err := ls.propse(command.Command{LeaseKeepAlive: &req})
-	returned, err := util.WaitApply(ctx, fut)
+	result, err := ls.propse(ctx, command.Command{LeaseKeepAlive: &req})
 	if err != nil {
-		return nil, fmt.Errorf("failed to keep lease alive: %w", err)
+		return nil, fmt.Errorf("keep alive failed: %w", err)
+	}
+	if result.Error != nil {
+		return nil, fmt.Errorf("keep alive failed: %w", result.Error)
+	}
+	if result.LeaseKeepAliveResult == nil {
+		return nil, fmt.Errorf("keep alive failed: %w", fsm.ErrNilApplyResult)
 	}
 
-	res, ok := returned.(command.Result)
-	if !ok {
-		return nil, fmt.Errorf("%w: %v", fsm.ErrStateMachineError, ErrUnexpectedResultType)
-	}
-
-	if res.Error != nil {
-		return nil, fsm.ErrNilApplyResult
-	}
-
-	if res.LeaseKeepAliveResult == nil {
-		return nil, fmt.Errorf("%w: %v", fsm.ErrStateMachineError, ErrUnexpectedResultType)
-	}
-
-	return res.LeaseKeepAliveResult, nil
+	return result.LeaseKeepAliveResult, nil
 }
