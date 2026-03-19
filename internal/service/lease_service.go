@@ -48,11 +48,11 @@ func (ls *leaseSvc) Grant(ctx context.Context, req api.LeaseGrantRequest) (*api.
 	if result.Error != nil {
 		return nil, fmt.Errorf("grant failed: %w", result.Error)
 	}
-	if result.LeaseGrantResult == nil {
+	if result.LeaseGrant == nil {
 		return nil, fmt.Errorf("grant failed: %w", fsm.ErrNilApplyResult)
 	}
 
-	return result.LeaseGrantResult, nil
+	return result.LeaseGrant, nil
 }
 
 func (ls *leaseSvc) Revoke(ctx context.Context, req api.LeaseRevokeRequest) (*api.LeaseRevokeResponse, error) {
@@ -71,11 +71,11 @@ func (ls *leaseSvc) Revoke(ctx context.Context, req api.LeaseRevokeRequest) (*ap
 	if result.Error != nil {
 		return nil, fmt.Errorf("revoke failed: %w", result.Error)
 	}
-	if result.LeaseRevokeResult == nil {
+	if result.LeaseRevoke == nil {
 		return nil, fmt.Errorf("revoke failed: %w", fsm.ErrNilApplyResult)
 	}
 
-	return result.LeaseRevokeResult, nil
+	return result.LeaseRevoke, nil
 }
 
 func (ls *leaseSvc) KeepAlive(ctx context.Context, req api.LeaseKeepAliveRequest) (*api.LeaseKeepAliveResponse, error) {
@@ -94,11 +94,11 @@ func (ls *leaseSvc) KeepAlive(ctx context.Context, req api.LeaseKeepAliveRequest
 	if result.Error != nil {
 		return nil, fmt.Errorf("keep alive failed: %w", result.Error)
 	}
-	if result.LeaseKeepAliveResult == nil {
+	if result.LeaseKeepAlive == nil {
 		return nil, fmt.Errorf("keep alive failed: %w", fsm.ErrNilApplyResult)
 	}
 
-	return result.LeaseKeepAliveResult, nil
+	return result.LeaseKeepAlive, nil
 }
 
 func (ls *leaseSvc) Lookup(ctx context.Context, req api.LeaseLookupRequest) (res *api.LeaseLookupResponse, err error) {
@@ -117,9 +117,9 @@ func (ls *leaseSvc) Lookup(ctx context.Context, req api.LeaseLookupRequest) (res
 	if result.Error != nil {
 		return nil, fmt.Errorf("lookup failed: %w", result.Error)
 	}
-	if result.LeaseLookupResult == nil {
+	if result.LeaseLookup == nil {
 		return nil, fmt.Errorf("lookup failed: %w", fsm.ErrNilApplyResult)
 	}
 
-	return result.LeaseLookupResult, nil
+	return result.LeaseLookup, nil
 }

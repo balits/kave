@@ -5,17 +5,17 @@ type Result struct {
 	Header ResultHeader `json:"header"`
 	Error  error        `json:"error,omitempty"`
 
-	PutResult            *PutResult            `json:"put,omitempty"`
-	DeleteResult         *DeleteResult         `json:"delete,omitempty"`
-	TxnResult            *TxnResult            `json:"txn,omitempty"`
-	RangeResult          *RangeResult          `json:"range,omitempty"`
-	LeaseGrantResult     *LeaseGrantResult     `json:"lease_grant,omitempty"`
-	LeaseRevokeResult    *LeaseRevokeResult    `json:"lease_revoke,omitempty"`
-	LeaseKeepAliveResult *LeaseKeepAliveResult `json:"lease_keep_alive,omitempty"`
-	LeaseLookupResult    *LeaseLookupResult    `json:"lease_lookup,omitempty"`
+	Put            *PutResult            `json:"put,omitempty"`
+	Delete         *DeleteResult         `json:"delete,omitempty"`
+	Txn            *TxnResult            `json:"txn,omitempty"`
+	Range          *RangeResult          `json:"range,omitempty"`
+	LeaseGrant     *LeaseGrantResult     `json:"lease_grant,omitempty"`
+	LeaseRevoke    *LeaseRevokeResult    `json:"lease_revoke,omitempty"`
+	LeaseKeepAlive *LeaseKeepAliveResult `json:"lease_keep_alive,omitempty"`
+	LeaseLookup    *LeaseLookupResult    `json:"lease_lookup,omitempty"`
 
-	LeaseExpireResult *LeaseExpireResult
-	CompactResult     *CompactResult
+	LeaseExpire *LeaseExpireResult
+	Compact     *CompactResult
 }
 
 // A ResultHeader minden eredmény közös metaadatait tartalmazza

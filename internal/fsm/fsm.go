@@ -110,7 +110,7 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 		var lease *lease.Lease
 		lease, err = f.lm.Grant(cmd.LeaseGrant.LeaseID, cmd.LeaseGrant.TTL)
 		if err == nil {
-			res.LeaseGrantResult = &command.LeaseGrantResult{
+			res.LeaseGrant = &command.LeaseGrantResult{
 				TTL:     lease.TTL,
 				LeaseID: lease.ID,
 			}
@@ -119,7 +119,7 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 	case command.KindLeaseRevoke:
 		var found, revoked bool
 		found, revoked = f.lm.Revoke(cmd.LeaseRevoke.LeaseID)
-		res.LeaseRevokeResult = &command.LeaseRevokeResult{
+		res.LeaseRevoke = &command.LeaseRevokeResult{
 			Found:   found,
 			Revoked: revoked,
 		}
@@ -128,7 +128,7 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 		var ttl int64
 		ttl, err = f.lm.KeepAlive(cmd.LeaseKeepAlive.LeaseID)
 		if err == nil {
-			res.LeaseKeepAliveResult = &command.LeaseKeepAliveResult{
+			res.LeaseKeepAlive = &command.LeaseKeepAliveResult{
 				TTL:     ttl,
 				LeaseID: cmd.LeaseKeepAlive.LeaseID,
 			}
@@ -137,7 +137,7 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 	case command.KindLeaseLookup:
 		l := f.lm.Lookup(cmd.LeaseLookup.LeaseID)
 		if l != nil {
-			res.LeaseLookupResult = &command.LeaseLookupResult{
+			res.LeaseLookup = &command.LeaseLookupResult{
 				LeaseID:      l.ID,
 				OriginalTTL:  l.TTL,
 				RemainingTTL: l.RemainingTTL(),
@@ -153,7 +153,7 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 		var subres *command.LeaseExpireResult
 		subres, err = f.lm.ApplyExpired(*cmd.LeaseExpired)
 		if err != nil {
-			res.LeaseExpireResult = subres
+			res.LeaseExpire = subres
 		}
 
 	case "":
@@ -175,7 +175,7 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 func (f *Fsm) applyCompaction(cmd command.Command) command.Result {
 	doneC, err := f.store.Compact(cmd.Compact.TargetRev)
 	return command.Result{
-		CompactResult: &command.CompactResult{
+		Compact: &command.CompactResult{
 			DoneC: doneC,
 			Err:   err,
 		},

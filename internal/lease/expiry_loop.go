@@ -130,7 +130,7 @@ func (ex *ExpiryLoop) tick() {
 		)
 		return
 	}
-	if result.LeaseExpireResult == nil {
+	if result.LeaseExpire == nil {
 		ex.logger.Warn(
 			"expiry loop error: LeaseExpireResult was nil",
 		)
@@ -138,8 +138,8 @@ func (ex *ExpiryLoop) tick() {
 	}
 
 	ex.logger.Info("successfuly removed expired leases and their keys",
-		"lease_count", result.LeaseExpireResult.RemovedLeaseCount,
-		"key_count", result.LeaseExpireResult.RemovedKeyCount,
+		"lease_count", result.LeaseExpire.RemovedLeaseCount,
+		"key_count", result.LeaseExpire.RemovedKeyCount,
 	)
 }
 
