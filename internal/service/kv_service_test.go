@@ -50,7 +50,7 @@ func newTestKVService(t *testing.T) *testKVService {
 		if err != nil {
 			return nil, err
 		}
-		idx := logIndex.Add(1) // exactly one increment per call
+		idx := logIndex.Add(1)
 		res := fsm.Apply(&raft.Log{
 			Index: idx,
 			Data:  bs,

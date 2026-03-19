@@ -37,6 +37,12 @@ func newLease(id, ttl int64, clock util.Clock) *Lease {
 	}
 }
 
+func (l *Lease) RemainingTTL() int64 {
+	l.timeMu.RLock()
+	defer l.timeMu.RUnlock()
+	return l.remainingTTL
+}
+
 func (l *Lease) RemainingSec(clock util.Clock) int64 {
 	l.timeMu.RLock()
 	defer l.timeMu.RUnlock()
@@ -53,18 +59,16 @@ func (l *Lease) Update(remTTL int64, exp time.Time) {
 func (l *Lease) AttachKey(key []byte) {
 	l.keysMu.Lock()
 	defer l.keysMu.Unlock()
-	l.keySet[LeasedKey{Key: string(key)}] = struct{}{}
+	l.keySet[LeasedKey(key)] = struct{}{}
 }
 
 func (l *Lease) DetachKey(key []byte) {
 	l.keysMu.Lock()
 	defer l.keysMu.Unlock()
-	delete(l.keySet, LeasedKey{Key: string(key)})
+	delete(l.keySet, LeasedKey(key))
 }
 
-type LeasedKey struct {
-	Key string
-}
+type LeasedKey = string
 
 func EncodeLease(l *Lease) ([]byte, error) {
 	buf := make([]byte, 8+8+8)
