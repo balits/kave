@@ -7,26 +7,13 @@ import (
 	"github.com/hashicorp/raft"
 )
 
-var defaultFilterFn = func(ev *raft.Observation) bool {
-	switch ev.Data.(type) {
-	case raft.RaftState, raft.LeaderObservation:
-		return true
-	}
-	return false
-}
-
-type LeadershipObserver interface {
-	OnLeadershipGranted()
-	OnLeadershipLost()
-}
-
 type RaftEventWatcher struct {
-	c        chan raft.Observation
-	metrics  *metrics.RaftMetrics
-	myID     raft.ServerID
-	filterFn raft.FilterFn
-	obs      []LeadershipObserver
-	logger   *slog.Logger
+	c                   chan raft.Observation
+	metrics             *metrics.RaftMetrics
+	myID                raft.ServerID
+	filterFn            raft.FilterFn
+	leadershipObservers []LeadershipObserver
+	logger              *slog.Logger
 }
 
 func NewRaftEventWatcher(logger *slog.Logger, c chan raft.Observation, m *metrics.RaftMetrics, id raft.ServerID) *RaftEventWatcher {
@@ -40,7 +27,7 @@ func NewRaftEventWatcher(logger *slog.Logger, c chan raft.Observation, m *metric
 }
 
 func (w *RaftEventWatcher) RegisterLeadershipObservers(obs ...LeadershipObserver) {
-	w.obs = append(w.obs, obs...)
+	w.leadershipObservers = append(w.leadershipObservers, obs...)
 }
 
 func (w *RaftEventWatcher) FilterFn() raft.FilterFn {
@@ -71,7 +58,7 @@ func (w *RaftEventWatcher) Run() {
 				w.metrics.IsLeader.Dec()
 			}
 
-			for _, ob := range w.obs {
+			for _, ob := range w.leadershipObservers {
 				if leadershipGranted {
 					ob.OnLeadershipGranted()
 				} else {
@@ -85,4 +72,12 @@ func (w *RaftEventWatcher) Run() {
 
 func (w *RaftEventWatcher) Stop() {
 	close(w.c)
+}
+
+var defaultFilterFn = func(ev *raft.Observation) bool {
+	switch ev.Data.(type) {
+	case raft.RaftState, raft.LeaderObservation:
+		return true
+	}
+	return false
 }

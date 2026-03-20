@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestScheduler(t *testing.T, threshold int64, ticker util.Ticker, isLeaderValue bool) *CompactionScheduler {
+func newTestScheduler(t *testing.T, threshold int64, ticker util.Ticker, isLeaderValue bool, opts *Options) *CompactionScheduler {
 	t.Helper()
 	isLeader := func() bool { return isLeaderValue }
 
@@ -57,9 +58,20 @@ func newTestScheduler(t *testing.T, threshold int64, ticker util.Ticker, isLeade
 		return &result, nil
 	}
 
-	cs := NewScheduler(logger, store, propose, isLeader, nil)
+	var o Options
+	if opts != nil {
+		o = *opts
+	} else {
+		o = Options{
+			Threshold:   threshold,
+			IntervalMin: DefaultIntervalMin,
+			MaxRevGap:   math.MaxInt64,
+		}
+	}
+
+	cs := NewScheduler(logger, store, propose, isLeader, &o)
 	cs.ticker = ticker
-	cs.threshold = threshold
+	fsm.RegisterObservers(cs) // for write pressure tests
 	return cs
 }
 
@@ -77,19 +89,26 @@ func mustPut(t *testing.T, propose util.ProposeFunc, key, value string) {
 	require.NotNil(t, result.Put)
 }
 
+func loop(t *testing.T, cs *CompactionScheduler) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	go cs.Run(ctx)
+}
+
 func Test_CompactionScheduler_ThresholdNotMet(t *testing.T) {
 	threshold := int64(10)
 	ft := util.NewFakeTicker()
-	cs := newTestScheduler(t, threshold, ft, true)
+	cs := newTestScheduler(t, threshold, ft, true, nil)
 	loop(t, cs)
 
 	for i := range threshold - 1 {
 		mustPut(t, cs.propose, fmt.Sprintf("foo%d", i), "bar")
 	}
-	cs.tick()
+	cs.tick(false)
 	_, compactedRev := cs.store.Revisions()
 	require.Equal(t, int64(0), compactedRev, "threshold not met, but compacted rev stil bumped up")
-	cs.tick()
+	cs.tick(false)
 	_, compactedRev = cs.store.Revisions()
 	require.Equal(t, int64(0), compactedRev, "threshold not met, but compacted rev stil bumped up")
 }
@@ -97,14 +116,14 @@ func Test_CompactionScheduler_ThresholdNotMet(t *testing.T) {
 func Test_CompactionScheduler_ThresholdMet(t *testing.T) {
 	threshold := int64(10)
 	ft := util.NewFakeTicker()
-	cs := newTestScheduler(t, threshold, ft, true)
+	cs := newTestScheduler(t, threshold, ft, true, nil)
 	loop(t, cs)
 
 	var lastCompactedRev int64
 	for i := range threshold {
 		mustPut(t, cs.propose, fmt.Sprintf("1foo%d", i), "bar")
 	}
-	cs.tick()
+	cs.tick(false)
 
 	_, lastCompactedRev = cs.store.Revisions()
 	require.Equal(t, int64(0), lastCompactedRev, "threshold not met, but compacted rev stil bumped up")
@@ -112,7 +131,7 @@ func Test_CompactionScheduler_ThresholdMet(t *testing.T) {
 	for i := range threshold {
 		mustPut(t, cs.propose, fmt.Sprintf("2foo%d", i), "bar")
 	}
-	cs.tick()
+	cs.tick(false)
 
 	_, lastCompactedRev = cs.store.Revisions()
 	require.Equal(t, int64(10), lastCompactedRev, "threshold met, shouldve have bumped compactedRev")
@@ -122,7 +141,7 @@ func Test_CompactionScheduler_ThresholdMet(t *testing.T) {
 		for i := range threshold {
 			mustPut(t, cs.propose, fmt.Sprintf("foo%d-%d", i, i), "bar")
 		}
-		cs.tick()
+		cs.tick(false)
 
 		_, lastCompactedRev = cs.store.Revisions()
 		expectedRev := int64(10 + (n+1)*10)
@@ -133,7 +152,7 @@ func Test_CompactionScheduler_ThresholdMet(t *testing.T) {
 func Test_CompactionScheduler_DoesntDeleteMoreThanThreshold(t *testing.T) {
 	threshold := int64(10)
 	ft := util.NewFakeTicker()
-	cs := newTestScheduler(t, threshold, ft, true)
+	cs := newTestScheduler(t, threshold, ft, true, nil)
 	go cs.Run(t.Context())
 
 	N := 10
@@ -143,7 +162,7 @@ func Test_CompactionScheduler_DoesntDeleteMoreThanThreshold(t *testing.T) {
 			mustPut(t, cs.propose, fmt.Sprintf("foo%d-%d", i, i), "bar")
 		}
 
-		cs.tick()
+		cs.tick(false)
 		_, lastCompactedRev := cs.store.Revisions()
 		t.Logf("\nafter %d: putTotal=%d, lastCompacted=%d\n", n, (n+1)*int(threshold)*x, lastCompactedRev)
 		require.Equal(t, n*int(threshold)*x, int(lastCompactedRev))
@@ -154,20 +173,20 @@ func Test_CompactionScheduler_DoesntDeleteMoreThanThreshold(t *testing.T) {
 func Test_CompactionScheduler_DoesntRegress(t *testing.T) {
 	threshold := int64(10)
 	ft := util.NewFakeTicker().(*util.FakeTicker)
-	cs := newTestScheduler(t, threshold, ft, true)
+	cs := newTestScheduler(t, threshold, ft, true, nil)
 	loop(t, cs)
 
 	for i := range threshold {
 		mustPut(t, cs.propose, fmt.Sprintf("key-%d", i), "bar")
 	}
-	cs.tick() // first empty tick
+	cs.tick(false) // first empty tick
 
-	cs.tick()
+	cs.tick(false)
 	_, lastCompactedRev := cs.store.Revisions()
 	t.Log("lastCompactedRev =", lastCompactedRev)
 
 	mustPut(t, cs.propose, "last", "bar")
-	cs.tick()
+	cs.tick(false)
 	_, latest := cs.store.Revisions()
 
 	require.Equal(t, lastCompactedRev, latest)
@@ -176,7 +195,7 @@ func Test_CompactionScheduler_DoesntRegress(t *testing.T) {
 func Test_CompactionScheduler_LeadershipLost_NoCompaction(t *testing.T) {
 	threshold := int64(10)
 	ft := util.NewFakeTicker().(*util.FakeTicker)
-	cs := newTestScheduler(t, threshold, ft, true)
+	cs := newTestScheduler(t, threshold, ft, true, nil)
 
 	for i := range threshold {
 		mustPut(t, cs.propose, fmt.Sprintf("key-%d", i), "bar")
@@ -206,7 +225,7 @@ func Test_CompactionScheduler_LeadershipLost_NoCompaction(t *testing.T) {
 func Test_CompactionScheduler_LeadershipRegained_ResumeCompaction(t *testing.T) {
 	threshold := int64(10)
 	ft := util.NewFakeTicker().(*util.FakeTicker)
-	cs := newTestScheduler(t, threshold, ft, true)
+	cs := newTestScheduler(t, threshold, ft, true, nil)
 
 	for i := range threshold * 2 {
 		mustPut(t, cs.propose, fmt.Sprintf("key-%d", i), "bar")
@@ -250,7 +269,7 @@ func Test_CompactionScheduler_LeadershipRegained_ResumeCompaction(t *testing.T) 
 func Test_CompactionScheduler_CancelledContext_DoesntHang(t *testing.T) {
 	threshold := int64(10)
 	ft := util.NewFakeTicker()
-	cs := newTestScheduler(t, threshold, ft, true)
+	cs := newTestScheduler(t, threshold, ft, true, nil)
 	go cs.Run(t.Context())
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -274,7 +293,7 @@ func Test_CompactionScheduler_CancelledContext_DoesntHang(t *testing.T) {
 func Test_CompactionScheduler_StopDuringActiveCompaction(t *testing.T) {
 	threshold := int64(10)
 	ft := util.NewFakeTicker()
-	cs := newTestScheduler(t, threshold, ft, true)
+	cs := newTestScheduler(t, threshold, ft, true, nil)
 	go cs.Run(t.Context())
 
 	done := make(chan struct{})
@@ -294,18 +313,11 @@ func Test_CompactionScheduler_StopDuringActiveCompaction(t *testing.T) {
 	}
 }
 
-func loop(t *testing.T, cs *CompactionScheduler) {
-	t.Helper()
-	ctx, cancel := context.WithCancel(t.Context())
-	t.Cleanup(cancel)
-	go cs.Run(ctx)
-}
-
 // real compaction tests
 
 func Test_CompactionScheduler_CompactsToCorrectRevision(t *testing.T) {
 	ft := util.NewFakeTicker().(*util.FakeTicker)
-	cs := newTestScheduler(t, 3, ft, true)
+	cs := newTestScheduler(t, 3, ft, true, nil)
 	loop(t, cs)
 
 	mustPut(t, cs.propose, "a", "v1") // rev 1
@@ -315,7 +327,7 @@ func Test_CompactionScheduler_CompactsToCorrectRevision(t *testing.T) {
 
 	// tick 1: candidateRev = 4, nothing compacted yet
 	ft.Tick()
-	cs.tick()
+	cs.tick(false)
 	_, compacted := cs.store.Revisions()
 	require.Equal(t, int64(0), compacted, "no compaction on first tick")
 
@@ -323,24 +335,24 @@ func Test_CompactionScheduler_CompactsToCorrectRevision(t *testing.T) {
 
 	// tick 2: compacts to rev 4 (the previous candidate)
 	ft.Tick()
-	cs.tick()
+	cs.tick(false)
 	_, compacted = cs.store.Revisions()
 	require.Equal(t, int64(4), compacted)
 }
 
 func Test_CompactionScheduler_OldRevisionBecomesUnreadable(t *testing.T) {
 	ft := util.NewFakeTicker().(*util.FakeTicker)
-	cs := newTestScheduler(t, 2, ft, true)
+	cs := newTestScheduler(t, 2, ft, true, nil)
 	loop(t, cs)
 
 	mustPut(t, cs.propose, "key", "v1") // rev 1
 	mustPut(t, cs.propose, "key", "v2") // rev 2
 
-	cs.tick()                           // candidateRev = 2
+	cs.tick(false)                      // candidateRev = 2
 	mustPut(t, cs.propose, "key", "v3") // rev 3
-	cs.tick()                           // compacts to rev 2
+	cs.tick(false)                      // compacts to rev 2
 
-	// rev 1 is now below the compaction point — must be rejected
+	// rev 1 must be rejected
 	r := cs.store.(*mvcc.KVStore).NewReader()
 	_, _, _, err := r.Range([]byte("key"), nil, 1, 0)
 	require.ErrorIs(t, err, kv.ErrCompacted)
@@ -353,18 +365,18 @@ func Test_CompactionScheduler_OldRevisionBecomesUnreadable(t *testing.T) {
 
 func Test_CompactionScheduler_SupersededRevisionGone_LatestRetained(t *testing.T) {
 	ft := util.NewFakeTicker().(*util.FakeTicker)
-	cs := newTestScheduler(t, 2, ft, true)
+	cs := newTestScheduler(t, 2, ft, true, nil)
 	loop(t, cs)
 
 	mustPut(t, cs.propose, "a", "v1") // rev 1
 	mustPut(t, cs.propose, "a", "v2") // rev 2 supersedes v1
 	mustPut(t, cs.propose, "b", "v1") // rev 3
 
-	cs.tick() // candidateRev = 0
+	cs.tick(false) // candidateRev = 0
 
-	cs.tick()                         // candidateRev = 3
+	cs.tick(false)                    // candidateRev = 3
 	mustPut(t, cs.propose, "c", "v1") // rev 4
-	cs.tick()                         // compacts to rev 3
+	cs.tick(false)                    // compacts to rev 3
 
 	_, lastCompactedRev := cs.store.Revisions()
 	t.Log("lastCompactedRev =", lastCompactedRev)
@@ -373,17 +385,14 @@ func Test_CompactionScheduler_SupersededRevisionGone_LatestRetained(t *testing.T
 
 	r := cs.store.(*mvcc.KVStore).NewReader()
 
-	// 1 is below compaction rev
 	_, _, _, err = r.Range([]byte("a"), nil, 1, 0)
-	require.ErrorIs(t, err, kv.ErrCompacted)
+	require.ErrorIs(t, err, kv.ErrCompacted, "1 is below compaction rev")
 
-	//2 is also below compaction rev
 	_, _, _, err = r.Range([]byte("a"), nil, 2, 0)
-	require.ErrorIs(t, err, kv.ErrCompacted)
+	require.ErrorIs(t, err, kv.ErrCompacted, "expected 2 is also below compaction rev")
 
-	// current read still returns latest value
 	entries, _, _, err := r.Range([]byte("a"), nil, 0, 0)
-	require.NoError(t, err)
+	require.NoError(t, err, "expected current read still returns latest value")
 	require.Equal(t, "v2", string(entries[0].Value))
 
 	entries, _, _, err = r.Range([]byte("b"), nil, 0, 0)
@@ -393,15 +402,170 @@ func Test_CompactionScheduler_SupersededRevisionGone_LatestRetained(t *testing.T
 
 func Test_CompactionScheduler_ThresholdNotMet_NoCompaction(t *testing.T) {
 	ft := util.NewFakeTicker().(*util.FakeTicker)
-	cs := newTestScheduler(t, 100, ft, true)
+	cs := newTestScheduler(t, 100, ft, true, nil)
 
 	mustPut(t, cs.propose, "a", "1")
 	mustPut(t, cs.propose, "b", "2")
 
-	cs.tick() // candidateRev = 2
+	cs.tick(false) // candidateRev = 2
 	mustPut(t, cs.propose, "c", "3")
-	cs.tick()
+	cs.tick(false)
 
 	_, compacted := cs.store.Revisions()
 	require.Equal(t, int64(0), compacted)
+}
+
+// test cases to check write pressure works correclty
+
+func Test_CompactionScheduler_WritePressure_TriggerFires(t *testing.T) {
+	ft := util.NewFakeTicker().(*util.FakeTicker)
+	cs := newTestScheduler(t, 0, ft, true, &Options{
+		IntervalMin: 30,
+		Threshold:   100,
+		MaxRevGap:   10,
+	})
+
+	var compactions atomic.Int64
+	oldPropose := cs.propose
+	cs.propose = func(ctx context.Context, cmd command.Command) (*command.Result, error) {
+		if cmd.Kind == command.KindCompact {
+			compactions.Add(1)
+		}
+		return oldPropose(ctx, cmd)
+	}
+
+	loop(t, cs)
+	time.Sleep(10 * time.Millisecond)
+
+	for i := range cs.opts.MaxRevGap * 2 {
+		mustPut(t, oldPropose, fmt.Sprintf("key%d", i), "bar")
+	}
+
+	// process writes, writePressureC and compaction
+	time.Sleep(100 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		_, compacted := cs.store.Revisions()
+		t.Log("compacted =", compacted)
+		return compacted > 0
+	}, time.Second, 10*time.Millisecond)
+
+}
+
+func Test_CompactionScheduler_WritePressure_IgnoredAsNonLeader(t *testing.T) {
+	ft := util.NewFakeTicker().(*util.FakeTicker)
+	cs := newTestScheduler(t, 0, ft, true, &Options{
+		IntervalMin: 30,
+		Threshold:   100,
+		MaxRevGap:   10,
+	})
+	cs.isLeader = func() bool { return false }
+
+	var compactions atomic.Int64
+	oldPropose := cs.propose
+	cs.propose = func(ctx context.Context, cmd command.Command) (*command.Result, error) {
+		if cmd.Kind == command.KindCompact {
+			compactions.Add(1)
+		}
+		return oldPropose(ctx, cmd)
+	}
+
+	loop(t, cs)
+	time.Sleep(10 * time.Millisecond)
+
+	for i := range cs.opts.MaxRevGap * 4 {
+		mustPut(t, oldPropose, fmt.Sprintf("key%d", i), "bar")
+	}
+
+	// process writes, writePressureC and compaction
+	time.Sleep(100 * time.Millisecond)
+
+	time.Sleep(100 * time.Millisecond)
+	_, compacted := cs.store.Revisions()
+	require.Equal(t, int64(0), compacted, "non-leader should not compact even under write pressure")
+}
+
+func Test_CompactionScheduler_WritePressure_NoDuplicateSignals(t *testing.T) {
+	opts := Options{
+		Threshold:   2,
+		IntervalMin: 30,
+		MaxRevGap:   5,
+	}
+	cs := newTestScheduler(t, 10, util.NewFakeTicker(), true, &opts)
+
+	for i := range 50 {
+		mustPut(t, cs.propose, fmt.Sprintf("key-%d", i), "bar")
+	}
+
+	require.LessOrEqual(t, len(cs.writePressureC), 1,
+		"writePressureC should never have more than one pending signal")
+}
+
+func Test_CompactionScheduler_NormalInterval_WhenGapIsSmall(t *testing.T) {
+	opts := Options{
+		Threshold:   2,
+		IntervalMin: 30,
+		MaxRevGap:   100, // high enough
+	}
+	ft := util.NewFakeTicker().(*util.FakeTicker)
+	cs := newTestScheduler(t, 0, ft, true, &opts)
+	cs.ctx = t.Context() // needed if we dont have loop
+
+	mustPut(t, cs.propose, "a", "v1") // rev 1
+	mustPut(t, cs.propose, "b", "v1") // rev 2
+	mustPut(t, cs.propose, "c", "v1") // rev 3
+
+	require.Equal(t, 0, len(cs.writePressureC), "no write pressure triggered when gap is small")
+
+	cs.tick(false) // first empty tick
+	_, compacted := cs.store.Revisions()
+	require.Equal(t, int64(0), compacted)
+
+	mustPut(t, cs.propose, "d", "v1") // rev 4
+
+	cs.tick(false)
+	_, compacted = cs.store.Revisions()
+	require.Equal(t, int64(3), compacted)
+
+	require.Equal(t, 0, len(cs.writePressureC))
+}
+
+func Test_CompactionScheduler_BothIntervalAndBackpressure_WorkTogether(t *testing.T) {
+	opts := Options{
+		Threshold:   2,
+		IntervalMin: 30,
+		MaxRevGap:   5,
+	}
+	ft := util.NewFakeTicker().(*util.FakeTicker)
+	cs := newTestScheduler(t, 0, ft, true, &opts)
+	cs.ctx = t.Context() // needed if we dont have loop
+
+	// phase 1: normal periodic tick while gap is small
+	mustPut(t, cs.propose, "a", "v1") // rev 1
+	mustPut(t, cs.propose, "b", "v1") // rev 2
+	mustPut(t, cs.propose, "c", "v1") // rev 3
+
+	require.Equal(t, 0, len(cs.writePressureC), "gap=3 < MaxRevGap=5, no urgent signal yet")
+
+	cs.tick(false) // tick 1: records candidateRev=3, no compaction
+	cs.tick(false) // tick 2: compacts to 3
+
+	_, compacted := cs.store.Revisions()
+	require.Equal(t, int64(3), compacted, "periodic path should have compacted")
+
+	// phase 2: burst of writes exceeds MaxRevGap, urgent path takes over
+	// compacted=3, so gap reaches MaxRevGap=5 at rev 3+5=8
+	for i := range 5 {
+		mustPut(t, cs.propose, fmt.Sprintf("burst-%d", i), "v1")
+	}
+
+	// record new candidateRev without compacting
+	cs.tick(false)
+	require.Equal(t, 1, len(cs.writePressureC), "gap exceeded MaxRevGap, urgent signal expected")
+
+	// drain the signal and run a forced tick, as the run loop would
+	<-cs.writePressureC
+	cs.tick(true)
+
+	_, compacted = cs.store.Revisions()
+	require.Greater(t, compacted, int64(3), "urgent path should have advanced compactedRev beyond periodic result")
 }

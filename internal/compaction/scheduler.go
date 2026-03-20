@@ -13,13 +13,21 @@ import (
 )
 
 const (
-	DefaultThreshold   int64 = 10
-	DefaultIntervalMin int64 = 30
+	DefaultThreshold   = 10
+	DefaultIntervalMin = 30
+	DefaultMaxRevGap   = 10
 )
 
 type Options struct {
 	Threshold   int64
 	IntervalMin int64
+	MaxRevGap   int64
+}
+
+var DefaultOptions = Options{
+	Threshold:   DefaultThreshold,
+	IntervalMin: DefaultIntervalMin,
+	MaxRevGap:   DefaultMaxRevGap,
 }
 
 func (co *Options) Validate() error {
@@ -29,45 +37,47 @@ func (co *Options) Validate() error {
 	if co.IntervalMin <= 0 {
 		return errors.New("compactor interval_min must be positive")
 	}
+	if co.MaxRevGap <= 0 {
+		return errors.New("compactor max_rev_gap must be positive")
+	}
 	return nil
 }
 
 type CompactionScheduler struct {
-	threshold    int64
-	store        mvcc.SmartRevisionGetter
-	ticker       util.Ticker
-	running      atomic.Bool
-	propose      util.ProposeFunc
-	isLeader     util.IsLeaderFunc
-	candidateRev int64
-	leadershipC  chan bool
-	ctx          context.Context
-	cancel       context.CancelFunc
-	logger       *slog.Logger
+	opts           Options
+	store          mvcc.SmartRevisionGetter
+	ticker         util.Ticker
+	running        atomic.Bool
+	propose        util.ProposeFunc
+	isLeader       util.IsLeaderFunc
+	candidateRev   int64
+	leadershipC    chan bool
+	writePressureC chan struct{}
+	ctx            context.Context
+	cancel         context.CancelFunc
+	logger         *slog.Logger
 }
 
 func NewScheduler(logger *slog.Logger, store mvcc.SmartRevisionGetter, propose util.ProposeFunc, isLeader util.IsLeaderFunc, opts *Options) *CompactionScheduler {
-	var threshold, intervalMin int64
-
+	var o Options
 	if opts != nil {
-		threshold = opts.Threshold
-		intervalMin = opts.IntervalMin
+		o = *opts
 	} else {
-		threshold = DefaultThreshold
-		intervalMin = DefaultIntervalMin
+		o = DefaultOptions
 	}
 
 	return &CompactionScheduler{
-		threshold: threshold,
-		store:     store,
-		ticker:    util.NewRealTicker(time.Duration(intervalMin) * time.Minute),
-		propose:   propose,
-		isLeader:  isLeader,
+		opts:     o,
+		store:    store,
+		ticker:   util.NewRealTicker(time.Duration(o.IntervalMin) * time.Minute),
+		propose:  propose,
+		isLeader: isLeader,
 		// buffer of one, then use drain-then-send:
 		// we dont want to block the observer with stale values
 		// so we drain before sending the latest
-		leadershipC: make(chan bool, 1),
-		logger:      logger.With("component", "compation_scheduler"),
+		leadershipC:    make(chan bool, 1),
+		writePressureC: make(chan struct{}, 1),
+		logger:         logger.With("component", "compation_scheduler"),
 	}
 }
 
@@ -85,6 +95,16 @@ func (cs *CompactionScheduler) OnLeadershipLost() {
 	default:
 	}
 	cs.leadershipC <- false
+}
+
+func (cs *CompactionScheduler) OnWrite(currentRev int64) {
+	_, compactRev := cs.store.Revisions()
+	if currentRev-compactRev >= cs.opts.MaxRevGap {
+		select {
+		case cs.writePressureC <- struct{}{}:
+		default:
+		}
+	}
 }
 
 func (cs *CompactionScheduler) Run(ctx context.Context) {
@@ -123,13 +143,17 @@ func (cs *CompactionScheduler) run() {
 		case <-cs.ctx.Done():
 			cs.logger.Info("context cancelled, stopping main loop", "cause", cs.ctx.Err())
 			return
+		case <-cs.writePressureC:
+			if tickerC != nil {
+				cs.tick(true)
+			}
 		case <-tickerC:
-			cs.tick()
+			cs.tick(false)
 		}
 	}
 }
 
-func (cs *CompactionScheduler) tick() {
+func (cs *CompactionScheduler) tick(force bool) {
 	currentRev, lastCompacted := cs.store.Revisions()
 	prev := cs.candidateRev
 	cs.candidateRev = currentRev.Main
@@ -139,11 +163,11 @@ func (cs *CompactionScheduler) tick() {
 		return
 	}
 
-	if currentRev.Main-lastCompacted < cs.threshold {
+	if !force && currentRev.Main-lastCompacted < cs.opts.Threshold {
 		cs.logger.Info("compaction threshold not met, continuing",
 			"current_rev", currentRev.Main,
 			"last_compacted_rev", lastCompacted,
-			"threshold", cs.threshold,
+			"threshold", cs.opts.Threshold,
 		)
 		return
 	}
@@ -155,54 +179,38 @@ func (cs *CompactionScheduler) tick() {
 		},
 	}
 
+	l := cs.logger.With(
+		"current_rev", currentRev.Main,
+		"last_compacted_rev", lastCompacted,
+		"candidate_rev", cmd.Compact.TargetRev,
+	)
+
 	result, err := cs.propose(cs.ctx, cmd)
 	if err != nil {
-		cs.logger.Warn("compaction error: failed to propose compaction",
-			"current_rev", currentRev.Main,
-			"last_compacted_rev", lastCompacted,
-			"error", err,
-		)
+		l.Warn("compaction error: failed to propose compaction", "error", err)
 		return
 	}
 
 	if result.Error != nil {
-		cs.logger.Warn("compaction error",
-			"current_rev", currentRev.Main,
-			"last_compacted_rev", lastCompacted,
-			"error", result.Error,
-		)
+		l.Warn("compaction error", "error", result.Error)
 		return
 	}
 
 	if result.Compact == nil {
-		cs.logger.Error("compaction error: compact result was nil",
-			"current_rev", currentRev.Main,
-			"last_compacted_rev", lastCompacted,
-		)
+		l.Error("compaction error: compact result was nil")
 		return
 	}
 
 	if result.Compact.Err != nil {
-		cs.logger.Warn("compaction error",
-			"current_rev", currentRev.Main,
-			"last_compacted_rev", lastCompacted,
-			"error", result.Compact.Err,
-		)
+		l.Warn("compaction error", "error", result.Compact.Err)
 		return
 	}
 
 	select {
 	case <-result.Compact.DoneC:
-		cs.logger.Info("compaction finished",
-			"current_rev", currentRev.Main,
-			"new_compacted_rev", prev,
-			"last_compacted_rev", lastCompacted,
-		)
+		l.Info("compaction finished")
 	case <-cs.ctx.Done():
-		cs.logger.Info("context cancelled while waiting for compaction to finish",
-			"current_rev", currentRev.Main,
-			"last_compacted_rev", lastCompacted,
-		)
+		l.Info("context cancelled while waiting for compaction to finish")
 	}
 }
 

@@ -125,12 +125,12 @@ Hello world
     - [ ] metrics
         - meaningful grafana
         - figure out where and how to collect every kind of metric
-    - [ ] combined compactor
-        - [ ] periodic ticks, candidateRev = rev at last tick
-        - [ ] threshold under which we shouldnt compact
-        - [ ] BUT if were between periods, but writes have accumulated fast -> lets compact
-        - [ ] use util.Ticker
-        - [ ] instead of calling compactable.Compact(), propose a command.CompactCmd to the fsm and let fsm.store handle it
+    - [x] combined compactor
+        - [x] periodic ticks, candidateRev = rev at last tick
+        - [x] threshold under which we shouldnt compact
+        - [x] BUT if were between periods, but writes have accumulated fast -> lets compact
+        - [x] use util.Ticker
+        - [x] instead of calling compactable.Compact(), propose a command.CompactCmd to the fsm and let fsm.store handle it
 
 # CHORES
 - [ ] use require in every test insteaf of if err != nil ...
