@@ -78,6 +78,10 @@ func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*No
 		return nil, fmt.Errorf("failed to setup services: %v", err)
 	}
 
+	if err := n.registerObservers(); err != nil {
+		return nil, fmt.Errorf("failed to register observers: %v", err)
+	}
+
 	n.httpServer = transport.NewHTTPServer(
 		logger,
 		cfg.Me.HttpPort,
@@ -176,7 +180,7 @@ func (n *Node) Shutdown(ctx context.Context) error {
 	timeout, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// 0.1) deregister observer
+	// 0.1) deregister raft observer
 	n.raft.DeregisterObserver(n.observer)
 	n.raftEventWatcher.Stop()
 
@@ -237,10 +241,6 @@ func (n *Node) initBackgroundRoutines(interval time.Duration, opts *compaction.O
 	n.checkpointScheduler = lease.NewCheckpointScheduler(n.logger, n.leaseMgr, interval, n.proposeFunc, n.isLeaderFunc)
 	n.expiryLoop = lease.NewExpiryLoop(n.logger, n.leaseMgr, n.proposeFunc, n.isLeaderFunc)
 	n.compactionScheduler = compaction.NewScheduler(n.logger, n.kvstore, n.proposeFunc, n.isLeaderFunc, opts)
-
-	n.raftEventWatcher.RegisterLeadershipObservers(n.checkpointScheduler, n.expiryLoop, n.compactionScheduler)
-	n.raft.RegisterObserver(n.observer)
-
 	return nil
 }
 
@@ -249,5 +249,12 @@ func (n *Node) initServices(cfg *config.Config) error {
 	n.leaseService = service.NewLeaseService(n.logger, n.proposeFunc)
 	n.kvService = service.NewKVService(n.logger, n.kvstore, n.peerService, n.proposeFunc)
 	n.clusterService = service.NewClusterService(n.raft, cfg, n.logger)
+	return nil
+}
+
+func (n *Node) registerObservers() error {
+	n.fsm.RegisterObservers(n.compactionScheduler)
+	n.raftEventWatcher.RegisterLeadershipObservers(n.checkpointScheduler, n.expiryLoop, n.compactionScheduler)
+	n.raft.RegisterObserver(n.observer)
 	return nil
 }

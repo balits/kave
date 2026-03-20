@@ -21,23 +21,22 @@ var (
 )
 
 type Fsm struct {
-	engine *mvcc.Engine
-
-	lm      *lease.LeaseManager
-	store   *mvcc.KVStore
-	logger  *slog.Logger
-	_nodeID string // hack to set Result.Header.NodeID
-
-	metrics *metrics.RaftMetrics
+	myID           string // hack to set Result.Header.NodeID
+	store          *mvcc.KVStore
+	engine         *mvcc.Engine
+	lm             *lease.LeaseManager
+	metrics        *metrics.RaftMetrics
+	writeObservers []WriteObserver
+	logger         *slog.Logger
 }
 
 func New(logger *slog.Logger, store *mvcc.KVStore, lm *lease.LeaseManager, nodeID string) *Fsm {
 	f := &Fsm{
-		engine:  mvcc.NewEngine(store, lm),
-		lm:      lm,
-		store:   store,
-		logger:  logger.With("component", "fsm"),
-		_nodeID: nodeID,
+		engine: mvcc.NewEngine(store, lm),
+		lm:     lm,
+		store:  store,
+		logger: logger.With("component", "fsm"),
+		myID:   nodeID,
 	}
 	return f
 }
@@ -50,6 +49,10 @@ func New(logger *slog.Logger, store *mvcc.KVStore, lm *lease.LeaseManager, nodeI
 // 2) fsm.metrics need raft
 func (f *Fsm) SetMetrics(m *metrics.RaftMetrics) {
 	f.metrics = m
+}
+
+func (f *Fsm) RegisterObservers(obs ...WriteObserver) {
+	f.writeObservers = append(f.writeObservers, obs...)
 }
 
 // Apply should be as fast as possible, therefore:
@@ -78,14 +81,22 @@ func (f *Fsm) Apply(log *raft.Log) interface{} {
 		res = f.applyLease(cmd)
 	case command.KindCompact:
 		res = f.applyCompaction(cmd)
+	case "":
+		panic("No command kind specified")
 	default:
-		panic(fmt.Sprintf("Unsupported command type: %v", cmd.Kind))
+		panic(fmt.Sprintf("Unsupported command kind: %v", cmd.Kind))
 	}
 
 	// res.Header = &Header{...} would override previous headers revision set by appyling commands
 	res.Header.RaftTerm = log.Term
 	res.Header.RaftIndex = log.Index
-	res.Header.NodeID = f._nodeID
+	res.Header.NodeID = f.myID
+
+	if res.Error == nil {
+		for _, o := range f.writeObservers {
+			o.OnWrite(res.Header.Revision)
+		}
+	}
 
 	return res
 }
