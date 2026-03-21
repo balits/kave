@@ -129,7 +129,7 @@ func (s *HttpServer) handleKvGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req api.RangeRequest
+	var req api.KvRangeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.logger.Error(jsonDecodeErrMsg, "error", err)
 		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)

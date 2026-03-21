@@ -68,6 +68,16 @@ func (l *Lease) DetachKey(key []byte) {
 	delete(l.keySet, LeasedKey(key))
 }
 
+func (l *Lease) KeySet() map[LeasedKey]struct{} {
+	l.keysMu.RLock()
+	defer l.keysMu.RUnlock()
+	copy := make(map[LeasedKey]struct{}, len(l.keySet))
+	for k, v := range l.keySet {
+		copy[k] = v
+	}
+	return copy
+}
+
 type LeasedKey = string
 
 func EncodeLease(l *Lease) ([]byte, error) {

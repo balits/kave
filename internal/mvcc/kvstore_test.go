@@ -26,12 +26,12 @@ func newTestKVStore(t *testing.T) *KVStore {
 		Dir:            t.TempDir(),
 		InitialBuckets: schema.AllBuckets,
 	})
+	t.Cleanup(func() { b.Close() })
 	return NewKVStore(reg, slog.Default(), b)
 }
 
 func Test_KVStoreRevisionInitial(t *testing.T) {
 	s := newTestKVStore(t)
-	defer s.Close()
 
 	currRev, _ := s.Revisions()
 	if currRev.Main != 0 || currRev.Sub != 0 {
@@ -41,7 +41,6 @@ func Test_KVStoreRevisionInitial(t *testing.T) {
 
 func Test_KVStoreRevisionAfterWrites(t *testing.T) {
 	s := newTestKVStore(t)
-	defer s.Close()
 
 	w := s.NewWriter()
 	w.Put([]byte("a"), []byte("1"), 0)
@@ -59,7 +58,6 @@ func Test_KVStoreRevisionAfterWrites(t *testing.T) {
 
 func Test_KVStoreUpdateRaftMeta(t *testing.T) {
 	s := newTestKVStore(t)
-	defer s.Close()
 
 	s.UpdateRaftMeta(100, 5)
 	if s.applyIndex != 100 {
@@ -72,7 +70,6 @@ func Test_KVStoreUpdateRaftMeta(t *testing.T) {
 
 func Test_KVStoreSnapshot(t *testing.T) {
 	s := newTestKVStore(t)
-	defer s.Close()
 
 	snap := s.Snapshot()
 	if snap.store != s {
@@ -82,7 +79,6 @@ func Test_KVStoreSnapshot(t *testing.T) {
 
 func Test_KVStoreFullLifecycle(t *testing.T) {
 	s := newTestKVStore(t)
-	defer s.Close()
 
 	w := s.NewWriter()
 	w.Put([]byte("key1"), []byte("val1"), 0)
@@ -127,7 +123,6 @@ func Test_KVStoreFullLifecycle(t *testing.T) {
 
 func Test_KVStoreVersionTracking(t *testing.T) {
 	s := newTestKVStore(t)
-	defer s.Close()
 
 	for range 5 {
 		w := s.NewWriter()
@@ -153,7 +148,6 @@ func Test_KVStoreVersionTracking(t *testing.T) {
 
 func Test_KVStoreSubRevisions(t *testing.T) {
 	s := newTestKVStore(t)
-	defer s.Close()
 
 	w := s.NewWriter()
 	w.Put([]byte("a"), []byte("1"), 0)
@@ -186,7 +180,6 @@ func Test_KVStoreSubRevisions(t *testing.T) {
 
 func Test_KVStoreMultipleWritersSameKey(t *testing.T) {
 	s := newTestKVStore(t)
-	defer s.Close()
 
 	w := s.NewWriter()
 	w.Put([]byte("k"), []byte("v1"), 0)
@@ -223,12 +216,10 @@ func Test_KVStoreRestoreInmem(t *testing.T) {
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	}))
-	defer s.Close()
 	s2 := NewKVStore(reg2, slog.Default(), backend.New(reg1, storage.StorageOptions{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	}))
-	defer s2.Close()
 
 	s.UpdateRaftMeta(10, 3)
 	w := s.NewWriter()
@@ -256,7 +247,6 @@ func Test_KVStoreRestoreInmem(t *testing.T) {
 }
 
 func Test_KVStoreRestoreBoltdb(t *testing.T) {
-	// Each store needs its own directory — BoltDB holds a file lock
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
 
@@ -265,23 +255,19 @@ func Test_KVStoreRestoreBoltdb(t *testing.T) {
 
 	b1 := backend.New(prometheus.NewRegistry(), opts1)
 	s1 := NewKVStore(prometheus.NewRegistry(), slog.Default(), b1)
-	defer s1.Close()
 
 	s1.UpdateRaftMeta(10, 3)
 	w := s1.NewWriter()
 	w.Put([]byte("k"), []byte("v"), 0)
 	w.End()
 
-	// Snapshot into a buffer — don't touch files
 	var buf bytes.Buffer
 	snap := s1.Snapshot()
 	sink := &sink{buf: &buf} // implements raft.SnapshotSink
 	require.NoError(t, snap.Persist(sink))
 
-	// Restore into a fresh store
 	b2 := backend.New(prometheus.NewRegistry(), opts2)
 	s2 := NewKVStore(prometheus.NewRegistry(), slog.Default(), b2)
-	defer s2.Close()
 
 	require.NoError(t, s2.Restore(&buf))
 
@@ -301,7 +287,6 @@ func Test_KVStoreRestoreBoltdb(t *testing.T) {
 
 func Test_KVStoreRangeRejectsCompactedRev(t *testing.T) {
 	s := newTestKVStore(t)
-	defer s.Close()
 
 	w := s.NewWriter()
 	w.Put([]byte("k"), []byte("v"), 0)
@@ -320,7 +305,6 @@ func Test_KVStoreRangeRejectsCompactedRev(t *testing.T) {
 
 func Test_KVStoreCompactDeletesEntries(t *testing.T) {
 	s := newTestKVStore(t)
-	defer s.Close()
 
 	// Write key at revisions 1, 2, 3
 	for i := range 3 {
@@ -351,7 +335,6 @@ func Test_KVStoreCompactDeletesEntries(t *testing.T) {
 		return nil
 	})
 
-	// Only {Main:2} should remain in the compacted range — {Main:1} must be deleted
 	require.Len(t, found, 1, "expected exactly 1 entry retained in compacted range, got: %v", found)
 	require.Equal(t, int64(2), found[0].Main)
 }

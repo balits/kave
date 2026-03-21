@@ -114,7 +114,7 @@ func main() {
 			LeaseID:     leaseID,
 			PrevEntry:   prevEntry,
 			IgnoreValue: ignoreValue,
-			RenewLease:  renewLease,
+			IgnoreLease: renewLease,
 		}
 	case "del":
 		method = "DELETE"

@@ -4,79 +4,25 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/balits/kave/internal/types"
 	"github.com/balits/kave/internal/types/api"
 )
 
+// A RangeCmd alparancs a kulcsok egy tartományát olvassa, ahol a tartomány [Key, End) formában van megadva,
+// és ha End nil akkor csak a Key-t olvassuk
+type RangeCmd = api.KvRangeRequest
+
+// A RangeResult egy Range művelet eredménye
+type RangeResult = api.KvRangeResponseNoHeader
+
 // A PutCmd alparancs a PUT művelethez szükséges adatokat tartalmazza
-type PutCmd struct {
-	Key   []byte `json:"key"`
-	Value []byte `json:"value"`
+type PutCmd = api.KvPutRequest
 
-	// Az LeaseID egy lease hozzáadásához szükséges, amennyiben 0, akkor nem lesz lease-e
-	LeaseID int64 `json:"lease_id,omitempty"`
-
-	// A PrevEntry kapcsolóval visszaküldjök a kulcs előző értékét, ami egy extra olvasást igényel
-	PrevEntry bool `json:"prev_kv,omitempty"`
-
-	// Az IgnoreValue kapcsolóval frissíthetjük a lease-et egy kulcson anélkül, hogy megváltoztatnánk az értékét
-	IgnoreValue bool `json:"ignore_value,omitempty"`
-
-	// Az RenewLease kapcsolóval újrahasznosíthatjuk a meglévő lease-et
-	RenewLease bool `json:"renew_lease,omitempty"`
-}
-
-func (c *PutCmd) Check() error {
-	if len(c.Key) == 0 {
-		return errors.New("key is required")
-	}
-	if len(c.Value) == 0 {
-		return errors.New("value is required")
-	}
-	if c.LeaseID < 0 {
-		return errors.New("lease id cannot be negative")
-	}
-	if c.IgnoreValue && c.RenewLease {
-		return errors.New("ignore_value and renew_lease cannot be both true")
-	}
-	if c.RenewLease && c.LeaseID != 0 {
-		return errors.New("lease_id must not be set when renew_lease is true")
-	}
-
-	return nil
-}
-
-type PutResult struct {
-	// PrevEntry az előző értéket tartalmazza, ha PrevEntry kapcsolóval kértük, egyébként nil
-	PrevEntry *types.KvEntry `json:"prev_entry,omitempty"`
-}
+type PutResult = api.KvPutResponseNoHeader
 
 // A DeleteCmd alparancs a DELETE művelethez szükséges adatokat tartalmazza
-type DeleteCmd struct {
-	// A kulcs
-	Key []byte `json:"key"`
+type DeleteCmd = api.KvDeleteRequest
 
-	// Az opcionális End a [Key, End) tartományt definiálja, és ha nem nil akkor a [Key, End) tartományt töröljük
-	End []byte `json:"end,omitempty"`
-
-	// A PrevEntries kapcsolóval visszaküldjök a törölt kulcs előző értékét, ami egy extra olvasást igényel
-	PrevEntries bool `json:"prev_entries,omitempty"`
-}
-
-func (c *DeleteCmd) Check() error {
-	if len(c.Key) == 0 {
-		return errors.New("key is required")
-	}
-	return nil
-}
-
-type DeleteResult struct {
-	// NumDeleted az eltávolított kulcsok számát tartalmazza
-	NumDeleted int64 `json:"num_deleted"`
-
-	// PrevEntries az eltávolított kulcsok előző értékeit tartalmazza, ha PrevEntry kapcsolóval kértük, egyébként nil
-	PrevEntries []types.KvEntry `json:"prev_entries,omitempty"`
-}
+type DeleteResult = api.KvDeleteResponseNoHeader
 
 type TxnCmd struct {
 	Comparisons []Comparison `json:"comparisons"`
@@ -156,14 +102,3 @@ type TxnOpResult struct {
 	Delete *DeleteResult `json:"delete,omitempty"`
 	Range  *RangeResult  `json:"range,omitempty"`
 }
-
-// A RangeCmd egy olvasási művelet, ami egy tranzakcióban szereplhet
-// NEM jelenhet meg felső szintű Command-ként, mert az olvasások nem mennek a raft-on keresztül
-// De egy tranzakcióban az olvasásnak ugyanabban a revízióban kell történnie, mint az írások, az atomicitás miatt
-// Így a raft-on megy keresztül a tranzakció többi részével
-//
-// A RangeCmd a kulcsok egy tartományát olvassa, ahol a tartomány [Key, End) formában van megadva, és ha End nil akkor csak a Key-t olvassuk
-type RangeCmd = api.RangeRequest
-
-// A RangeResult egy Range művelet eredménye
-type RangeResult = api.RangeResponseNoHeader

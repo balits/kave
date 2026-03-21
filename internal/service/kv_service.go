@@ -14,9 +14,9 @@ import (
 )
 
 type KVService interface {
-	Range(ctx context.Context, req api.RangeRequest) (*api.RangeResponse, error)
-	Put(ctx context.Context, subcmd command.PutCmd) (*command.Result, error)
-	Delete(ctx context.Context, subcmd command.DeleteCmd) (*command.Result, error)
+	Range(ctx context.Context, req api.KvRangeRequest) (*api.KvRangeResponse, error)
+	Put(ctx context.Context, req api.KvPutRequest) (*api.KvPutResponse, error)
+	Delete(ctx context.Context, req api.KvDeleteRequest) (*api.KvDeleteResponse, error)
 
 	Ping() error
 }
@@ -37,9 +37,9 @@ func NewKVService(logger *slog.Logger, store *mvcc.KVStore, peerSvc PeerService,
 	}
 }
 
-func (s *kvSvc) Range(ctx context.Context, req api.RangeRequest) (*api.RangeResponse, error) {
+func (s *kvSvc) Range(ctx context.Context, req api.KvRangeRequest) (*api.KvRangeResponse, error) {
 	s.logger.WithGroup("request").
-		Debug("Range command received",
+		Info("Range request received",
 			"key", req.Key,
 			"end", req.End,
 			"limit", req.Limit,
@@ -51,7 +51,7 @@ func (s *kvSvc) Range(ctx context.Context, req api.RangeRequest) (*api.RangeResp
 
 	if !req.Serializable {
 		if err := s.peerSvc.VerifyLeader(ctx); err != nil {
-			return nil, fmt.Errorf("failed to verify leader: %v", err)
+			return nil, fmt.Errorf("range failed: failed to verify leader: %v", err)
 		}
 	}
 
@@ -65,7 +65,7 @@ func (s *kvSvc) Range(ctx context.Context, req api.RangeRequest) (*api.RangeResp
 		return nil, fmt.Errorf("range failed: %v", err)
 	}
 
-	res := new(api.RangeResponse)
+	res := new(api.KvRangeResponse)
 	res.Count = count
 	if !req.CountOnly {
 		res.Entries = entries
@@ -83,20 +83,20 @@ func (s *kvSvc) Range(ctx context.Context, req api.RangeRequest) (*api.RangeResp
 	return res, nil
 }
 
-func (s *kvSvc) Put(ctx context.Context, subcmd command.PutCmd) (*command.Result, error) {
-	s.logger.WithGroup("cmd").
-		Debug("Put command received",
-			"key", subcmd.Key,
-			"value", subcmd.Value,
-			"prevEntry", subcmd.PrevEntry,
-			"leaseID", subcmd.LeaseID,
-			"ignoreValue", subcmd.IgnoreValue,
-			"renewLease", subcmd.RenewLease,
+func (s *kvSvc) Put(ctx context.Context, req api.KvPutRequest) (*api.KvPutResponse, error) {
+	s.logger.WithGroup("request").
+		Info("Put request received",
+			"key", req.Key,
+			"value", req.Value,
+			"prevEntry", req.PrevEntry,
+			"leaseID", req.LeaseID,
+			"ignoreValue", req.IgnoreValue,
+			"renewLease", req.IgnoreLease,
 		)
 
 	cmd := command.Command{
 		Kind: command.KindPut,
-		Put:  &subcmd,
+		Put:  &req,
 	}
 
 	result, err := s.proposeFunc(ctx, cmd)
@@ -109,20 +109,24 @@ func (s *kvSvc) Put(ctx context.Context, subcmd command.PutCmd) (*command.Result
 	if result.Put == nil {
 		return nil, fmt.Errorf("put failed: %v", fsm.ErrNilApplyResult)
 	}
-	return result, nil
+
+	return &api.KvPutResponse{
+		Header:                result.Header,
+		KvPutResponseNoHeader: *result.Put,
+	}, nil
 }
 
-func (s *kvSvc) Delete(ctx context.Context, subcmd command.DeleteCmd) (*command.Result, error) {
-	s.logger.WithGroup("cmd").
-		Debug("Delete command received",
-			"key", subcmd.Key,
-			"end", subcmd.End,
-			"prevEntries", subcmd.PrevEntries,
+func (s *kvSvc) Delete(ctx context.Context, req api.KvDeleteRequest) (*api.KvDeleteResponse, error) {
+	s.logger.WithGroup("request").
+		Info("Delete request received",
+			"key", req.Key,
+			"end", req.End,
+			"prevEntries", req.PrevEntries,
 		)
 
 	cmd := command.Command{
 		Kind:   command.KindDelete,
-		Delete: &subcmd,
+		Delete: &req,
 	}
 
 	result, err := s.proposeFunc(ctx, cmd)
@@ -135,7 +139,11 @@ func (s *kvSvc) Delete(ctx context.Context, subcmd command.DeleteCmd) (*command.
 	if result.Delete == nil {
 		return nil, fmt.Errorf("delete failed: %v", fsm.ErrNilApplyResult)
 	}
-	return result, nil
+
+	return &api.KvDeleteResponse{
+		Header:                   result.Header,
+		KvDeleteResponseNoHeader: *result.Delete,
+	}, nil
 }
 
 func (s *kvSvc) Ping() error {

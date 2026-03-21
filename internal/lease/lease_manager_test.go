@@ -30,10 +30,8 @@ func newTestLm(t *testing.T) *LeaseManager {
 		InitialBuckets: schema.AllBuckets,
 	})
 	store := mvcc.NewKVStore(reg, logger, backend)
-	t.Cleanup(func() {
-		store.Close()
-	})
-	return NewLeaseManager(reg, logger, store, backend)
+	t.Cleanup(func() { backend.Close() })
+	return NewManager(reg, logger, store, backend)
 }
 
 func Test_LeaseManager_Grant(t *testing.T) {

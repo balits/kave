@@ -1,7 +1,6 @@
 package mvcc
 
 import (
-	"bytes"
 	"log/slog"
 	"os"
 	"testing"
@@ -11,8 +10,14 @@ import (
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
+	"github.com/stretchr/testify/require"
 )
 
+func intPtr(v int64) *int64 { return &v }
+
+// fakeAttacher is kept only for tests that specifically need to assert
+// whether AttachKey / DetachKey were called. For everything else use
+// the real LeaseManager via newTestEngineWithLeases.
 type fakeAttacher struct {
 	attached []attachCall
 	detached []detachCall
@@ -57,15 +62,8 @@ func (f *fakeAttacher) wasDetached(leaseID int64, key []byte) bool {
 	return false
 }
 
-// newTestEngineWithAttacher creates an Engine wired with a fakeAttacher.
-func newTestEngineWithAttacher() (*Engine, *KVStore, *fakeAttacher) {
-	e, s := newTestEngine()
-	fa := &fakeAttacher{}
-	e.attacher = fa
-	return e, s, fa
-}
-
-func newTestEngine() (*Engine, *KVStore) {
+func newTestEngine(t *testing.T) *Engine {
+	t.Helper()
 	reg := metrics.InitTestPrometheus()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	b := backend.New(reg, storage.StorageOptions{
@@ -73,260 +71,174 @@ func newTestEngine() (*Engine, *KVStore) {
 		InitialBuckets: schema.AllBuckets,
 	})
 	s := NewKVStore(reg, logger, b)
-	return &Engine{store: s}, s
+	t.Cleanup(func() { b.Close() })
+	return &Engine{store: s}
 }
 
-// ==================== Engine.Apply PUT ====================
+func newTestEngineWithAttacher(t *testing.T) (*Engine, *fakeAttacher) {
+	t.Helper()
+	e := newTestEngine(t)
+	fa := &fakeAttacher{}
+	e.attacher = fa
+	return e, fa
+}
 
 func Test_EngineApplyPut(t *testing.T) {
-	e, _ := newTestEngine()
-	defer e.store.Close()
+	e := newTestEngine(t)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
 		Put:  &command.PutCmd{Key: []byte("foo"), Value: []byte("bar")},
 	})
 
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Header.Revision != 1 {
-		t.Errorf("rev = %d, want 1", result.Header.Revision)
-	}
-	if result.Put == nil {
-		t.Fatal("Put result is nil")
-	}
-	if result.Put.PrevEntry != nil {
-		t.Error("PrevEntry should be nil when not requested")
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(1), result.Header.Revision)
+	require.NotNil(t, result.Put)
+	require.Nil(t, result.Put.PrevEntry)
 }
 
 func Test_EngineApplyPutMultiple(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}})
+	require.NoError(t, err)
+
+	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}})
+	require.NoError(t, err)
+
 	result, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("c"), Value: []byte("3")}})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
-	if result.Header.Revision != 3 {
-		t.Errorf("rev = %d, want 3", result.Header.Revision)
-	}
-	currRev, _ := s.Revisions()
-	if currRev.Main != 3 {
-		t.Errorf("store rev = %d, want 3", currRev.Main)
-	}
+	require.Equal(t, int64(3), result.Header.Revision)
+	currRev, _ := e.store.Revisions()
+	require.Equal(t, int64(3), currRev.Main)
 }
 
 func Test_EngineApplyPutOverwrite(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v2")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}})
+	require.NoError(t, err)
 
-	r := s.NewReader()
+	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v2")}})
+	require.NoError(t, err)
+
+	r := e.store.NewReader()
 	entries, _, _, _ := r.Range([]byte("k"), nil, 0, 0)
-	if len(entries) != 1 {
-		t.Fatalf("entries = %d, want 1", len(entries))
-	}
-	if !bytes.Equal(entries[0].Value, []byte("v2")) {
-		t.Errorf("value = %q, want %q", entries[0].Value, "v2")
-	}
+	require.Len(t, entries, 1)
+	require.Equal(t, []byte("v2"), entries[0].Value)
 }
 
 func Test_EngineApplyPutWithPrevEntry(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}})
+	require.NoError(t, err)
+
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
 		Put:  &command.PutCmd{Key: []byte("k"), Value: []byte("v2"), PrevEntry: true},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if result.Put == nil {
-		t.Fatal("Put result is nil")
-	}
-	if result.Put.PrevEntry == nil {
-		t.Fatal("PrevEntry should not be nil when requested")
-	}
-	if !bytes.Equal(result.Put.PrevEntry.Value, []byte("v1")) {
-		t.Errorf("PrevEntry.Value = %q, want %q", result.Put.PrevEntry.Value, "v1")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, result.Put)
+	require.NotNil(t, result.Put.PrevEntry)
+	require.Equal(t, []byte("v1"), result.Put.PrevEntry.Value)
 }
 
 func Test_EngineApplyPutWithPrevEntryNonExistent(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
 		Put:  &command.PutCmd{Key: []byte("new"), Value: []byte("val"), PrevEntry: true},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if result.Put.PrevEntry != nil {
-		t.Errorf("PrevEntry should be nil for new key, got %+v", result.Put.PrevEntry)
-	}
+	require.NoError(t, err)
+	require.Nil(t, result.Put.PrevEntry)
 }
 
-// ==================== Engine.Apply DELETE ====================
-
 func Test_EngineApplyDeleteSingleKey(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("foo"), Value: []byte("bar")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("foo"), Value: []byte("bar")}})
+	require.NoError(t, err)
+
 	result, err := e.ApplyWrite(command.Command{
 		Kind:   command.KindDelete,
 		Delete: &command.DeleteCmd{Key: []byte("foo")},
 	})
+	require.NoError(t, err)
+	require.NotNil(t, result.Delete)
+	require.Equal(t, int64(1), result.Delete.NumDeleted)
+	require.Equal(t, int64(2), result.Header.Revision)
 
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Delete == nil {
-		t.Fatal("Delete result is nil")
-	}
-	if result.Delete.NumDeleted != 1 {
-		t.Errorf("deleted = %d, want 1", result.Delete.NumDeleted)
-	}
-	if result.Header.Revision != 2 {
-		t.Errorf("rev = %d, want 2", result.Header.Revision)
-	}
 	entry := e.store.NewReader().Get([]byte("foo"), 0)
-	if entry != nil {
-		t.Error("expected key to be deleted, but it still exists")
-	}
+	require.Nil(t, entry)
 }
 
 func Test_EngineApplyDeleteNonExistent(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind:   command.KindDelete,
 		Delete: &command.DeleteCmd{Key: []byte("nope")},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if result.Delete.NumDeleted != 0 {
-		t.Errorf("deleted = %d, want 0", result.Delete.NumDeleted)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, result.Delete)
+	require.Equal(t, int64(0), result.Delete.NumDeleted)
 }
 
 func Test_EngineApplyDeleteRange(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("c"), Value: []byte("3")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("d"), Value: []byte("4")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	for _, kv := range [][]string{{"a", "1"}, {"b", "2"}, {"c", "3"}, {"d", "4"}} {
+		_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte(kv[0]), Value: []byte(kv[1])}})
+		require.NoError(t, err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind:   command.KindDelete,
 		Delete: &command.DeleteCmd{Key: []byte("b"), End: []byte("d")},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if result.Delete.NumDeleted != 2 {
-		t.Errorf("deleted = %d, want 2 (b and c)", result.Delete.NumDeleted)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, result.Delete)
+	require.Equal(t, int64(2), result.Delete.NumDeleted)
 }
 
 func Test_EngineApplyDeleteWithPrevEntries(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("x"), Value: []byte("xv")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("y"), Value: []byte("yv")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("x"), Value: []byte("xv")}})
+	require.NoError(t, err)
+	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("y"), Value: []byte("yv")}})
+	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind:   command.KindDelete,
 		Delete: &command.DeleteCmd{Key: []byte("x"), End: []byte("z"), PrevEntries: true},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if result.Delete.NumDeleted != 2 {
-		t.Errorf("deleted = %d, want 2", result.Delete.NumDeleted)
-	}
-	if len(result.Delete.PrevEntries) != 2 {
-		t.Fatalf("PrevEntries = %d, want 2", len(result.Delete.PrevEntries))
-	}
-	if !bytes.Equal(result.Delete.PrevEntries[0].Value, []byte("xv")) {
-		t.Errorf("PrevEntries[0].Value = %q, want %q", result.Delete.PrevEntries[0].Value, "xv")
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(2), result.Delete.NumDeleted)
+	require.Len(t, result.Delete.PrevEntries, 2)
+	require.Equal(t, []byte("xv"), result.Delete.PrevEntries[0].Value)
 }
 
 func Test_EngineApplyDeleteWithPrevEntriesNonExistent(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind:   command.KindDelete,
 		Delete: &command.DeleteCmd{Key: []byte("nope"), PrevEntries: true},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if result.Delete.NumDeleted != 0 {
-		t.Errorf("deleted = %d, want 0", result.Delete.NumDeleted)
-	}
-	if len(result.Delete.PrevEntries) != 0 {
-		t.Errorf("PrevEntries should be empty, got %d", len(result.Delete.PrevEntries))
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(0), result.Delete.NumDeleted)
+	require.Empty(t, result.Delete.PrevEntries)
 }
 
-// ==================== Engine.Apply TXN — success branch ====================
-
 func Test_EngineApplyTxn_SuccessBranch(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("hello")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("hello")}})
+	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
@@ -347,36 +259,20 @@ func Test_EngineApplyTxn_SuccessBranch(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, result.Txn)
+	require.True(t, result.Txn.Success)
 
-	if result.Txn == nil {
-		t.Fatal("TxnResult is nil")
-	}
-	if !result.Txn.Success {
-		t.Error("expected success branch")
-	}
-
-	r := s.NewReader()
-	entries, _, _, _ := r.Range([]byte("counter"), nil, 0, 0)
-	if len(entries) != 1 {
-		t.Fatalf("entries = %d, want 1", len(entries))
-	}
-	if !bytes.Equal(entries[0].Value, []byte("updated")) {
-		t.Errorf("value = %q, want %q", entries[0].Value, "updated")
-	}
+	entries, _, _, _ := e.store.NewReader().Range([]byte("counter"), nil, 0, 0)
+	require.Len(t, entries, 1)
+	require.Equal(t, []byte("updated"), entries[0].Value)
 }
 
-// ==================== Engine.Apply TXN — failure branch ====================
-
 func Test_EngineApplyTxn_FailureBranch(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("hello")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("hello")}})
+	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
@@ -397,27 +293,17 @@ func Test_EngineApplyTxn_FailureBranch(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, result.Txn)
+	require.False(t, result.Txn.Success)
 
-	if result.Txn == nil {
-		t.Fatal("TxnResult is nil")
-	}
-	if result.Txn.Success {
-		t.Error("expected failure branch")
-	}
-
-	r := s.NewReader()
-	entries, _, _, _ := r.Range([]byte("counter"), nil, 0, 0)
-	if !bytes.Equal(entries[0].Value, []byte("failed_path")) {
-		t.Errorf("value = %q, want %q", entries[0].Value, "failed_path")
-	}
+	entries, _, _, _ := e.store.NewReader().Range([]byte("counter"), nil, 0, 0)
+	require.Len(t, entries, 1)
+	require.Equal(t, []byte("failed_path"), entries[0].Value)
 }
 
 func Test_EngineApplyTxn_NoComparisonsAlwaysSuccess(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
@@ -429,24 +315,15 @@ func Test_EngineApplyTxn_NoComparisonsAlwaysSuccess(t *testing.T) {
 			Failure: []command.TxnOp{},
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.True(t, result.Txn.Success)
 
-	if !result.Txn.Success {
-		t.Error("no comparisons should always succeed")
-	}
-
-	r := s.NewReader()
-	entries, _, _, _ := r.Range([]byte("k"), nil, 0, 0)
-	if len(entries) != 1 {
-		t.Errorf("entries = %d, want 1", len(entries))
-	}
+	entries, _, _, _ := e.store.NewReader().Range([]byte("k"), nil, 0, 0)
+	require.Len(t, entries, 1)
 }
 
 func Test_EngineApplyTxn_EmptyOps(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
@@ -456,29 +333,18 @@ func Test_EngineApplyTxn_EmptyOps(t *testing.T) {
 			Failure:     nil,
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !result.Txn.Success {
-		t.Error("expected success with empty comparisons")
-	}
-	if len(result.Txn.Results) != 0 {
-		t.Errorf("results = %d, want 0", len(result.Txn.Results))
-	}
-	_ = s
+	require.NoError(t, err)
+	require.True(t, result.Txn.Success)
+	require.Empty(t, result.Txn.Results)
 }
 
 func Test_EngineApplyTxn_WithDeleteOp(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k1"), Value: []byte("v1")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k2"), Value: []byte("v2")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k1"), Value: []byte("v1")}})
+	require.NoError(t, err)
+	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k2"), Value: []byte("v2")}})
+	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
@@ -489,28 +355,18 @@ func Test_EngineApplyTxn_WithDeleteOp(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.True(t, result.Txn.Success)
 
-	if !result.Txn.Success {
-		t.Error("expected success")
-	}
-
-	r := s.NewReader()
+	r := e.store.NewReader()
 	e1, _, _, _ := r.Range([]byte("k1"), nil, 0, 0)
 	e3, _, _, _ := r.Range([]byte("k3"), nil, 0, 0)
-	if len(e1) != 0 {
-		t.Error("k1 should be deleted")
-	}
-	if len(e3) != 1 {
-		t.Error("k3 should exist")
-	}
+	require.Empty(t, e1, "k1 should be deleted")
+	require.Len(t, e3, 1, "k3 should exist")
 }
 
 func Test_EngineApplyTxn_CompareNonExistentKey(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
@@ -529,33 +385,21 @@ func Test_EngineApplyTxn_CompareNonExistentKey(t *testing.T) {
 			Failure: []command.TxnOp{},
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.True(t, result.Txn.Success, "comparing version==0 for non-existent key should succeed")
 
-	if !result.Txn.Success {
-		t.Error("comparing version==0 for non-existent key should succeed")
-	}
-
-	r := s.NewReader()
-	entries, _, _, _ := r.Range([]byte("missing"), nil, 0, 0)
-	if len(entries) != 1 || !bytes.Equal(entries[0].Value, []byte("created")) {
-		t.Error("key should have been created by success branch")
-	}
+	entries, _, _, _ := e.store.NewReader().Range([]byte("missing"), nil, 0, 0)
+	require.Len(t, entries, 1)
+	require.Equal(t, []byte("created"), entries[0].Value)
 }
 
-// ==================== Engine.Apply TXN — multiple comparisons ====================
-
 func Test_EngineApplyTxn_MultipleComparisonsAllPass(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}})
+	require.NoError(t, err)
+	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}})
+	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
@@ -570,26 +414,17 @@ func Test_EngineApplyTxn_MultipleComparisonsAllPass(t *testing.T) {
 			Failure: []command.TxnOp{},
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !result.Txn.Success {
-		t.Error("both comparisons should pass")
-	}
-	_ = s
+	require.NoError(t, err)
+	require.True(t, result.Txn.Success, "both comparisons should pass")
 }
 
 func Test_EngineApplyTxn_OneComparisonFails(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}})
+	require.NoError(t, err)
+	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}})
+	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
@@ -604,25 +439,15 @@ func Test_EngineApplyTxn_OneComparisonFails(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if result.Txn.Success {
-		t.Error("one comparison failed, should take failure branch")
-	}
-	_ = s
+	require.NoError(t, err)
+	require.False(t, result.Txn.Success, "one comparison failed, should take failure branch")
 }
 
-// ==================== Engine.Apply TXN — PrevEntry inside txn ops ====================
-
 func Test_EngineApplyTxn_PutWithPrevEntry(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("old")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("old")}})
+	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
@@ -632,37 +457,21 @@ func Test_EngineApplyTxn_PutWithPrevEntry(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !result.Txn.Success {
-		t.Fatal("expected success")
-	}
-	if len(result.Txn.Results) < 1 {
-		t.Fatal("expected at least 1 result")
-	}
+	require.NoError(t, err)
+	require.True(t, result.Txn.Success)
+	require.Len(t, result.Txn.Results, 1)
 
 	putRes := result.Txn.Results[0].Put
-	if putRes == nil {
-		t.Fatal("Put result is nil")
-	}
-	if putRes.PrevEntry == nil {
-		t.Fatal("PrevEntry should not be nil when requested inside txn")
-	}
-	if !bytes.Equal(putRes.PrevEntry.Value, []byte("old")) {
-		t.Errorf("PrevEntry.Value = %q, want %q", putRes.PrevEntry.Value, "old")
-	}
-	_ = s
+	require.NotNil(t, putRes)
+	require.NotNil(t, putRes.PrevEntry, "PrevEntry should not be nil when requested inside txn")
+	require.Equal(t, []byte("old"), putRes.PrevEntry.Value)
 }
 
 func Test_EngineApplyTxn_DeleteWithPrevEntries(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("x"), Value: []byte("xv")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("x"), Value: []byte("xv")}})
+	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
@@ -672,41 +481,22 @@ func Test_EngineApplyTxn_DeleteWithPrevEntries(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.Len(t, result.Txn.Results, 1)
 
-	if len(result.Txn.Results) < 1 {
-		t.Fatal("expected at least 1 result")
-	}
 	delRes := result.Txn.Results[0].Delete
-	if delRes == nil {
-		t.Fatal("Delete result is nil")
-	}
-	if delRes.NumDeleted != 1 {
-		t.Errorf("deleted = %d, want 1", delRes.NumDeleted)
-	}
-	if len(delRes.PrevEntries) != 1 {
-		t.Fatalf("PrevEntries = %d, want 1", len(delRes.PrevEntries))
-	}
-	if !bytes.Equal(delRes.PrevEntries[0].Value, []byte("xv")) {
-		t.Errorf("PrevEntries[0].Value = %q, want %q", delRes.PrevEntries[0].Value, "xv")
-	}
-	_ = s
+	require.NotNil(t, delRes)
+	require.Equal(t, int64(1), delRes.NumDeleted)
+	require.Len(t, delRes.PrevEntries, 1)
+	require.Equal(t, []byte("xv"), delRes.PrevEntries[0].Value)
 }
 
 func Test_EngineApplyTxn_MixedOps(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("c"), Value: []byte("3")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	for _, kv := range [][]string{{"a", "1"}, {"b", "2"}, {"c", "3"}} {
+		_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte(kv[0]), Value: []byte(kv[1])}})
+		require.NoError(t, err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
@@ -719,41 +509,29 @@ func Test_EngineApplyTxn_MixedOps(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.True(t, result.Txn.Success)
 
-	if !result.Txn.Success {
-		t.Error("expected success")
-	}
-
-	r := s.NewReader()
+	r := e.store.NewReader()
 	a, _, _, _ := r.Range([]byte("a"), nil, 0, 0)
 	b, _, _, _ := r.Range([]byte("b"), nil, 0, 0)
 	c, _, _, _ := r.Range([]byte("c"), nil, 0, 0)
 	d, _, _, _ := r.Range([]byte("d"), nil, 0, 0)
 
-	if len(a) != 0 {
-		t.Error("a should be deleted")
-	}
-	if len(b) != 1 || !bytes.Equal(b[0].Value, []byte("updated")) {
-		t.Errorf("b = %v, want updated", b)
-	}
-	if len(c) != 1 || !bytes.Equal(c[0].Value, []byte("3")) {
-		t.Error("c should be untouched")
-	}
-	if len(d) != 1 || !bytes.Equal(d[0].Value, []byte("new")) {
-		t.Error("d should be created")
-	}
+	require.Empty(t, a, "a should be deleted")
+	require.Len(t, b, 1)
+	require.Equal(t, []byte("updated"), b[0].Value)
+	require.Len(t, c, 1)
+	require.Equal(t, []byte("3"), c[0].Value, "c should be untouched")
+	require.Len(t, d, 1)
+	require.Equal(t, []byte("new"), d[0].Value)
 }
 
 func Test_EngineApplyTxn_CompareValue(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("expected")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("expected")}})
+	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
@@ -772,23 +550,15 @@ func Test_EngineApplyTxn_CompareValue(t *testing.T) {
 			Failure: []command.TxnOp{},
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !result.Txn.Success {
-		t.Error("value comparison should succeed")
-	}
-	_ = s
+	require.NoError(t, err)
+	require.True(t, result.Txn.Success, "value comparison should succeed")
 }
 
 func Test_EngineApplyTxn_CompareValueMismatch(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("actual")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("actual")}})
+	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
@@ -807,26 +577,17 @@ func Test_EngineApplyTxn_CompareValueMismatch(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if result.Txn.Success {
-		t.Error("value comparison should fail")
-	}
-	_ = s
+	require.NoError(t, err)
+	require.False(t, result.Txn.Success, "value comparison should fail")
 }
 
 func Test_EngineApplyTxn_CompareCreateRev(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v2")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}})
+	require.NoError(t, err)
+	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v2")}})
+	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
@@ -845,26 +606,17 @@ func Test_EngineApplyTxn_CompareCreateRev(t *testing.T) {
 			Failure: []command.TxnOp{},
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !result.Txn.Success {
-		t.Error("createRev should be 1 despite update at rev 2")
-	}
-	_ = s
+	require.NoError(t, err)
+	require.True(t, result.Txn.Success, "createRev should be 1 despite update at rev 2")
 }
 
 func Test_EngineApplyTxn_CompareModRev(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if _, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v2")}}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}})
+	require.NoError(t, err)
+	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v2")}})
+	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
@@ -883,28 +635,18 @@ func Test_EngineApplyTxn_CompareModRev(t *testing.T) {
 			Failure: []command.TxnOp{},
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !result.Txn.Success {
-		t.Error("modRev should be 2 after second put")
-	}
-	_ = s
+	require.NoError(t, err)
+	require.True(t, result.Txn.Success, "modRev should be 2 after second put")
 }
 
 func Test_EngineApplyUnknownCommandError(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 	_, err := e.ApplyWrite(command.Command{Kind: "UNKNOWN"})
-	if err == nil {
-		t.Error("expected error for unknown command type")
-	}
+	require.Error(t, err, "expected error for unknown command type")
 }
 
 func Test_EngineApplyTxn_ResultCount(t *testing.T) {
-	e, s := newTestEngine()
-	defer s.Close()
+	e := newTestEngine(t)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
@@ -916,19 +658,132 @@ func Test_EngineApplyTxn_ResultCount(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(result.Txn.Results) != 3 {
-		t.Errorf("results = %d, want 3 (one per op)", len(result.Txn.Results))
-	}
+	require.NoError(t, err)
+	require.Len(t, result.Txn.Results, 3, "one result per op")
 	for i, r := range result.Txn.Results {
-		if r.Put == nil {
-			t.Errorf("results[%d].Put is nil", i)
-		}
+		require.NotNil(t, r.Put, "results[%d].Put is nil", i)
 	}
-	_ = s
 }
 
-func intPtr(v int64) *int64 { return &v }
+func Test_EngineApplyPut_IgnoreValue_PreservesValue(t *testing.T) {
+	e := newTestEngine(t)
+
+	_, err := e.ApplyWrite(command.Command{
+		Kind: command.KindPut,
+		Put:  &command.PutCmd{Key: []byte("k"), Value: []byte("original")},
+	})
+	require.NoError(t, err)
+
+	result, err := e.ApplyWrite(command.Command{
+		Kind: command.KindPut,
+		Put:  &command.PutCmd{Key: []byte("k"), IgnoreValue: true},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result.Put)
+
+	entry := e.store.NewReader().Get([]byte("k"), 0)
+	require.NotNil(t, entry)
+	require.Equal(t, "original", string(entry.Value))
+}
+
+func Test_EngineApplyPut_IgnoreValue_NonExistent_ReturnsError(t *testing.T) {
+	e := newTestEngine(t)
+
+	result, err := e.ApplyWrite(command.Command{
+		Kind: command.KindPut,
+		Put:  &command.PutCmd{Key: []byte("ghost"), IgnoreValue: true},
+	})
+
+	// engine encodes the error inside Result.Error rather than returning
+	// a Go error, so it survives serialization through raft
+	require.NoError(t, err, "engine itself should not error")
+	require.NotNil(t, result.Error, "result.Error should be set")
+}
+
+func Test_EngineApplyPut_IgnoreValue_BumpsRevisionAndVersion(t *testing.T) {
+	e := newTestEngine(t)
+
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v")}})
+	require.NoError(t, err)
+
+	result, err := e.ApplyWrite(command.Command{
+		Kind: command.KindPut,
+		Put:  &command.PutCmd{Key: []byte("k"), IgnoreValue: true},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(2), result.Header.Revision)
+
+	entry := e.store.NewReader().Get([]byte("k"), 0)
+	require.Equal(t, int64(2), entry.Version)
+	require.Equal(t, int64(1), entry.CreateRev, "createRev must not change")
+	require.Equal(t, int64(2), entry.ModRev)
+}
+
+// ==================== Engine.Apply PUT IgnoreLease ====================
+
+func Test_EngineApplyPut_IgnoreLease_NonExistent_ReturnsError(t *testing.T) {
+	e := newTestEngine(t)
+
+	result, err := e.ApplyWrite(command.Command{
+		Kind: command.KindPut,
+		Put:  &command.PutCmd{Key: []byte("ghost"), Value: []byte("v"), IgnoreLease: true},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result.Error)
+}
+
+func Test_EngineApplyPut_IgnoreLease_DoesNotDetachWhenLeaseUnchanged(t *testing.T) {
+	e, fa := newTestEngineWithAttacher(t)
+
+	_, err := e.ApplyWrite(command.Command{
+		Kind: command.KindPut,
+		Put:  &command.PutCmd{Key: []byte("k"), Value: []byte("v1"), LeaseID: 99},
+	})
+	require.NoError(t, err)
+
+	fa.attached = nil
+	fa.detached = nil
+
+	_, err = e.ApplyWrite(command.Command{
+		Kind: command.KindPut,
+		Put:  &command.PutCmd{Key: []byte("k"), Value: []byte("v2"), IgnoreLease: true},
+	})
+	require.NoError(t, err)
+
+	require.False(t, fa.wasDetached(99, []byte("k")),
+		"lease 99 must not be detached — value changed but lease is preserved via IgnoreLease")
+}
+
+func Test_EngineApplyPut_BothIgnore_TouchDoesNotDetach(t *testing.T) {
+	e, fa := newTestEngineWithAttacher(t)
+
+	_, err := e.ApplyWrite(command.Command{
+		Kind: command.KindPut,
+		Put:  &command.PutCmd{Key: []byte("k"), Value: []byte("v"), LeaseID: 7},
+	})
+	require.NoError(t, err)
+
+	fa.attached = nil
+	fa.detached = nil
+
+	_, err = e.ApplyWrite(command.Command{
+		Kind: command.KindPut,
+		Put:  &command.PutCmd{Key: []byte("k"), IgnoreValue: true, IgnoreLease: true},
+	})
+	require.NoError(t, err)
+
+	require.False(t, fa.wasDetached(7, []byte("k")), "lease must not be detached on touch")
+}
+
+func Test_EngineApplyPut_BothIgnore_NonExistent_ReturnsError(t *testing.T) {
+	e := newTestEngine(t)
+
+	result, err := e.ApplyWrite(command.Command{
+		Kind: command.KindPut,
+		Put:  &command.PutCmd{Key: []byte("ghost"), IgnoreValue: true, IgnoreLease: true},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result.Error)
+}
