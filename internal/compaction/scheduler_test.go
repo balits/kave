@@ -33,7 +33,7 @@ func newTestScheduler(t *testing.T, threshold int64, ticker util.Ticker, isLeade
 		InitialBuckets: schema.AllBuckets,
 	})
 	store := mvcc.NewKVStore(reg, logger, backend)
-	t.Cleanup(func() { store.Close() })
+	t.Cleanup(func() { backend.Close() })
 
 	fsm := fsm.New(logger, store, nil, "testnode")
 	var logIndex atomic.Uint64

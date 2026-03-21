@@ -13,6 +13,7 @@ import (
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/fsm"
 	"github.com/balits/kave/internal/kv"
+	"github.com/balits/kave/internal/lease"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/schema"
@@ -25,6 +26,7 @@ import (
 
 type testKVService struct {
 	KVService
+	lm  *lease.LeaseManager
 	t   *testing.T
 	ctx context.Context
 }
@@ -41,8 +43,9 @@ func newTestKVService(t *testing.T) *testKVService {
 		InitialBuckets: schema.AllBuckets,
 	})
 	kvstore := mvcc.NewKVStore(reg, logger, backend)
-	t.Cleanup(func() { kvstore.Close() })
-	fsm := fsm.New(logger, kvstore, nil, me.NodeID)
+	lm := lease.NewManager(reg, logger, kvstore, backend)
+	t.Cleanup(func() { backend.Close() })
+	fsm := fsm.New(logger, kvstore, lm, me.NodeID)
 
 	isLeader := func() bool { return true }
 	var logIndex atomic.Uint64
@@ -72,49 +75,48 @@ func newTestKVService(t *testing.T) *testKVService {
 
 	return &testKVService{
 		KVService: svc,
+		lm:        lm,
 		t:         t,
 		ctx:       ctx,
 	}
 }
 
 // mustPut inserts a key-value pair and asserts no error.
-func (ts *testKVService) mustPut(key, value string) *command.Result {
+func (ts *testKVService) mustPut(key, value string) *api.KvPutResponse {
 	ts.t.Helper()
-	result, err := ts.Put(ts.ctx, command.PutCmd{
+	result, err := ts.Put(ts.ctx, api.KvPutRequest{
 		Key:   []byte(key),
 		Value: []byte(value),
 	})
 	require.NoError(ts.t, err, "Put(%q, %q) failed", key, value)
 	require.NotNil(ts.t, result)
-	require.NotNil(ts.t, result.Put)
 	return result
 }
 
 // mustPutWithPrev inserts a key-value pair with PrevEntry=true and asserts no error.
-func (ts *testKVService) mustPutWithPrev(key, value string) *command.Result {
+func (ts *testKVService) mustPutWithPrev(key, value string) *api.KvPutResponse {
 	ts.t.Helper()
-	result, err := ts.Put(ts.ctx, command.PutCmd{
+	result, err := ts.Put(ts.ctx, api.KvPutRequest{
 		Key:       []byte(key),
 		Value:     []byte(value),
 		PrevEntry: true,
 	})
 	require.NoError(ts.t, err, "Put(%q, %q, prev=true) failed", key, value)
 	require.NotNil(ts.t, result)
-	require.NotNil(ts.t, result.Put)
 	return result
 }
 
 // mustRange performs a range query and asserts no error.
-func (ts *testKVService) mustRange(cmd command.RangeCmd) *api.RangeResponse {
+func (ts *testKVService) mustRange(req api.KvRangeRequest) *api.KvRangeResponse {
 	ts.t.Helper()
-	result, err := ts.Range(ts.ctx, cmd)
+	result, err := ts.Range(ts.ctx, req)
 	require.NoError(ts.t, err, "Range failed")
 	require.NotNil(ts.t, result)
 	return result
 }
 
 // mustDelete performs a delete and asserts no error.
-func (ts *testKVService) mustDelete(key string, end string, prevEntries bool) *command.Result {
+func (ts *testKVService) mustDelete(key string, end string, prevEntries bool) *api.KvDeleteResponse {
 	ts.t.Helper()
 	cmd := command.DeleteCmd{
 		Key:         []byte(key),
@@ -126,7 +128,6 @@ func (ts *testKVService) mustDelete(key string, end string, prevEntries bool) *c
 	result, err := ts.Delete(ts.ctx, cmd)
 	require.NoError(ts.t, err, "Delete(%q) failed", key)
 	require.NotNil(ts.t, result)
-	require.NotNil(ts.t, result.Delete)
 	return result
 }
 
@@ -136,7 +137,7 @@ func Test_KVService_Put_Single(t *testing.T) {
 	result := ts.mustPut("foo", "bar")
 
 	require.Equal(t, int64(1), result.Header.Revision)
-	require.Nil(t, result.Put.PrevEntry, "PrevEntry should be nil when not requested")
+	require.Nil(t, result.PrevEntry, "PrevEntry should be nil when not requested")
 }
 
 func Test_KVService_Put_Multiple(t *testing.T) {
@@ -171,8 +172,8 @@ func Test_KVService_Put_WithPrevEntry(t *testing.T) {
 	ts.mustPut("key", "original")
 	result := ts.mustPutWithPrev("key", "updated")
 
-	require.NotNil(t, result.Put.PrevEntry, "PrevEntry should not be nil when requested")
-	require.Equal(t, "original", string(result.Put.PrevEntry.Value))
+	require.NotNil(t, result.PrevEntry, "PrevEntry should not be nil when requested")
+	require.Equal(t, "original", string(result.PrevEntry.Value))
 }
 
 func Test_KVService_Put_WithPrevEntry_NonExistent(t *testing.T) {
@@ -180,7 +181,7 @@ func Test_KVService_Put_WithPrevEntry_NonExistent(t *testing.T) {
 
 	result := ts.mustPutWithPrev("newkey", "value")
 
-	require.Nil(t, result.Put.PrevEntry, "PrevEntry should be nil for a new key")
+	require.Nil(t, result.PrevEntry, "PrevEntry should be nil for a new key")
 }
 
 func Test_KVService_Put_WithPrevEntry_MultipleOverwrites(t *testing.T) {
@@ -190,8 +191,8 @@ func Test_KVService_Put_WithPrevEntry_MultipleOverwrites(t *testing.T) {
 	ts.mustPut("key", "v2")
 	result := ts.mustPutWithPrev("key", "v3")
 
-	require.NotNil(t, result.Put.PrevEntry)
-	require.Equal(t, "v2", string(result.Put.PrevEntry.Value), "PrevEntry should be the immediate predecessor")
+	require.NotNil(t, result.PrevEntry)
+	require.Equal(t, "v2", string(result.PrevEntry.Value), "PrevEntry should be the immediate predecessor")
 }
 
 func Test_KVService_Put_RevisionMonotonicallyIncreases(t *testing.T) {
@@ -218,7 +219,7 @@ func Test_KVService_Put_LargeValue(t *testing.T) {
 		Value: largeVal,
 	})
 	require.NoError(t, err)
-	require.NotNil(t, result.Put)
+	require.NotNil(t, result)
 
 	rangeResult := ts.mustRange(command.RangeCmd{Key: []byte("bigkey")})
 	require.Len(t, rangeResult.Entries, 1)
@@ -607,7 +608,7 @@ func Test_KVService_Delete_Single(t *testing.T) {
 	ts.mustPut("foo", "bar")
 	result := ts.mustDelete("foo", "", false)
 
-	require.Equal(t, int64(1), result.Delete.NumDeleted)
+	require.Equal(t, int64(1), result.NumDeleted)
 }
 
 func Test_KVService_Delete_NonExistent(t *testing.T) {
@@ -615,7 +616,7 @@ func Test_KVService_Delete_NonExistent(t *testing.T) {
 
 	result := ts.mustDelete("nope", "", false)
 
-	require.Equal(t, int64(0), result.Delete.NumDeleted)
+	require.Equal(t, int64(0), result.NumDeleted)
 }
 
 func Test_KVService_Delete_Range(t *testing.T) {
@@ -629,7 +630,7 @@ func Test_KVService_Delete_Range(t *testing.T) {
 	// Delete [b, d) => deletes b, c
 	result := ts.mustDelete("b", "d", false)
 
-	require.Equal(t, int64(2), result.Delete.NumDeleted)
+	require.Equal(t, int64(2), result.NumDeleted)
 
 	// Verify remaining keys
 	remaining := ts.mustRange(command.RangeCmd{Key: []byte("a"), End: []byte("z")})
@@ -646,10 +647,10 @@ func Test_KVService_Delete_WithPrevEntries(t *testing.T) {
 
 	result := ts.mustDelete("x", "z", true)
 
-	require.Equal(t, int64(2), result.Delete.NumDeleted)
-	require.Len(t, result.Delete.PrevEntries, 2)
-	require.Equal(t, "xval", string(result.Delete.PrevEntries[0].Value))
-	require.Equal(t, "yval", string(result.Delete.PrevEntries[1].Value))
+	require.Equal(t, int64(2), result.NumDeleted)
+	require.Len(t, result.PrevEntries, 2)
+	require.Equal(t, "xval", string(result.PrevEntries[0].Value))
+	require.Equal(t, "yval", string(result.PrevEntries[1].Value))
 }
 
 func Test_KVService_Delete_WithPrevEntries_NonExistent(t *testing.T) {
@@ -657,8 +658,8 @@ func Test_KVService_Delete_WithPrevEntries_NonExistent(t *testing.T) {
 
 	result := ts.mustDelete("ghost", "", true)
 
-	require.Equal(t, int64(0), result.Delete.NumDeleted)
-	require.Empty(t, result.Delete.PrevEntries)
+	require.Equal(t, int64(0), result.NumDeleted)
+	require.Empty(t, result.PrevEntries)
 }
 
 func Test_KVService_Delete_ThenRange(t *testing.T) {
@@ -698,7 +699,7 @@ func Test_KVService_Delete_EmptyRange(t *testing.T) {
 	// Delete range [m, n) — no keys exist there
 	result := ts.mustDelete("m", "n", false)
 
-	require.Equal(t, int64(0), result.Delete.NumDeleted)
+	require.Equal(t, int64(0), result.NumDeleted)
 }
 
 func Test_KVService_PutDeletePut(t *testing.T) {
@@ -922,3 +923,253 @@ func Test_KVService_Delete_HeaderRevision(t *testing.T) {
 	require.Equal(t, int64(2), delResult.Header.Revision)
 }
 
+// tests for IgnoreValue | IgnoreLease
+
+func Test_KVService_Put_IgnoreValue_UpdatesLeaseOnly(t *testing.T) {
+	ts := newTestKVService(t)
+
+	l, err := ts.lm.Grant(0, 60)
+	require.NoError(t, err)
+
+	ts.mustPut("foo", "bar")
+
+	// now update just the lease
+	result, err := ts.Put(ts.ctx, api.KvPutRequest{
+		Key:         []byte("foo"),
+		LeaseID:     l.ID,
+		IgnoreValue: true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// value should be unchanged
+	rangeResult := ts.mustRange(command.RangeCmd{Key: []byte("foo")})
+	require.Len(t, rangeResult.Entries, 1)
+	entry := rangeResult.Entries[0]
+	require.Equal(t, "bar", string(entry.Value), "value should be preserved")
+	require.Equal(t, l.ID, entry.LeaseID, "lease should be updated")
+}
+
+func Test_KVService_Put_IgnoreValue_NonExistentKey_ReturnsError(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Put(ts.ctx, api.KvPutRequest{
+		Key:         []byte("nonexistent"),
+		IgnoreValue: true,
+	})
+	require.Error(t, err, "expected error on nonexistent key when IgnoreLease is set")
+}
+
+func Test_KVService_Put_IgnoreValue_PreservesValueAcrossMultiplePuts(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("key", "original")
+
+	// multiple IgnoreValue puts should keep bumping revision but preserving value
+	for range 3 {
+		result, err := ts.Put(ts.ctx, api.KvPutRequest{
+			Key:         []byte("key"),
+			IgnoreValue: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, result)
+	}
+
+	rangeResult := ts.mustRange(command.RangeCmd{Key: []byte("key")})
+	require.Len(t, rangeResult.Entries, 1)
+	entry := rangeResult.Entries[0]
+	require.Equal(t, "original", string(entry.Value), "value should still be original")
+	require.Equal(t, int64(4), entry.Version, "version should be 4 after 3 extra puts")
+	require.Equal(t, int64(1), entry.CreateRev, "createRev should not change")
+}
+
+func Test_KVService_Put_IgnoreValue_BumpsRevision(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("key", "value") // rev 1
+
+	result, err := ts.Put(ts.ctx, api.KvPutRequest{
+		Key:         []byte("key"),
+		IgnoreValue: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(2), result.Header.Revision, "should bump revision even with IgnoreValue")
+}
+
+func Test_KVService_Put_IgnoreValue_WithPrevEntry(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("key", "original")
+
+	result, err := ts.Put(ts.ctx, api.KvPutRequest{
+		Key:         []byte("key"),
+		IgnoreValue: true,
+		PrevEntry:   true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result.PrevEntry, "PrevEntry should be populated when requested")
+	require.Equal(t, "original", string(result.PrevEntry.Value))
+}
+
+// ==================== IgnoreLease tests ====================
+
+func Test_KVService_Put_IgnoreLease_PreservesExistingLease(t *testing.T) {
+	ts := newTestKVService(t)
+
+	l, err := ts.lm.Grant(0, 60)
+	require.NoError(t, err)
+
+	_, err = ts.Put(ts.ctx, api.KvPutRequest{
+		Key:     []byte("foo"),
+		Value:   []byte("bar"),
+		LeaseID: l.ID,
+	})
+	require.NoError(t, err)
+
+	// update value but keep lease
+	_, err = ts.Put(ts.ctx, api.KvPutRequest{
+		Key:         []byte("foo"),
+		Value:       []byte("newbar"),
+		IgnoreLease: true,
+	})
+	require.NoError(t, err)
+
+	rangeResult := ts.mustRange(api.KvRangeRequest{Key: []byte("foo")})
+	require.Len(t, rangeResult.Entries, 1)
+	entry := rangeResult.Entries[0]
+	require.Equal(t, "newbar", string(entry.Value), "value should be updated")
+	require.Equal(t, l.ID, entry.LeaseID, "lease should be preserved")
+}
+
+func Test_KVService_Put_IgnoreLease_NonExistentKey_ReturnsError(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Put(ts.ctx, api.KvPutRequest{
+		Key:         []byte("nonexistent"),
+		Value:       []byte("value"),
+		IgnoreLease: true,
+	})
+	require.Error(t, err, "expected error on nonexistent key when IgnoreLease is set")
+}
+
+func Test_KVService_Put_IgnoreLease_KeyWithNoLease_PreservesNoLease(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("key", "value")
+
+	// IgnoreLease on a key with no lease should just keep leaseID=0
+	result, err := ts.Put(ts.ctx, api.KvPutRequest{
+		Key:         []byte("key"),
+		Value:       []byte("newvalue"),
+		IgnoreLease: true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	rangeResult := ts.mustRange(command.RangeCmd{Key: []byte("key")})
+	entry := rangeResult.Entries[0]
+	require.Equal(t, "newvalue", string(entry.Value))
+	require.Equal(t, int64(0), entry.LeaseID, "leaseID should still be 0")
+}
+
+func Test_KVService_Put_IgnoreLease_DoesNotDetachExistingLease(t *testing.T) {
+	ts := newTestKVService(t)
+
+	l, err := ts.lm.Grant(0, 60)
+	require.NoError(t, err)
+
+	_, err = ts.Put(ts.ctx, command.PutCmd{
+		Key:     []byte("foo"),
+		Value:   []byte("v1"),
+		LeaseID: l.ID,
+	})
+	require.NoError(t, err)
+
+	// lease should stay attached
+	_, err = ts.Put(ts.ctx, command.PutCmd{
+		Key:         []byte("foo"),
+		Value:       []byte("v2"),
+		IgnoreLease: true,
+	})
+	require.NoError(t, err)
+
+	lease := ts.lm.Lookup(l.ID)
+	require.NotNil(t, lease)
+	require.Equal(t, 1, len(lease.KeySet()), "expected key should still be attached to lease")
+}
+
+//  IgnoreValue & IgnoreLease combined
+
+// touch: bump revision/version without changing anything
+func Test_KVService_Put_IgnoreValueAndLease_ActsAsTouchOperation(t *testing.T) {
+	ts := newTestKVService(t)
+
+	l, err := ts.lm.Grant(0, 60)
+	require.NoError(t, err)
+
+	_, err = ts.Put(ts.ctx, api.KvPutRequest{
+		Key:     []byte("foo"),
+		Value:   []byte("original"),
+		LeaseID: l.ID,
+	})
+	require.NoError(t, err)
+
+	// touch
+	result, err := ts.Put(ts.ctx, api.KvPutRequest{
+		Key:         []byte("foo"),
+		IgnoreValue: true,
+		IgnoreLease: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(2), result.Header.Revision)
+
+	rangeResult := ts.mustRange(api.KvRangeRequest{Key: []byte("foo")})
+	entry := rangeResult.Entries[0]
+	require.Equal(t, "original", string(entry.Value), "value unchanged")
+	require.Equal(t, l.ID, entry.LeaseID, "lease unchanged")
+	require.Equal(t, int64(2), entry.Version, "version bumped")
+	require.Equal(t, int64(1), entry.CreateRev, "createRev unchanged")
+	require.Equal(t, int64(2), entry.ModRev, "modRev updated")
+}
+
+func Test_KVService_Put_IgnoreValueAndLease_NonExistentKey_ReturnsError(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Put(ts.ctx, api.KvPutRequest{
+		Key:         []byte("ghost"),
+		IgnoreValue: true,
+		IgnoreLease: true,
+	})
+	require.Error(t, err, "expected error on nonexistent key when IgnoreLease or IgnoreValue is set")
+}
+
+func Test_KVService_Put_IgnoreValueAndLease_PreservesAllFieldsExceptRevAndVersion(t *testing.T) {
+	ts := newTestKVService(t)
+
+	l, err := ts.lm.Grant(0, 60)
+	require.NoError(t, err)
+
+	ts.mustPut("foo", "value1") // rev 1
+
+	_, err = ts.Put(ts.ctx, api.KvPutRequest{
+		Key:     []byte("foo"),
+		Value:   []byte("value2"),
+		LeaseID: l.ID,
+	})
+	require.NoError(t, err) // rev 2
+
+	_, err = ts.Put(ts.ctx, api.KvPutRequest{
+		Key:         []byte("foo"),
+		IgnoreValue: true,
+		IgnoreLease: true,
+	})
+	require.NoError(t, err) // rev 3
+
+	rangeResult := ts.mustRange(api.KvRangeRequest{Key: []byte("foo")})
+	entry := rangeResult.Entries[0]
+	require.Equal(t, "value2", string(entry.Value))
+	require.Equal(t, l.ID, entry.LeaseID)
+	require.Equal(t, int64(1), entry.CreateRev)
+	require.Equal(t, int64(3), entry.ModRev)
+	require.Equal(t, int64(3), entry.Version)
+}

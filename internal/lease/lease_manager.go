@@ -43,7 +43,7 @@ type LeaseManager struct {
 	logger   *slog.Logger
 }
 
-func NewLeaseManager(reg prometheus.Registerer, logger *slog.Logger, store *mvcc.KVStore, backend backend.Backend) *LeaseManager {
+func NewManager(reg prometheus.Registerer, logger *slog.Logger, store *mvcc.KVStore, backend backend.Backend) *LeaseManager {
 	h := NewLeaseHeap()
 	heap.Init(&h)
 	m := &LeaseManager{

@@ -210,7 +210,7 @@ func (n *Node) initStorage(reg prometheus.Registerer, opts storage.StorageOption
 }
 
 func (n *Node) initRaft(reg prometheus.Registerer, cfg *config.Config) error {
-	n.leaseMgr = lease.NewLeaseManager(reg, n.logger, n.kvstore, n.backend)
+	n.leaseMgr = lease.NewManager(reg, n.logger, n.kvstore, n.backend)
 	n.fsm = fsm.New(n.logger, n.kvstore, n.leaseMgr, cfg.Me.NodeID)
 
 	hclogger := logutil.NewHcLogAdapter(n.logger, cfg.LogLevel)

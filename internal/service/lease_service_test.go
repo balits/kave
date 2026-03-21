@@ -36,8 +36,8 @@ func newTestLeaseService(t *testing.T) *testLeaseService {
 		InitialBuckets: schema.AllBuckets,
 	})
 	kvstore := mvcc.NewKVStore(reg, logger, backend)
-	t.Cleanup(func() { kvstore.Close() })
-	lm := lease.NewLeaseManager(reg, logger, kvstore, backend)
+	t.Cleanup(func() { backend.Close() })
+	lm := lease.NewManager(reg, logger, kvstore, backend)
 	fsm := fsm.New(logger, kvstore, lm, "test")
 
 	var logIndex atomic.Uint64

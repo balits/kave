@@ -41,18 +41,42 @@ func (e *Engine) ApplyWrite(cmd command.Command) (command.Result, error) {
 func (e *Engine) applyPut(cmd *command.PutCmd) (command.Result, error) {
 	prev := e.store.NewReader().Get([]byte(cmd.Key), 0)
 
+	if prev == nil && (cmd.IgnoreLease || cmd.IgnoreValue) {
+		return command.Result{
+			Error: kv.ErrKeyNotFound,
+		}, nil
+	}
+
+	var (
+		key     []byte = cmd.Key
+		value   []byte
+		leaseID int64
+	)
+
+	if cmd.IgnoreValue {
+		value = prev.Value
+	} else {
+		value = cmd.Value
+	}
+
+	if cmd.IgnoreLease {
+		leaseID = prev.LeaseID
+	} else {
+		leaseID = cmd.LeaseID
+	}
+
 	w := e.store.NewWriter()
-	rev, err := w.Put(cmd.Key, cmd.Value, cmd.LeaseID)
+	rev, err := w.Put(key, value, leaseID)
 	if err != nil {
 		w.Abort()
 		return command.Result{}, fmt.Errorf("applyPut failed: %w", err)
 	}
 	w.End()
 
-	if prev != nil && prev.LeaseID != 0 && prev.LeaseID != cmd.LeaseID {
+	if prev != nil && prev.LeaseID != 0 && prev.LeaseID != leaseID {
 		e.attacher.DetachKey(prev.LeaseID, cmd.Key) // no-op if no such lease existed
 	}
-	if cmd.LeaseID != 0 {
+	if leaseID != 0 {
 		e.attacher.AttachKey(cmd.LeaseID, cmd.Key) // no-op if no such lease exists
 	}
 

@@ -129,12 +129,14 @@ Hello world
         - [x] instead of calling compactable.Compact(), propose a command.CompactCmd to the fsm and let fsm.store handle it
     
     - MARCH.21:
-    - [ ] read path
-        - [ ] eventual consistency: only leader 
-        - [ ] strong consistency: only leader + VerifyLeader()
-    - [ ] put request
-        - [ ] IgnoreLease
-        - [ ] IgnoreValue
+    - [x] read path
+        - [x] eventual consistency: only leader 
+        - [x] strong consistency: only leader + VerifyLeader()
+    - [x] put request
+        - [x] IgnoreLease
+        - [x] IgnoreValue
+    - [ ] txn through kvservice (+ http)
+    - [ ] backend.Defragment
     - [ ] metrics
         - [ ] Snapshot metrics too
         - [ ] meaningful grafana
@@ -148,6 +150,7 @@ Hello world
         - [ ] tls on raft inter node communication
     - [ ] handle http redirects from follower to leader
         - [ ] single host reverse proxy
+    - [ ] http tests
     - [ ] cluster integratino tests
     - [ ] live workload + web ui for stats, metrics and manual commands
 

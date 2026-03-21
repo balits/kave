@@ -279,13 +279,6 @@ func (s *KVStore) Ping() error {
 	return s.backend.Ping()
 }
 
-// NOTE: this is just a hack to use in tests
-// it just closes the backend
-// Doesnt clear the index or anything
-func (s *KVStore) Close() error {
-	return s.backend.Close()
-}
-
 func nextMainRevOverflowing(l *slog.Logger, r kv.Revision, delta int64) (rev kv.Revision, ok bool) {
 	if r.Main > math.MaxInt64-delta {
 		errMsg := fmt.Sprintf(
