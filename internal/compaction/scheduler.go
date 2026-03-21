@@ -201,8 +201,8 @@ func (cs *CompactionScheduler) tick(force bool) {
 		return
 	}
 
-	if result.Compact.Err != nil {
-		l.Warn("compaction error", "error", result.Compact.Err)
+	if result.Compact.Error != nil {
+		l.Warn("compaction error", "error", result.Compact.Error)
 		return
 	}
 

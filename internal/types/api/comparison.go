@@ -1,4 +1,4 @@
-package command
+package api
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ type Comparison struct {
 	Key         []byte             `json:"key"`          // key of the value ot compare
 	Operator    ComparisonOperator `json:"operator"`     // logical operator to apply
 	Target      CompareTargetField `json:"target_field"` // which field to compare against
-	TargetUnion CompareTargetValue `json:"target_value"` // actual value of Target
+	TargetUnion CompareTargetUnion `json:"target_value"` // actual value of Target
 }
 
 func (c *Comparison) Check() error {
@@ -34,22 +34,22 @@ func (c *Comparison) Check() error {
 	return nil
 }
 
-func (c *Comparison) EvalEmpty() bool {
-	return c.Eval(types.KvEntry{})
-}
+func (c *Comparison) Eval(target *types.KvEntry) (result bool) {
+	if target == nil {
+		target = &types.KvEntry{}
+	}
 
-func (c *Comparison) Eval(targetEntry types.KvEntry) (result bool) {
-	var t CompareTargetValue
+	var t CompareTargetUnion
 
 	switch c.Target {
 	case FieldVersion:
-		t = CompareTargetValue{Version: &targetEntry.Version}
+		t = CompareTargetUnion{Version: &target.Version}
 	case FieldCreate:
-		t = CompareTargetValue{CreateRevision: &targetEntry.CreateRev}
+		t = CompareTargetUnion{CreateRevision: &target.CreateRev}
 	case FieldMod:
-		t = CompareTargetValue{ModRevision: &targetEntry.ModRev}
+		t = CompareTargetUnion{ModRevision: &target.ModRev}
 	case FieldValue:
-		t = CompareTargetValue{Value: targetEntry.Value}
+		t = CompareTargetUnion{Value: target.Value}
 	}
 
 	return eval(c.Operator, c.Target, t, c.TargetUnion)
@@ -75,34 +75,34 @@ const (
 	FieldVersion CompareTargetField = "VERSION"
 )
 
-type CompareTargetValue struct {
+type CompareTargetUnion struct {
 	Value          []byte `json:"value,omitempty"`
 	CreateRevision *int64 `json:"create_revision,omitempty"`
 	ModRevision    *int64 `json:"mod_revision,omitempty"`
 	Version        *int64 `json:"version,omitempty"`
 }
 
-func eval(op ComparisonOperator, target CompareTargetField, a, b CompareTargetValue) bool {
+func eval(op ComparisonOperator, field CompareTargetField, a, b CompareTargetUnion) bool {
 	switch op {
 	case OperatorEqual:
-		return eq(target, a, b)
+		return eq(field, a, b)
 	case OperatorGreaterThan:
-		return gt(target, a, b)
+		return gt(field, a, b)
 	case OperatorGreaterEqual:
-		return gt(target, a, b) || eq(target, a, b)
+		return gt(field, a, b) || eq(field, a, b)
 	case OperatorLessThan:
-		return lt(target, a, b)
+		return lt(field, a, b)
 	case OperatorLessEqual:
-		return lt(target, a, b) || eq(target, a, b)
+		return lt(field, a, b) || eq(field, a, b)
 	case OperatorNotEqual:
-		return !eq(target, a, b)
+		return !eq(field, a, b)
 	default:
 		// panic(unknownOperatorMsg)
 		return false // default to false instead of panicking
 	}
 }
 
-func eq(target CompareTargetField, op1, op2 CompareTargetValue) bool {
+func eq(target CompareTargetField, op1, op2 CompareTargetUnion) bool {
 	switch target {
 	case FieldValue:
 		return bytes.Equal(op1.Value, op2.Value)
@@ -118,7 +118,7 @@ func eq(target CompareTargetField, op1, op2 CompareTargetValue) bool {
 	}
 }
 
-func gt(target CompareTargetField, op1, op2 CompareTargetValue) bool {
+func gt(target CompareTargetField, op1, op2 CompareTargetUnion) bool {
 	switch target {
 	case FieldValue:
 		return bytes.Compare(op1.Value, op2.Value) > 0
@@ -134,7 +134,7 @@ func gt(target CompareTargetField, op1, op2 CompareTargetValue) bool {
 	}
 }
 
-func lt(target CompareTargetField, op1, op2 CompareTargetValue) bool {
+func lt(target CompareTargetField, op1, op2 CompareTargetUnion) bool {
 	switch target {
 	case FieldValue:
 		return bytes.Compare(op1.Value, op2.Value) < 0

@@ -188,7 +188,7 @@ func (f *Fsm) applyCompaction(cmd command.Command) command.Result {
 	return command.Result{
 		Compact: &command.CompactResult{
 			DoneC: doneC,
-			Err:   err,
+			Error: err,
 		},
 	}
 }

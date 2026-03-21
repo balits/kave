@@ -10,6 +10,7 @@ import (
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
+	"github.com/balits/kave/internal/types/api"
 	"github.com/stretchr/testify/require"
 )
 
@@ -246,9 +247,9 @@ func Test_EngineApplyTxn_SuccessBranch(t *testing.T) {
 			Comparisons: []command.Comparison{
 				{
 					Key:         []byte("counter"),
-					Operator:    command.OperatorEqual,
-					Target:      command.FieldVersion,
-					TargetUnion: command.CompareTargetValue{Version: intPtr(1)},
+					Operator:    api.OperatorEqual,
+					Target:      api.FieldVersion,
+					TargetUnion: api.CompareTargetUnion{Version: intPtr(1)},
 				},
 			},
 			Success: []command.TxnOp{
@@ -280,9 +281,9 @@ func Test_EngineApplyTxn_FailureBranch(t *testing.T) {
 			Comparisons: []command.Comparison{
 				{
 					Key:         []byte("counter"),
-					Operator:    command.OperatorEqual,
-					Target:      command.FieldVersion,
-					TargetUnion: command.CompareTargetValue{Version: intPtr(99)},
+					Operator:    api.OperatorEqual,
+					Target:      api.FieldVersion,
+					TargetUnion: api.CompareTargetUnion{Version: intPtr(99)},
 				},
 			},
 			Success: []command.TxnOp{
@@ -374,9 +375,9 @@ func Test_EngineApplyTxn_CompareNonExistentKey(t *testing.T) {
 			Comparisons: []command.Comparison{
 				{
 					Key:         []byte("missing"),
-					Operator:    command.OperatorEqual,
-					Target:      command.FieldVersion,
-					TargetUnion: command.CompareTargetValue{Version: intPtr(0)},
+					Operator:    api.OperatorEqual,
+					Target:      api.FieldVersion,
+					TargetUnion: api.CompareTargetUnion{Version: intPtr(0)},
 				},
 			},
 			Success: []command.TxnOp{
@@ -405,8 +406,8 @@ func Test_EngineApplyTxn_MultipleComparisonsAllPass(t *testing.T) {
 		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Comparisons: []command.Comparison{
-				{Key: []byte("a"), Operator: command.OperatorEqual, Target: command.FieldVersion, TargetUnion: command.CompareTargetValue{Version: intPtr(1)}},
-				{Key: []byte("b"), Operator: command.OperatorEqual, Target: command.FieldVersion, TargetUnion: command.CompareTargetValue{Version: intPtr(1)}},
+				{Key: []byte("a"), Operator: api.OperatorEqual, Target: api.FieldVersion, TargetUnion: api.CompareTargetUnion{Version: intPtr(1)}},
+				{Key: []byte("b"), Operator: api.OperatorEqual, Target: api.FieldVersion, TargetUnion: api.CompareTargetUnion{Version: intPtr(1)}},
 			},
 			Success: []command.TxnOp{
 				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("result"), Value: []byte("both_matched")}},
@@ -430,8 +431,8 @@ func Test_EngineApplyTxn_OneComparisonFails(t *testing.T) {
 		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Comparisons: []command.Comparison{
-				{Key: []byte("a"), Operator: command.OperatorEqual, Target: command.FieldVersion, TargetUnion: command.CompareTargetValue{Version: intPtr(1)}},
-				{Key: []byte("b"), Operator: command.OperatorEqual, Target: command.FieldVersion, TargetUnion: command.CompareTargetValue{Version: intPtr(99)}},
+				{Key: []byte("a"), Operator: api.OperatorEqual, Target: api.FieldVersion, TargetUnion: api.CompareTargetUnion{Version: intPtr(1)}},
+				{Key: []byte("b"), Operator: api.OperatorEqual, Target: api.FieldVersion, TargetUnion: api.CompareTargetUnion{Version: intPtr(99)}},
 			},
 			Success: []command.TxnOp{},
 			Failure: []command.TxnOp{
@@ -539,9 +540,9 @@ func Test_EngineApplyTxn_CompareValue(t *testing.T) {
 			Comparisons: []command.Comparison{
 				{
 					Key:         []byte("k"),
-					Operator:    command.OperatorEqual,
-					Target:      command.FieldValue,
-					TargetUnion: command.CompareTargetValue{Value: []byte("expected")},
+					Operator:    api.OperatorEqual,
+					Target:      api.FieldValue,
+					TargetUnion: api.CompareTargetUnion{Value: []byte("expected")},
 				},
 			},
 			Success: []command.TxnOp{
@@ -566,9 +567,9 @@ func Test_EngineApplyTxn_CompareValueMismatch(t *testing.T) {
 			Comparisons: []command.Comparison{
 				{
 					Key:         []byte("k"),
-					Operator:    command.OperatorEqual,
-					Target:      command.FieldValue,
-					TargetUnion: command.CompareTargetValue{Value: []byte("wrong")},
+					Operator:    api.OperatorEqual,
+					Target:      api.FieldValue,
+					TargetUnion: api.CompareTargetUnion{Value: []byte("wrong")},
 				},
 			},
 			Success: []command.TxnOp{},
@@ -595,9 +596,9 @@ func Test_EngineApplyTxn_CompareCreateRev(t *testing.T) {
 			Comparisons: []command.Comparison{
 				{
 					Key:         []byte("k"),
-					Operator:    command.OperatorEqual,
-					Target:      command.FieldCreate,
-					TargetUnion: command.CompareTargetValue{CreateRevision: intPtr(1)},
+					Operator:    api.OperatorEqual,
+					Target:      api.FieldCreate,
+					TargetUnion: api.CompareTargetUnion{CreateRevision: intPtr(1)},
 				},
 			},
 			Success: []command.TxnOp{
@@ -624,9 +625,9 @@ func Test_EngineApplyTxn_CompareModRev(t *testing.T) {
 			Comparisons: []command.Comparison{
 				{
 					Key:         []byte("k"),
-					Operator:    command.OperatorEqual,
-					Target:      command.FieldMod,
-					TargetUnion: command.CompareTargetValue{ModRevision: intPtr(2)},
+					Operator:    api.OperatorEqual,
+					Target:      api.FieldMod,
+					TargetUnion: api.CompareTargetUnion{ModRevision: intPtr(2)},
 				},
 			},
 			Success: []command.TxnOp{
@@ -786,4 +787,31 @@ func Test_EngineApplyPut_BothIgnore_NonExistent_ReturnsError(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, result.Error)
+}
+
+func Test_EngineApplyPut_IgnoreLease_PreservesLease(t *testing.T) {
+	e, fa := newTestEngineWithAttacher(t)
+
+	// seed with a fake lease ID — engine doesn't care if it's real
+	_, err := e.ApplyWrite(command.Command{
+		Kind: command.KindPut,
+		Put:  &command.PutCmd{Key: []byte("k"), Value: []byte("v1"), LeaseID: 42},
+	})
+	require.NoError(t, err)
+
+	_, err = e.ApplyWrite(command.Command{
+		Kind: command.KindPut,
+		Put:  &command.PutCmd{Key: []byte("k"), Value: []byte("v2"), IgnoreLease: true},
+	})
+	require.NoError(t, err)
+
+	// verify through the store — no lease manager needed
+	entry := e.store.NewReader().Get([]byte("k"), 0)
+	require.NotNil(t, entry)
+	require.Equal(t, "v2", string(entry.Value))
+	require.Equal(t, int64(42), entry.LeaseID, "lease should be preserved")
+
+	// also verify the attacher behavior
+	require.False(t, fa.wasDetached(42, []byte("k")))
+	require.True(t, fa.wasAttached(42, []byte("k")))
 }

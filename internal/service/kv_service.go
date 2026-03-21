@@ -14,9 +14,10 @@ import (
 )
 
 type KVService interface {
-	Range(ctx context.Context, req api.KvRangeRequest) (*api.KvRangeResponse, error)
-	Put(ctx context.Context, req api.KvPutRequest) (*api.KvPutResponse, error)
-	Delete(ctx context.Context, req api.KvDeleteRequest) (*api.KvDeleteResponse, error)
+	Range(ctx context.Context, req api.RangeRequest) (*api.RangeResponse, error)
+	Put(ctx context.Context, req api.PutRequest) (*api.PutResponse, error)
+	Delete(ctx context.Context, req api.DeleteRequest) (*api.DeleteResponse, error)
+	Txn(ctx context.Context, req api.TxnRequest) (*api.TxnResponse, error)
 
 	Ping() error
 }
@@ -37,7 +38,7 @@ func NewKVService(logger *slog.Logger, store *mvcc.KVStore, peerSvc PeerService,
 	}
 }
 
-func (s *kvSvc) Range(ctx context.Context, req api.KvRangeRequest) (*api.KvRangeResponse, error) {
+func (s *kvSvc) Range(ctx context.Context, req api.RangeRequest) (*api.RangeResponse, error) {
 	s.logger.WithGroup("request").
 		Info("Range request received",
 			"key", req.Key,
@@ -48,6 +49,10 @@ func (s *kvSvc) Range(ctx context.Context, req api.KvRangeRequest) (*api.KvRange
 			"countOnly", req.CountOnly,
 			"serializable", req.Serializable,
 		)
+
+	if err := req.Check(); err != nil {
+		return nil, fmt.Errorf("range failer: malformed request: %w", err)
+	}
 
 	if !req.Serializable {
 		if err := s.peerSvc.VerifyLeader(ctx); err != nil {
@@ -65,7 +70,7 @@ func (s *kvSvc) Range(ctx context.Context, req api.KvRangeRequest) (*api.KvRange
 		return nil, fmt.Errorf("range failed: %v", err)
 	}
 
-	res := new(api.KvRangeResponse)
+	res := new(api.RangeResponse)
 	res.Count = count
 	if !req.CountOnly {
 		res.Entries = entries
@@ -83,7 +88,7 @@ func (s *kvSvc) Range(ctx context.Context, req api.KvRangeRequest) (*api.KvRange
 	return res, nil
 }
 
-func (s *kvSvc) Put(ctx context.Context, req api.KvPutRequest) (*api.KvPutResponse, error) {
+func (s *kvSvc) Put(ctx context.Context, req api.PutRequest) (*api.PutResponse, error) {
 	s.logger.WithGroup("request").
 		Info("Put request received",
 			"key", req.Key,
@@ -93,6 +98,10 @@ func (s *kvSvc) Put(ctx context.Context, req api.KvPutRequest) (*api.KvPutRespon
 			"ignoreValue", req.IgnoreValue,
 			"renewLease", req.IgnoreLease,
 		)
+
+	if err := req.Check(); err != nil {
+		return nil, fmt.Errorf("put failed: malformed request: %w", err)
+	}
 
 	cmd := command.Command{
 		Kind: command.KindPut,
@@ -110,19 +119,23 @@ func (s *kvSvc) Put(ctx context.Context, req api.KvPutRequest) (*api.KvPutRespon
 		return nil, fmt.Errorf("put failed: %v", fsm.ErrNilApplyResult)
 	}
 
-	return &api.KvPutResponse{
-		Header:                result.Header,
-		KvPutResponseNoHeader: *result.Put,
+	return &api.PutResponse{
+		Header:              result.Header,
+		PutResponseNoHeader: *result.Put,
 	}, nil
 }
 
-func (s *kvSvc) Delete(ctx context.Context, req api.KvDeleteRequest) (*api.KvDeleteResponse, error) {
+func (s *kvSvc) Delete(ctx context.Context, req api.DeleteRequest) (*api.DeleteResponse, error) {
 	s.logger.WithGroup("request").
 		Info("Delete request received",
 			"key", req.Key,
 			"end", req.End,
 			"prevEntries", req.PrevEntries,
 		)
+
+	if err := req.Check(); err != nil {
+		return nil, fmt.Errorf("delete failed: malformed request: %w", err)
+	}
 
 	cmd := command.Command{
 		Kind:   command.KindDelete,
@@ -140,9 +153,42 @@ func (s *kvSvc) Delete(ctx context.Context, req api.KvDeleteRequest) (*api.KvDel
 		return nil, fmt.Errorf("delete failed: %v", fsm.ErrNilApplyResult)
 	}
 
-	return &api.KvDeleteResponse{
-		Header:                   result.Header,
-		KvDeleteResponseNoHeader: *result.Delete,
+	return &api.DeleteResponse{
+		Header:                 result.Header,
+		DeleteResponseNoHeader: *result.Delete,
+	}, nil
+}
+func (s *kvSvc) Txn(ctx context.Context, req api.TxnRequest) (*api.TxnResponse, error) {
+	s.logger.WithGroup("request").
+		Info("Transaction request received",
+			"comparison_len", len(req.Comparisons),
+			"success_ops_len", len(req.Success),
+			"failure_ops_len", len(req.Failure),
+		)
+
+	if err := req.Check(); err != nil {
+		return nil, fmt.Errorf("txn failed: malformed request: %w", err)
+	}
+
+	cmd := command.Command{
+		Kind: command.KindTxn,
+		Txn:  &req,
+	}
+
+	result, err := s.proposeFunc(ctx, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("txn failed: %v", err)
+	}
+	if result.Error != nil {
+		return nil, fmt.Errorf("txn failed: %v", result.Error)
+	}
+	if result.Txn == nil {
+		return nil, fmt.Errorf("txn failed: %v", fsm.ErrNilApplyResult)
+	}
+
+	return &api.TxnResponse{
+		Header:            result.Header,
+		TxnResultNoHeader: *result.Txn,
 	}, nil
 }
 
