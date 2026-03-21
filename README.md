@@ -11,18 +11,17 @@ Hello world
 - [ ] finish workload generator/checker
 - [x] simplify http server handlers
 - [ ] BatchingFSM
-- [ ] Snapshot metrics too
 - [x] prune random string(bytes) and []byte(string)
 - [ ] bytestrore.Defragment
 - [ ] raft index -> mvcc 
     - [x] Global monotonic revision
-    - ~~[] Snapshot isolation~~
+    - ~~[x] Snapshot isolation~~
         - snapshot isolation is achieved by atomic reads at certain revisions
     - [x] Deterministic txn ~~executor~~ mvcc.Engine
-    - [ ] Watch event log
-        - refactor delete into emmiting phantom delete events, instead of noop if meta wasnt found in key_index
-    - ~~[ ] Raft-triggered compaction~~
-        - gonna be either periodic or retention window
+    - ~~[ ] Watch event log~~ Watches are outside of this project, as of yet
+        - ~~refactor delete into emmiting phantom delete events, instead of noop if meta wasnt found in key_index~~
+    - [x] Raft-triggered compaction
+        - gonna be either periodic or retention window | See the combined compaction scheduler below
     - [ ] Linearizable read path
     - [x] DELETE -> tombstone marker
     - [x] Transactions
@@ -30,6 +29,8 @@ Hello world
             - distinguishing between txn ending errors and regural errors that should be converted into TxnOpResult
             - encode/decode should use binary so it doesnt return errors
         - [x] add TxnOpTypeGet = ~~"GET"~~ "RANGE" (if no writes chosen ops then then return early, no new rev needed)
+        - [ ] abort on read error
+        - [ ] kv http endpoint
     - ~~Compaction~~  (see combined compactor below)
         - automatic retention window: currentRev - compactedRev > THRESHOLD
         - deterministic
@@ -101,7 +102,7 @@ Hello world
     - [ ] LICENSE from etcd: http://www.apache.org/licenses/LICENSE-2.0
     - [ ] batch kvindex updates, rollback on commit failure
     - [x] mvcc.writer: support revision.sub++ on txn ops
-    - [s] lease:
+    - [x] lease:
         - [x] type Lease
         - [x] type LeaseManager
             - [x] impl
@@ -119,18 +120,26 @@ Hello world
             - [x] impl
             - [x] test
     - [x] background routines
-        - [ ] create an interface with OnLeadershipGranted(f) bool or have a channel that returns leadership grants/revocatinos
+        - [x] create an interface with OnLeadershipGranted(f) bool or have a channel that returns leadership grants/revocatinos
             and set ticker to nil if granted := <- C; granted == false or to the real one if granted == true
     - [x] fix kvservice tests with mocked raft or similar
     - [ ] metrics
-        - meaningful grafana
-        - figure out where and how to collect every kind of metric
-    - [x] combined compactor
+        - [ ] Snapshot metrics too
+        - [ ] meaningful grafana
+        - [ ] figure out where and how to collect every kind of metric
+            - [ ] raft
+            - [ ] kv
+            - [ ] backend
+            - [x] lease
+    - [x] combined compaction scheduler
         - [x] periodic ticks, candidateRev = rev at last tick
         - [x] threshold under which we shouldnt compact
         - [x] BUT if were between periods, but writes have accumulated fast -> lets compact
         - [x] use util.Ticker
         - [x] instead of calling compactable.Compact(), propose a command.CompactCmd to the fsm and let fsm.store handle it
+    - [ ] tls
+        - [ ] tls on http server
+        - [ ] tls on raft inter node communication
 
 # CHORES
 - [ ] use require in every test insteaf of if err != nil ...
