@@ -72,6 +72,7 @@ func NewHTTPServer(
 	mux.HandleFunc("GET "+transport.UriKv+"/get", s.handleKvGet)
 	mux.HandleFunc("POST "+transport.UriKv+"/put", s.handleKvPut)
 	mux.HandleFunc("DELETE "+transport.UriKv+"/delete", s.handleKvDelete)
+	mux.HandleFunc("POST "+transport.UriKv+"/txn", s.handleKvTxn)
 
 	// lease
 	mux.HandleFunc("POST "+transport.UriLease+"/grant", s.handleLeaseGrant)
@@ -129,16 +130,9 @@ func (s *HttpServer) handleKvGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req api.KvRangeRequest
+	var req api.RangeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.logger.Error(jsonDecodeErrMsg, "error", err)
-		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
-		writeError(w, err, http.StatusBadRequest)
-		return
-	}
-
-	if err := req.Check(); err != nil {
-		s.logger.Error("invalid request body", "error", err)
 		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
 		writeError(w, err, http.StatusBadRequest)
 		return
@@ -168,21 +162,15 @@ func (s *HttpServer) handleKvPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cmd command.PutCmd
-	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
+	var req api.PutRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.logger.Error(jsonDecodeErrMsg, "error", err)
 		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	if err := cmd.Check(); err != nil {
-		s.logger.Error("invalid request body", "error", err)
-		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
-		writeError(w, err, http.StatusBadRequest)
-		return
-	}
 
-	result, err := s.kvSvc.Put(r.Context(), cmd)
+	result, err := s.kvSvc.Put(r.Context(), req)
 	if err != nil {
 		s.logger.Error(kvSetErrMsg, "error", err)
 		writeError(w, fmt.Sprintf("%s: %v", kvSetErrMsg, err), http.StatusInternalServerError)
@@ -206,21 +194,49 @@ func (s *HttpServer) handleKvDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cmd command.DeleteCmd
-	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
+	var req api.DeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.logger.Error(jsonDecodeErrMsg, "error", err)
 		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	if err := cmd.Check(); err != nil {
-		s.logger.Error("invalid request body", "error", err)
+
+	result, err := s.kvSvc.Delete(r.Context(), req)
+	if err != nil {
+		s.logger.Error(kvDeleteErrMsg, "error", err)
+		err := fmt.Sprintf("%s: %v", kvDeleteErrMsg, err)
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, *result, http.StatusOK)
+}
+
+func (s *HttpServer) handleKvTxn(w http.ResponseWriter, r *http.Request) {
+	s.logger.Debug("received KV_TXN request")
+	leader, err := s.peerSvc.GetLeader()
+	if err != nil {
+		s.logger.Error("failed to get leader info", "error", err)
+		writeError(w, fmt.Sprintf("failed to get leader info: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	me := s.peerSvc.Me()
+	if leader.NodeID != me.NodeID {
+		s.redirectToLeader(w, r, leader)
+		return
+	}
+
+	var req api.TxnRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error(jsonDecodeErrMsg, "error", err)
 		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
 
-	result, err := s.kvSvc.Delete(r.Context(), cmd)
+	result, err := s.kvSvc.Txn(r.Context(), req)
 	if err != nil {
 		s.logger.Error(kvDeleteErrMsg, "error", err)
 		err := fmt.Sprintf("%s: %v", kvDeleteErrMsg, err)

@@ -167,24 +167,22 @@ func (e *Engine) evalCondition(w Writer, cmps []command.Comparison) bool {
 	}
 
 	for _, cmp := range cmps {
-		if !e.evalComparison(w, cmp) {
+		entry := w.Get([]byte(cmp.Key), 0)
+		if !cmp.Eval(entry) {
 			return false
 		}
 	}
 	return true
 }
 
-func (e *Engine) evalComparison(w Writer, cmp command.Comparison) bool {
-	if entry := w.Get([]byte(cmp.Key), 0); entry != nil {
-		return cmp.Eval(*entry)
-	}
-	return cmp.EvalEmpty()
-}
-
 // todo: increment revision.sub on every op in the txn, and return the revision of each op in the result
 func (e *Engine) applyTxnOps(w Writer, ops []command.TxnOp) ([]command.TxnOpResult, error) {
 	res := make([]command.TxnOpResult, 0, len(ops))
 	for _, op := range ops {
+		if err := op.Check(); err != nil {
+			return nil, fmt.Errorf("txn failed operations interrupted: %w", err)
+		}
+
 		switch op.Type {
 		case command.TxnOpPut:
 			put := op.Put

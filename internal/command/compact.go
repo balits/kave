@@ -6,5 +6,5 @@ type CompactCmd struct {
 
 type CompactResult struct {
 	DoneC <-chan struct{}
-	Err   error
+	Error error
 }

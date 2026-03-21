@@ -82,9 +82,9 @@ func newTestKVService(t *testing.T) *testKVService {
 }
 
 // mustPut inserts a key-value pair and asserts no error.
-func (ts *testKVService) mustPut(key, value string) *api.KvPutResponse {
+func (ts *testKVService) mustPut(key, value string) *api.PutResponse {
 	ts.t.Helper()
-	result, err := ts.Put(ts.ctx, api.KvPutRequest{
+	result, err := ts.Put(ts.ctx, api.PutRequest{
 		Key:   []byte(key),
 		Value: []byte(value),
 	})
@@ -94,9 +94,9 @@ func (ts *testKVService) mustPut(key, value string) *api.KvPutResponse {
 }
 
 // mustPutWithPrev inserts a key-value pair with PrevEntry=true and asserts no error.
-func (ts *testKVService) mustPutWithPrev(key, value string) *api.KvPutResponse {
+func (ts *testKVService) mustPutWithPrev(key, value string) *api.PutResponse {
 	ts.t.Helper()
-	result, err := ts.Put(ts.ctx, api.KvPutRequest{
+	result, err := ts.Put(ts.ctx, api.PutRequest{
 		Key:       []byte(key),
 		Value:     []byte(value),
 		PrevEntry: true,
@@ -107,7 +107,7 @@ func (ts *testKVService) mustPutWithPrev(key, value string) *api.KvPutResponse {
 }
 
 // mustRange performs a range query and asserts no error.
-func (ts *testKVService) mustRange(req api.KvRangeRequest) *api.KvRangeResponse {
+func (ts *testKVService) mustRange(req api.RangeRequest) *api.RangeResponse {
 	ts.t.Helper()
 	result, err := ts.Range(ts.ctx, req)
 	require.NoError(ts.t, err, "Range failed")
@@ -116,7 +116,7 @@ func (ts *testKVService) mustRange(req api.KvRangeRequest) *api.KvRangeResponse 
 }
 
 // mustDelete performs a delete and asserts no error.
-func (ts *testKVService) mustDelete(key string, end string, prevEntries bool) *api.KvDeleteResponse {
+func (ts *testKVService) mustDelete(key string, end string, prevEntries bool) *api.DeleteResponse {
 	ts.t.Helper()
 	cmd := command.DeleteCmd{
 		Key:         []byte(key),
@@ -127,6 +127,14 @@ func (ts *testKVService) mustDelete(key string, end string, prevEntries bool) *a
 	}
 	result, err := ts.Delete(ts.ctx, cmd)
 	require.NoError(ts.t, err, "Delete(%q) failed", key)
+	require.NotNil(ts.t, result)
+	return result
+}
+
+func (ts *testKVService) mustTxn(req api.TxnRequest) *api.TxnResponse {
+	ts.t.Helper()
+	result, err := ts.Txn(ts.ctx, req)
+	require.NoError(ts.t, err, "Txn failed")
 	require.NotNil(ts.t, result)
 	return result
 }
@@ -934,7 +942,7 @@ func Test_KVService_Put_IgnoreValue_UpdatesLeaseOnly(t *testing.T) {
 	ts.mustPut("foo", "bar")
 
 	// now update just the lease
-	result, err := ts.Put(ts.ctx, api.KvPutRequest{
+	result, err := ts.Put(ts.ctx, api.PutRequest{
 		Key:         []byte("foo"),
 		LeaseID:     l.ID,
 		IgnoreValue: true,
@@ -953,7 +961,7 @@ func Test_KVService_Put_IgnoreValue_UpdatesLeaseOnly(t *testing.T) {
 func Test_KVService_Put_IgnoreValue_NonExistentKey_ReturnsError(t *testing.T) {
 	ts := newTestKVService(t)
 
-	_, err := ts.Put(ts.ctx, api.KvPutRequest{
+	_, err := ts.Put(ts.ctx, api.PutRequest{
 		Key:         []byte("nonexistent"),
 		IgnoreValue: true,
 	})
@@ -967,7 +975,7 @@ func Test_KVService_Put_IgnoreValue_PreservesValueAcrossMultiplePuts(t *testing.
 
 	// multiple IgnoreValue puts should keep bumping revision but preserving value
 	for range 3 {
-		result, err := ts.Put(ts.ctx, api.KvPutRequest{
+		result, err := ts.Put(ts.ctx, api.PutRequest{
 			Key:         []byte("key"),
 			IgnoreValue: true,
 		})
@@ -988,7 +996,7 @@ func Test_KVService_Put_IgnoreValue_BumpsRevision(t *testing.T) {
 
 	ts.mustPut("key", "value") // rev 1
 
-	result, err := ts.Put(ts.ctx, api.KvPutRequest{
+	result, err := ts.Put(ts.ctx, api.PutRequest{
 		Key:         []byte("key"),
 		IgnoreValue: true,
 	})
@@ -1001,7 +1009,7 @@ func Test_KVService_Put_IgnoreValue_WithPrevEntry(t *testing.T) {
 
 	ts.mustPut("key", "original")
 
-	result, err := ts.Put(ts.ctx, api.KvPutRequest{
+	result, err := ts.Put(ts.ctx, api.PutRequest{
 		Key:         []byte("key"),
 		IgnoreValue: true,
 		PrevEntry:   true,
@@ -1011,15 +1019,13 @@ func Test_KVService_Put_IgnoreValue_WithPrevEntry(t *testing.T) {
 	require.Equal(t, "original", string(result.PrevEntry.Value))
 }
 
-// ==================== IgnoreLease tests ====================
-
 func Test_KVService_Put_IgnoreLease_PreservesExistingLease(t *testing.T) {
 	ts := newTestKVService(t)
 
 	l, err := ts.lm.Grant(0, 60)
 	require.NoError(t, err)
 
-	_, err = ts.Put(ts.ctx, api.KvPutRequest{
+	_, err = ts.Put(ts.ctx, api.PutRequest{
 		Key:     []byte("foo"),
 		Value:   []byte("bar"),
 		LeaseID: l.ID,
@@ -1027,14 +1033,14 @@ func Test_KVService_Put_IgnoreLease_PreservesExistingLease(t *testing.T) {
 	require.NoError(t, err)
 
 	// update value but keep lease
-	_, err = ts.Put(ts.ctx, api.KvPutRequest{
+	_, err = ts.Put(ts.ctx, api.PutRequest{
 		Key:         []byte("foo"),
 		Value:       []byte("newbar"),
 		IgnoreLease: true,
 	})
 	require.NoError(t, err)
 
-	rangeResult := ts.mustRange(api.KvRangeRequest{Key: []byte("foo")})
+	rangeResult := ts.mustRange(api.RangeRequest{Key: []byte("foo")})
 	require.Len(t, rangeResult.Entries, 1)
 	entry := rangeResult.Entries[0]
 	require.Equal(t, "newbar", string(entry.Value), "value should be updated")
@@ -1044,7 +1050,7 @@ func Test_KVService_Put_IgnoreLease_PreservesExistingLease(t *testing.T) {
 func Test_KVService_Put_IgnoreLease_NonExistentKey_ReturnsError(t *testing.T) {
 	ts := newTestKVService(t)
 
-	_, err := ts.Put(ts.ctx, api.KvPutRequest{
+	_, err := ts.Put(ts.ctx, api.PutRequest{
 		Key:         []byte("nonexistent"),
 		Value:       []byte("value"),
 		IgnoreLease: true,
@@ -1058,7 +1064,7 @@ func Test_KVService_Put_IgnoreLease_KeyWithNoLease_PreservesNoLease(t *testing.T
 	ts.mustPut("key", "value")
 
 	// IgnoreLease on a key with no lease should just keep leaseID=0
-	result, err := ts.Put(ts.ctx, api.KvPutRequest{
+	result, err := ts.Put(ts.ctx, api.PutRequest{
 		Key:         []byte("key"),
 		Value:       []byte("newvalue"),
 		IgnoreLease: true,
@@ -1107,7 +1113,7 @@ func Test_KVService_Put_IgnoreValueAndLease_ActsAsTouchOperation(t *testing.T) {
 	l, err := ts.lm.Grant(0, 60)
 	require.NoError(t, err)
 
-	_, err = ts.Put(ts.ctx, api.KvPutRequest{
+	_, err = ts.Put(ts.ctx, api.PutRequest{
 		Key:     []byte("foo"),
 		Value:   []byte("original"),
 		LeaseID: l.ID,
@@ -1115,7 +1121,7 @@ func Test_KVService_Put_IgnoreValueAndLease_ActsAsTouchOperation(t *testing.T) {
 	require.NoError(t, err)
 
 	// touch
-	result, err := ts.Put(ts.ctx, api.KvPutRequest{
+	result, err := ts.Put(ts.ctx, api.PutRequest{
 		Key:         []byte("foo"),
 		IgnoreValue: true,
 		IgnoreLease: true,
@@ -1123,7 +1129,7 @@ func Test_KVService_Put_IgnoreValueAndLease_ActsAsTouchOperation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(2), result.Header.Revision)
 
-	rangeResult := ts.mustRange(api.KvRangeRequest{Key: []byte("foo")})
+	rangeResult := ts.mustRange(api.RangeRequest{Key: []byte("foo")})
 	entry := rangeResult.Entries[0]
 	require.Equal(t, "original", string(entry.Value), "value unchanged")
 	require.Equal(t, l.ID, entry.LeaseID, "lease unchanged")
@@ -1135,7 +1141,7 @@ func Test_KVService_Put_IgnoreValueAndLease_ActsAsTouchOperation(t *testing.T) {
 func Test_KVService_Put_IgnoreValueAndLease_NonExistentKey_ReturnsError(t *testing.T) {
 	ts := newTestKVService(t)
 
-	_, err := ts.Put(ts.ctx, api.KvPutRequest{
+	_, err := ts.Put(ts.ctx, api.PutRequest{
 		Key:         []byte("ghost"),
 		IgnoreValue: true,
 		IgnoreLease: true,
@@ -1151,21 +1157,22 @@ func Test_KVService_Put_IgnoreValueAndLease_PreservesAllFieldsExceptRevAndVersio
 
 	ts.mustPut("foo", "value1") // rev 1
 
-	_, err = ts.Put(ts.ctx, api.KvPutRequest{
+	_, err = ts.Put(ts.ctx, api.PutRequest{
 		Key:     []byte("foo"),
 		Value:   []byte("value2"),
 		LeaseID: l.ID,
 	})
 	require.NoError(t, err) // rev 2
 
-	_, err = ts.Put(ts.ctx, api.KvPutRequest{
+	_, err = ts.Put(ts.ctx, api.PutRequest{
 		Key:         []byte("foo"),
+		Value:       []byte("bar"),
 		IgnoreValue: true,
 		IgnoreLease: true,
 	})
 	require.NoError(t, err) // rev 3
 
-	rangeResult := ts.mustRange(api.KvRangeRequest{Key: []byte("foo")})
+	rangeResult := ts.mustRange(api.RangeRequest{Key: []byte("foo")})
 	entry := rangeResult.Entries[0]
 	require.Equal(t, "value2", string(entry.Value))
 	require.Equal(t, l.ID, entry.LeaseID)
@@ -1173,3 +1180,655 @@ func Test_KVService_Put_IgnoreValueAndLease_PreservesAllFieldsExceptRevAndVersio
 	require.Equal(t, int64(3), entry.ModRev)
 	require.Equal(t, int64(3), entry.Version)
 }
+
+// tests for transactions
+
+func Test_KVService_Txn_SuccessBranch(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("counter", "hello")
+
+	result := ts.mustTxn(api.TxnRequest{
+		Comparisons: []command.Comparison{
+			{
+				Key:         []byte("counter"),
+				Operator:    api.OperatorEqual,
+				Target:      api.FieldVersion,
+				TargetUnion: api.CompareTargetUnion{Version: intPtr(1)},
+			},
+		},
+		Success: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("updated")}},
+		},
+		Failure: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("failed")}},
+		},
+	})
+
+	require.True(t, result.Success)
+	require.Greater(t, result.Header.Revision, int64(1))
+
+	rangeResult := ts.mustRange(api.RangeRequest{Key: []byte("counter")})
+	require.Len(t, rangeResult.Entries, 1)
+	require.Equal(t, "updated", string(rangeResult.Entries[0].Value))
+}
+
+func Test_KVService_Txn_FailureBranch(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("counter", "hello")
+
+	result := ts.mustTxn(api.TxnRequest{
+		Comparisons: []command.Comparison{
+			{
+				Key:         []byte("counter"),
+				Operator:    api.OperatorEqual,
+				Target:      api.FieldVersion,
+				TargetUnion: api.CompareTargetUnion{Version: intPtr(99)},
+			},
+		},
+		Success: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("should_not")}},
+		},
+		Failure: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("failed_path")}},
+		},
+	})
+
+	require.False(t, result.Success)
+
+	rangeResult := ts.mustRange(api.RangeRequest{Key: []byte("counter")})
+	require.Len(t, rangeResult.Entries, 1)
+	require.Equal(t, "failed_path", string(rangeResult.Entries[0].Value))
+}
+
+func Test_KVService_Txn_NoComparisons_AlwaysSuccess(t *testing.T) {
+	ts := newTestKVService(t)
+
+	result := ts.mustTxn(api.TxnRequest{
+		Success: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v")}},
+		},
+	})
+
+	require.True(t, result.Success)
+
+	rangeResult := ts.mustRange(api.RangeRequest{Key: []byte("k")})
+	require.Len(t, rangeResult.Entries, 1)
+	require.Equal(t, "v", string(rangeResult.Entries[0].Value))
+}
+
+func Test_KVService_Txn_EmptyOps(t *testing.T) {
+	ts := newTestKVService(t)
+
+	result := ts.mustTxn(api.TxnRequest{})
+
+	require.True(t, result.Success)
+	require.Empty(t, result.Results)
+	// no write happened so revision should still be 0
+	require.Equal(t, int64(0), result.Header.Revision)
+}
+
+func Test_KVService_Txn_CompareNonExistentKey_VersionZero(t *testing.T) {
+	ts := newTestKVService(t)
+	one := int64(1)
+
+	result := ts.mustTxn(api.TxnRequest{
+		Comparisons: []command.Comparison{
+			{
+				Key:         []byte("missing"),
+				Operator:    api.OperatorEqual,
+				Target:      api.FieldVersion,
+				TargetUnion: api.CompareTargetUnion{Version: &one},
+			},
+		},
+		Failure: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("missing"), Value: []byte("created")}},
+		},
+	})
+
+	require.False(t, result.Success, "version==0 on nonexistent key should evaluate false")
+
+	rangeResult := ts.mustRange(api.RangeRequest{Key: []byte("missing")})
+	require.Len(t, rangeResult.Entries, 1)
+	require.Equal(t, "created", string(rangeResult.Entries[0].Value))
+}
+
+func Test_KVService_Txn_MultipleComparisons_AllPass(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("a", "1")
+	ts.mustPut("b", "2")
+
+	result := ts.mustTxn(api.TxnRequest{
+		Comparisons: []command.Comparison{
+			{Key: []byte("a"), Operator: api.OperatorEqual, Target: api.FieldVersion, TargetUnion: api.CompareTargetUnion{Version: intPtr(1)}},
+			{Key: []byte("b"), Operator: api.OperatorEqual, Target: api.FieldVersion, TargetUnion: api.CompareTargetUnion{Version: intPtr(1)}},
+		},
+		Success: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("result"), Value: []byte("both_matched")}},
+		},
+	})
+
+	require.True(t, result.Success, "both comparisons should pass")
+}
+
+func Test_KVService_Txn_MultipleComparisons_OneFails(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("a", "1")
+	ts.mustPut("b", "2")
+
+	result := ts.mustTxn(api.TxnRequest{
+		Comparisons: []command.Comparison{
+			{Key: []byte("a"), Operator: api.OperatorEqual, Target: api.FieldVersion, TargetUnion: api.CompareTargetUnion{Version: intPtr(1)}},
+			{Key: []byte("b"), Operator: api.OperatorEqual, Target: api.FieldVersion, TargetUnion: api.CompareTargetUnion{Version: intPtr(99)}},
+		},
+		Success: []command.TxnOp{},
+		Failure: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("result"), Value: []byte("one_failed")}},
+		},
+	})
+
+	require.False(t, result.Success)
+}
+
+func Test_KVService_Txn_CompareValue(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("k", "expected")
+
+	result := ts.mustTxn(api.TxnRequest{
+		Comparisons: []command.Comparison{
+			{
+				Key:         []byte("k"),
+				Operator:    api.OperatorEqual,
+				Target:      api.FieldValue,
+				TargetUnion: api.CompareTargetUnion{Value: []byte("expected")},
+			},
+		},
+		Success: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("matched")}},
+		},
+	})
+
+	require.True(t, result.Success, "value comparison should succeed")
+}
+
+func Test_KVService_Txn_CompareValue_Mismatch(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("k", "actual")
+
+	result := ts.mustTxn(api.TxnRequest{
+		Comparisons: []command.Comparison{
+			{
+				Key:         []byte("k"),
+				Operator:    api.OperatorEqual,
+				Target:      api.FieldValue,
+				TargetUnion: api.CompareTargetUnion{Value: []byte("wrong")},
+			},
+		},
+		Success: []command.TxnOp{},
+		Failure: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("result"), Value: []byte("mismatch")}},
+		},
+	})
+
+	require.False(t, result.Success, "value comparison should fail")
+}
+
+func Test_KVService_Txn_CompareCreateRev(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("k", "v1") // rev 1, createRev 1
+	ts.mustPut("k", "v2") // rev 2, createRev still 1
+
+	result := ts.mustTxn(api.TxnRequest{
+		Comparisons: []command.Comparison{
+			{
+				Key:         []byte("k"),
+				Operator:    api.OperatorEqual,
+				Target:      api.FieldCreate,
+				TargetUnion: api.CompareTargetUnion{CreateRevision: intPtr(1)},
+			},
+		},
+		Success: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("check"), Value: []byte("createRev_ok")}},
+		},
+	})
+
+	require.True(t, result.Success, "createRev should still be 1 despite update at rev 2")
+}
+
+func Test_KVService_Txn_CompareModRev(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("k", "v1") // modRev 1
+	ts.mustPut("k", "v2") // modRev 2
+
+	result := ts.mustTxn(api.TxnRequest{
+		Comparisons: []command.Comparison{
+			{
+				Key:         []byte("k"),
+				Operator:    api.OperatorEqual,
+				Target:      api.FieldMod,
+				TargetUnion: api.CompareTargetUnion{ModRevision: intPtr(2)},
+			},
+		},
+		Success: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("check"), Value: []byte("modRev_ok")}},
+		},
+	})
+
+	require.True(t, result.Success, "modRev should be 2 after second put")
+}
+
+// Txn ops
+
+func Test_KVService_Txn_WithDeleteOp(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("k1", "v1")
+	ts.mustPut("k2", "v2")
+
+	result := ts.mustTxn(api.TxnRequest{
+		Success: []command.TxnOp{
+			{Type: command.TxnOpDelete, Delete: &command.DeleteCmd{Key: []byte("k1")}},
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("k3"), Value: []byte("v3")}},
+		},
+	})
+
+	require.True(t, result.Success)
+
+	e1 := ts.mustRange(api.RangeRequest{Key: []byte("k1")})
+	e3 := ts.mustRange(api.RangeRequest{Key: []byte("k3")})
+	require.Empty(t, e1.Entries, "k1 should be deleted")
+	require.Len(t, e3.Entries, 1, "k3 should exist")
+}
+
+func Test_KVService_Txn_PutWithPrevEntry(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("k", "old")
+
+	result := ts.mustTxn(api.TxnRequest{
+		Success: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("new"), PrevEntry: true}},
+		},
+	})
+
+	require.True(t, result.Success)
+	require.Len(t, result.Results, 1)
+
+	putRes := result.Results[0].Put
+	require.NotNil(t, putRes)
+	require.NotNil(t, putRes.PrevEntry, "PrevEntry should be populated when requested inside txn")
+	require.Equal(t, "old", string(putRes.PrevEntry.Value))
+}
+
+func Test_KVService_Txn_DeleteWithPrevEntries(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("x", "xv")
+	ts.mustPut("y", "yv")
+
+	result := ts.mustTxn(api.TxnRequest{
+		Success: []command.TxnOp{
+			{Type: command.TxnOpDelete, Delete: &command.DeleteCmd{Key: []byte("x"), End: []byte("z"), PrevEntries: true}},
+		},
+	})
+
+	require.True(t, result.Success)
+	require.Len(t, result.Results, 1)
+
+	delRes := result.Results[0].Delete
+	require.NotNil(t, delRes)
+	require.Equal(t, int64(2), delRes.NumDeleted)
+	require.Len(t, delRes.PrevEntries, 2)
+	require.Equal(t, "xv", string(delRes.PrevEntries[0].Value))
+	require.Equal(t, "yv", string(delRes.PrevEntries[1].Value))
+}
+
+func Test_KVService_Txn_MixedOps(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("a", "1")
+	ts.mustPut("b", "2")
+	ts.mustPut("c", "3")
+
+	result := ts.mustTxn(api.TxnRequest{
+		Success: []command.TxnOp{
+			{Type: command.TxnOpDelete, Delete: &command.DeleteCmd{Key: []byte("a")}},
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("updated")}},
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("d"), Value: []byte("new")}},
+		},
+	})
+
+	require.True(t, result.Success)
+	require.Len(t, result.Results, 3)
+
+	a := ts.mustRange(api.RangeRequest{Key: []byte("a")})
+	b := ts.mustRange(api.RangeRequest{Key: []byte("b")})
+	c := ts.mustRange(api.RangeRequest{Key: []byte("c")})
+	d := ts.mustRange(api.RangeRequest{Key: []byte("d")})
+
+	require.Empty(t, a.Entries, "a should be deleted")
+	require.Len(t, b.Entries, 1)
+	require.Equal(t, "updated", string(b.Entries[0].Value))
+	require.Len(t, c.Entries, 1)
+	require.Equal(t, "3", string(c.Entries[0].Value), "c should be untouched")
+	require.Len(t, d.Entries, 1)
+	require.Equal(t, "new", string(d.Entries[0].Value))
+}
+
+func Test_KVService_Txn_WithRangeOp(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("a", "1")
+	ts.mustPut("b", "2")
+	ts.mustPut("c", "3")
+
+	result := ts.mustTxn(api.TxnRequest{
+		Success: []command.TxnOp{
+			{Type: command.TxnOpRange, Range: &command.RangeCmd{Key: []byte("a"), End: []byte("d")}},
+		},
+	})
+
+	require.True(t, result.Success)
+	require.Len(t, result.Results, 1)
+
+	rangeRes := result.Results[0].Range
+	require.NotNil(t, rangeRes)
+	require.Equal(t, 3, rangeRes.Count)
+	require.Len(t, rangeRes.Entries, 3)
+}
+
+func Test_KVService_Txn_ResultCount(t *testing.T) {
+	ts := newTestKVService(t)
+
+	result := ts.mustTxn(api.TxnRequest{
+		Success: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}},
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}},
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("c"), Value: []byte("3")}},
+		},
+	})
+
+	require.True(t, result.Success)
+	require.Len(t, result.Results, 3, "one result per op")
+	for i, r := range result.Results {
+		require.NotNil(t, r.Put, "results[%d].Put should not be nil", i)
+	}
+}
+
+func Test_KVService_Txn_IsAtomic_FailureOpsDoNotApplyOnSuccess(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("flag", "true")
+
+	ts.mustTxn(api.TxnRequest{
+		Comparisons: []command.Comparison{
+			{
+				Key:         []byte("flag"),
+				Operator:    api.OperatorEqual,
+				Target:      api.FieldValue,
+				TargetUnion: api.CompareTargetUnion{Value: []byte("true")},
+			},
+		},
+		Success: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("result"), Value: []byte("success_branch")}},
+		},
+		Failure: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("result"), Value: []byte("failure_branch")}},
+		},
+	})
+
+	result := ts.mustRange(api.RangeRequest{Key: []byte("result")})
+	require.Len(t, result.Entries, 1)
+	require.Equal(t, "success_branch", string(result.Entries[0].Value),
+		"only success branch ops should be applied")
+}
+
+func Test_KVService_Txn_BumpsRevisionOnce(t *testing.T) {
+	ts := newTestKVService(t)
+
+	// a txn with multiple puts should only bump the revision once
+	result := ts.mustTxn(api.TxnRequest{
+		Success: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}},
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}},
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("c"), Value: []byte("3")}},
+		},
+	})
+
+	require.Equal(t, int64(1), result.Header.Revision,
+		"txn with multiple ops should produce exactly one revision bump")
+}
+
+func Test_KVService_Txn_EmptyFailureBranch_NoWrites(t *testing.T) {
+	ts := newTestKVService(t)
+
+	ts.mustPut("k", "v") // rev 1
+
+	// comparison fails, failure branch is empty —> no new revision
+	result := ts.mustTxn(api.TxnRequest{
+		Comparisons: []command.Comparison{
+			{
+				Key:         []byte("k"),
+				Operator:    api.OperatorEqual,
+				Target:      api.FieldVersion,
+				TargetUnion: api.CompareTargetUnion{Version: intPtr(99)},
+			},
+		},
+		Success: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("updated")}},
+		},
+		Failure: []command.TxnOp{},
+	})
+
+	require.False(t, result.Success)
+	require.Empty(t, result.Results)
+
+	// value should be unchanged
+	rangeResult := ts.mustRange(api.RangeRequest{Key: []byte("k")})
+	require.Equal(t, "v", string(rangeResult.Entries[0].Value))
+}
+
+// tests for malformed requests
+
+func Test_KVService_Put_MalformedRequest_EmptyKey(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Put(ts.ctx, api.PutRequest{
+		Key:   []byte(""),
+		Value: []byte("value"),
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed request")
+}
+
+func Test_KVService_Put_MalformedRequest_EmptyValue(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Put(ts.ctx, api.PutRequest{
+		Key:   []byte("key"),
+		Value: []byte(""),
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed request")
+}
+
+func Test_KVService_Put_MalformedRequest_NegativeLeaseID(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Put(ts.ctx, api.PutRequest{
+		Key:     []byte("key"),
+		Value:   []byte("value"),
+		LeaseID: -1,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed request")
+}
+
+func Test_KVService_Put_MalformedRequest_NilKey(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Put(ts.ctx, api.PutRequest{
+		Key:   nil,
+		Value: []byte("value"),
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed request")
+}
+
+func Test_KVService_Delete_MalformedRequest_EmptyKey(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Delete(ts.ctx, api.DeleteRequest{
+		Key: []byte(""),
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed request")
+}
+
+func Test_KVService_Delete_MalformedRequest_NilKey(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Delete(ts.ctx, api.DeleteRequest{
+		Key: nil,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed request")
+}
+
+func Test_KVService_Range_MalformedRequest_EmptyKey(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Range(ts.ctx, api.RangeRequest{
+		Key: []byte(""),
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed request")
+}
+
+func Test_KVService_Range_MalformedRequest_NilKey(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Range(ts.ctx, api.RangeRequest{
+		Key: nil,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed request")
+}
+
+func Test_KVService_Range_MalformedRequest_NegativeLimit(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Range(ts.ctx, api.RangeRequest{
+		Key:   []byte("key"),
+		Limit: -1,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed request")
+}
+
+func Test_KVService_Txn_MalformedRequest_ComparisonEmptyKey(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Txn(ts.ctx, api.TxnRequest{
+		Comparisons: []command.Comparison{
+			{
+				Key:         []byte(""), // empty key — invalid
+				Operator:    api.OperatorEqual,
+				Target:      api.FieldVersion,
+				TargetUnion: api.CompareTargetUnion{Version: intPtr(1)},
+			},
+		},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed request")
+}
+
+func Test_KVService_Txn_MalformedRequest_InvalidOperator(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Txn(ts.ctx, api.TxnRequest{
+		Comparisons: []command.Comparison{
+			{
+				Key:         []byte("k"),
+				Operator:    api.ComparisonOperator("INVALID"),
+				Target:      api.FieldVersion,
+				TargetUnion: api.CompareTargetUnion{Version: intPtr(1)},
+			},
+		},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed request")
+}
+
+func Test_KVService_Txn_MalformedRequest_InvalidTargetField(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Txn(ts.ctx, api.TxnRequest{
+		Comparisons: []command.Comparison{
+			{
+				Key:      []byte("k"),
+				Operator: api.OperatorEqual,
+				Target:   api.CompareTargetField("BADFIELD"),
+			},
+		},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed request")
+}
+
+func Test_KVService_Txn_MalformedRequest_SuccessOpNilPut(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Txn(ts.ctx, api.TxnRequest{
+		Success: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: nil}, // put type but nil cmd
+		},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed request")
+}
+
+func Test_KVService_Txn_MalformedRequest_SuccessOpNilDelete(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Txn(ts.ctx, api.TxnRequest{
+		Success: []command.TxnOp{
+			{Type: command.TxnOpDelete, Delete: nil},
+		},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed request")
+}
+
+func Test_KVService_Txn_MalformedRequest_SuccessOpEmptyKey(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Txn(ts.ctx, api.TxnRequest{
+		Success: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte(""), Value: []byte("v")}},
+		},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed request")
+}
+
+func Test_KVService_Txn_MalformedRequest_FailureOpNilPut(t *testing.T) {
+	ts := newTestKVService(t)
+
+	_, err := ts.Txn(ts.ctx, api.TxnRequest{
+		Failure: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: nil},
+		},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed request")
+}
+
+func intPtr(v int64) *int64 { return &v }

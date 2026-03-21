@@ -2,17 +2,18 @@ package api
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/balits/kave/internal/types"
 )
 
-// A KvRangeRequest a kulcsok egy tartományát olvassa, ahol a tartomány [Key, End) formában van megadva,
+// A RangeRequest a kulcsok egy tartományát olvassa, ahol a tartomány [Key, End) formában van megadva,
 // és ha End nil akkor csak a Key-t olvassuk.
 // Megadhatjuk a reviziót, amit olvasni akarunk, illetve a CountOnly kapcsolóval
 // csak a az kulcsok számát kapjuk vissza.
 // Emellett a Serializable kapcsoló szabályozza a konzisztencia modelt
 // (Serializable = TRUE == eventual consistency | Serializable = FALSE == Linearizable == string consistency)
-type KvRangeRequest struct {
+type RangeRequest struct {
 	Key   []byte `json:"key"`
 	End   []byte `json:"end,omitempty"`
 	Limit int64  `json:"limit,omitempty"`
@@ -39,11 +40,11 @@ type KvRangeRequest struct {
 	Prefix bool `json:"prefix,omitempty"`
 }
 
-func (c *KvRangeRequest) Check() error {
-	if len(c.Key) == 0 {
+func (r *RangeRequest) Check() error {
+	if len(r.Key) == 0 && !r.Prefix {
 		return errors.New("key is required")
 	}
-	if c.Limit < 0 {
+	if r.Limit < 0 {
 		return errors.New("limit cannot be negative")
 	}
 	// ez nem hiva, ha revision negativ akkor targetRev = 0 lesz
@@ -53,19 +54,19 @@ func (c *KvRangeRequest) Check() error {
 	return nil
 }
 
-// A KvRangeResponse egy Range művelet eredménye
-type KvRangeResponse struct {
+// A RangeResponse egy Range művelet eredménye
+type RangeResponse struct {
 	Header ResponseHeader `json:"header"`
-	KvRangeResponseNoHeader
+	RangeResponseNoHeader
 }
 
-type KvRangeResponseNoHeader struct {
+type RangeResponseNoHeader struct {
 	Entries []types.KvEntry `json:"entries"`
 	Count   int             `json:"count"` // teljes egyezésű kulcsok száma (nagyobb lehet, mint len(Entries) ha limit volt alkalmazva)
 }
 
-// A KvPutRequest a PUT művelethez szükséges adatokat tartalmazza
-type KvPutRequest struct {
+// A PutRequest a PUT művelethez szükséges adatokat tartalmazza
+type PutRequest struct {
 	Key   []byte `json:"key"`
 	Value []byte `json:"value"`
 
@@ -82,38 +83,32 @@ type KvPutRequest struct {
 	IgnoreLease bool `json:"ignore_lease,omitempty"`
 }
 
-func (c *KvPutRequest) Check() error {
-	if len(c.Key) == 0 {
+func (r *PutRequest) Check() error {
+	if len(r.Key) == 0 {
 		return errors.New("key is required")
 	}
-	if len(c.Value) == 0 {
+	if len(r.Value) == 0 && !r.IgnoreValue {
 		return errors.New("value is required")
 	}
-	if c.LeaseID < 0 {
+	if r.LeaseID < 0 && !r.IgnoreLease {
 		return errors.New("lease id cannot be negative")
-	}
-	if c.IgnoreValue && c.IgnoreLease {
-		return errors.New("ignore_value and renew_lease cannot be both true")
-	}
-	if c.IgnoreLease && c.LeaseID != 0 {
-		return errors.New("lease_id must not be set when renew_lease is true")
 	}
 
 	return nil
 }
 
-type KvPutResponse struct {
+type PutResponse struct {
 	Header ResponseHeader `json:"header"`
-	KvPutResponseNoHeader
+	PutResponseNoHeader
 }
 
-type KvPutResponseNoHeader struct {
+type PutResponseNoHeader struct {
 	// PrevEntry az előző értéket tartalmazza, ha PrevEntry kapcsolóval kértük, egyébként nil
 	PrevEntry *types.KvEntry `json:"prev_entry,omitempty"`
 }
 
-// A KvDeleteRequest a DELETE művelethez szükséges adatokat tartalmazza
-type KvDeleteRequest struct {
+// A DeleteRequest a DELETE művelethez szükséges adatokat tartalmazza
+type DeleteRequest struct {
 	// A kulcs
 	Key []byte `json:"key"`
 
@@ -124,22 +119,114 @@ type KvDeleteRequest struct {
 	PrevEntries bool `json:"prev_entries,omitempty"`
 }
 
-func (c *KvDeleteRequest) Check() error {
-	if len(c.Key) == 0 {
+func (r *DeleteRequest) Check() error {
+	if len(r.Key) == 0 {
 		return errors.New("key is required")
 	}
 	return nil
 }
 
-type KvDeleteResponse struct {
+type DeleteResponse struct {
 	Header ResponseHeader `json:"header"`
-	KvDeleteResponseNoHeader
+	DeleteResponseNoHeader
 }
 
-type KvDeleteResponseNoHeader struct {
+type DeleteResponseNoHeader struct {
 	// NumDeleted az eltávolított kulcsok számát tartalmazza
 	NumDeleted int64 `json:"num_deleted"`
 
 	// PrevEntries az eltávolított kulcsok előző értékeit tartalmazza, ha PrevEntry kapcsolóval kértük, egyébként nil
 	PrevEntries []types.KvEntry `json:"prev_entries,omitempty"`
+}
+
+type TxnRequest struct {
+	Comparisons []Comparison `json:"comparisons"`
+	Success     []TxnOp      `json:"success"`
+	Failure     []TxnOp      `json:"failure"`
+}
+
+func (r *TxnRequest) Check() error {
+	for _, cmp := range r.Comparisons {
+		if err := cmp.Check(); err != nil {
+			return fmt.Errorf("invalid comparison: %w (value = %+v)", err, cmp)
+		}
+	}
+	for _, op := range r.Success {
+		if err := op.Check(); err != nil {
+			return fmt.Errorf("invalid success operation: %w (value = %+v)", err, op)
+		}
+	}
+	for _, op := range r.Failure {
+		if err := op.Check(); err != nil {
+			return fmt.Errorf("invalid failure operation: %w (value = %+v)", err, op)
+		}
+	}
+	return nil
+}
+
+type TxnResponse struct {
+	Header ResponseHeader `json:"header"`
+	TxnResultNoHeader
+}
+
+type TxnResultNoHeader struct {
+	// A Success jelzi, hogy melyik ág lett választva (true = összehasonlítások sikeresek voltak)
+	Success bool `json:"success"`
+
+	// A Results egy bejegyzést tartalmaz az összes operációhoz a választott ágban, sorrendben
+	Results []TxnOpResult `json:"results"`
+}
+
+type TxnOpType string
+
+const (
+	TxnOpPut    TxnOpType = "PUT"
+	TxnOpDelete TxnOpType = "DEL"
+	TxnOpRange  TxnOpType = "RANGE"
+)
+
+// TxnOp egy művelet egy TxnCommand-ben, lehet PUT, DELETE vagy RANGE
+type TxnOp struct {
+	Type   TxnOpType      `json:"type"`
+	Put    *PutRequest    `json:"put,omitempty"`
+	Delete *DeleteRequest `json:"delete,omitempty"`
+	Range  *RangeRequest  `jsgn:"range,omitempty"`
+}
+
+func (op *TxnOp) Check() error {
+	switch op.Type {
+	case TxnOpPut:
+		if op.Put == nil {
+			return errors.New("txn_put: put request is required")
+		}
+		if err := op.Put.Check(); err != nil {
+			return fmt.Errorf("txn_put: %w", err)
+		}
+	case TxnOpDelete:
+		if op.Delete == nil {
+			return errors.New("txn_delete: delete request is required")
+		}
+		if err := op.Delete.Check(); err != nil {
+			return fmt.Errorf("txn_delete: %w", err)
+		}
+	case TxnOpRange:
+		if op.Range == nil {
+			return errors.New("txn_range: range request is required")
+		}
+		if err := op.Range.Check(); err != nil {
+			return fmt.Errorf("txn_range: %w", err)
+		}
+	default:
+		return fmt.Errorf("invalid txn_operation type: %s", op.Type)
+	}
+
+	return nil
+}
+
+// A TxnOpResult unió egy tranzakcióban szereplő műveleti eredményt tartalmazza
+// Pontosan egy mező nem nil, amely az operáció típusához illeszkedik
+type TxnOpResult struct {
+	Put    *PutResponseNoHeader    `json:"put,omitempty"`
+	Delete *DeleteResponseNoHeader `json:"delete,omitempty"`
+	Range  *RangeResponseNoHeader  `json:"range,omitempty"`
 }
