@@ -7,7 +7,6 @@ Hello world
 - dirty reads -> Leader, follower GET, no VerifyLeader()
 
 # TODO
-- ~~[ ]fix cluster tests~~
 - [ ] finish workload generator/checker
 - [x] simplify http server handlers
 - [ ] BatchingFSM
@@ -22,7 +21,6 @@ Hello world
         - ~~refactor delete into emmiting phantom delete events, instead of noop if meta wasnt found in key_index~~
     - [x] Raft-triggered compaction
         - gonna be either periodic or retention window | See the combined compaction scheduler below
-    - [ ] Linearizable read path
     - [x] DELETE -> tombstone marker
     - [x] Transactions
         - [x] applyTxnOp
@@ -75,8 +73,8 @@ Hello world
 	        - ~~Latest metadata about each key. Stores key -> (createRevision uint64, modRevision uint64, version uint64, tombstone bool)~~
         - [x] ~~"key_history/"~~ "main/":
 	        - Append only historical log of all version of a key. Stores (mainRev, subRev) -> Entry{key, value, createRev, modRev, version, tombstone, leaseID}
-    - [ ] Ops:
-        - [ ] GET:
+    - [x] Ops:
+        - [x] GET:
             - Case 1: Read latest
                 - lookup key_index
                 - if tombstone == true then KeyNotFound
@@ -123,6 +121,20 @@ Hello world
         - [x] create an interface with OnLeadershipGranted(f) bool or have a channel that returns leadership grants/revocatinos
             and set ticker to nil if granted := <- C; granted == false or to the real one if granted == true
     - [x] fix kvservice tests with mocked raft or similar
+    - [x] combined compaction scheduler
+        - [x] periodic ticks, candidateRev = rev at last tick
+        - [x] threshold under which we shouldnt compact
+        - [x] BUT if were between periods, but writes have accumulated fast -> lets compact
+        - [x] use util.Ticker
+        - [x] instead of calling compactable.Compact(), propose a command.CompactCmd to the fsm and let fsm.store handle it
+    
+    - MARCH.21:
+    - [ ] read path
+        - [ ] eventual consistency: only leader 
+        - [ ] strong consistency: only leader + VerifyLeader()
+    - [ ] put request
+        - [ ] IgnoreLease
+        - [ ] IgnoreValue
     - [ ] metrics
         - [ ] Snapshot metrics too
         - [ ] meaningful grafana
@@ -131,15 +143,14 @@ Hello world
             - [ ] kv
             - [ ] backend
             - [x] lease
-    - [x] combined compaction scheduler
-        - [x] periodic ticks, candidateRev = rev at last tick
-        - [x] threshold under which we shouldnt compact
-        - [x] BUT if were between periods, but writes have accumulated fast -> lets compact
-        - [x] use util.Ticker
-        - [x] instead of calling compactable.Compact(), propose a command.CompactCmd to the fsm and let fsm.store handle it
     - [ ] tls
         - [ ] tls on http server
         - [ ] tls on raft inter node communication
+    - [ ] handle http redirects from follower to leader
+        - [ ] single host reverse proxy
+    - [ ] cluster integratino tests
+    - [ ] live workload + web ui for stats, metrics and manual commands
 
 # CHORES
 - [ ] use require in every test insteaf of if err != nil ...
+- [ ] use either english or hungarian in all of the doc comments ???
