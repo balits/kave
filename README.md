@@ -135,7 +135,7 @@ Hello world
     - [x] put request
         - [x] IgnoreLease
         - [x] IgnoreValue
-    - [ ] txn through kvservice (+ http)
+    - [x] txn through kvservice (+ http)
     - [ ] backend.Defragment
     - [ ] metrics
         - [ ] Snapshot metrics too
