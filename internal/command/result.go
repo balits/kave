@@ -1,5 +1,7 @@
 package command
 
+import "github.com/balits/kave/internal/types/api"
+
 // A Result a Command végrehajtásának eredményét tartalmazza, a Header pedig a művelethez tartozó reviziót
 type Result struct {
 	Header ResultHeader `json:"header"`
@@ -19,13 +21,4 @@ type Result struct {
 }
 
 // A ResultHeader minden eredmény közös metaadatait tartalmazza
-type ResultHeader struct {
-	// Revision az írás végrehajtása utáni revíziót tartalmazza. Olvasás esetén ez a revízió, amin a lekérdezést kiszolgáltuk
-	Revision int64 `json:"revision"`
-	// NodeID a végrahtó node azonosítója
-	NodeID string `json:"node_id"`
-	// RaftTerm a jelenlegi raft term
-	RaftTerm uint64 `json:"raft_term"`
-	// RaftIndex a jelenlegi raft index
-	RaftIndex uint64 `json:"raft_index"`
-}
+type ResultHeader = api.ResponseHeader

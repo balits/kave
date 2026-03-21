@@ -100,7 +100,7 @@ func main() {
 			Key:          []byte(key),
 			End:          []byte(end),
 			Limit:        0,
-			Linearizable: false,
+			Serializable: false,
 			Revision:     rev,
 			CountOnly:    false,
 			Prefix:       prefix,

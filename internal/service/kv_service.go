@@ -9,12 +9,12 @@ import (
 	"github.com/balits/kave/internal/fsm"
 	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/mvcc"
+	"github.com/balits/kave/internal/types/api"
 	"github.com/balits/kave/internal/util"
 )
 
 type KVService interface {
-	// NOTE: since reads usually dont go through raft, the resulitng Header.NodeID will be "", the caller should set it themselves
-	Range(ctx context.Context, cmd command.RangeCmd) (*command.Result, error)
+	Range(ctx context.Context, req api.RangeRequest) (*api.RangeResponse, error)
 	Put(ctx context.Context, subcmd command.PutCmd) (*command.Result, error)
 	Delete(ctx context.Context, subcmd command.DeleteCmd) (*command.Result, error)
 
@@ -37,48 +37,50 @@ func NewKVService(logger *slog.Logger, store *mvcc.KVStore, peerSvc PeerService,
 	}
 }
 
-func (s *kvSvc) Range(ctx context.Context, cmd command.RangeCmd) (*command.Result, error) {
-	s.logger.WithGroup("cmd").
+func (s *kvSvc) Range(ctx context.Context, req api.RangeRequest) (*api.RangeResponse, error) {
+	s.logger.WithGroup("request").
 		Debug("Range command received",
-			"key", cmd.Key,
-			"end", cmd.End,
-			"revision", cmd.Revision,
-			"limit", cmd.Limit,
-			"countOnly", cmd.CountOnly,
-			"prefix", cmd.Prefix,
+			"key", req.Key,
+			"end", req.End,
+			"limit", req.Limit,
+			"revision", req.Revision,
+			"prefix", req.Prefix,
+			"countOnly", req.CountOnly,
+			"serializable", req.Serializable,
 		)
-	// for now, only allow queries on leader
-	if err := s.peerSvc.VerifyLeader(ctx); err != nil {
-		return nil, fmt.Errorf("failed to verify leader: %v", err)
+
+	if !req.Serializable {
+		if err := s.peerSvc.VerifyLeader(ctx); err != nil {
+			return nil, fmt.Errorf("failed to verify leader: %v", err)
+		}
 	}
 
-	if cmd.Prefix {
-		cmd.End = kv.PrefixEnd(cmd.Key)
+	if req.Prefix {
+		req.End = kv.PrefixEnd(req.Key)
 	}
 
 	r := s.store.NewReader()
-	entries, count, _, err := r.Range(cmd.Key, cmd.End, cmd.Revision, cmd.Limit)
+	entries, count, _, err := r.Range(req.Key, req.End, req.Revision, req.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("range failed: %v", err)
 	}
 
-	res := new(command.RangeResult)
+	res := new(api.RangeResponse)
 	res.Count = count
-	if !cmd.CountOnly {
+	if !req.CountOnly {
 		res.Entries = entries
 	}
 
 	raftIndex, raftTerm := s.store.RaftMeta()
 	currRev, _ := s.store.Revisions()
-	return &command.Result{
-		Header: command.ResultHeader{
-			Revision:  currRev.Main,
-			RaftTerm:  raftTerm,
-			RaftIndex: raftIndex,
-			NodeID:    s.peerSvc.Me().NodeID,
-		},
-		Range: res,
-	}, nil
+
+	res.Header = command.ResultHeader{
+		Revision:  currRev.Main,
+		RaftTerm:  raftTerm,
+		RaftIndex: raftIndex,
+		NodeID:    s.peerSvc.Me().NodeID,
+	}
+	return res, nil
 }
 
 func (s *kvSvc) Put(ctx context.Context, subcmd command.PutCmd) (*command.Result, error) {

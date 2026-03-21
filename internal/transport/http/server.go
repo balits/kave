@@ -129,29 +129,28 @@ func (s *HttpServer) handleKvGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cmd command.RangeCmd
-	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
+	var req api.RangeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.logger.Error(jsonDecodeErrMsg, "error", err)
 		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
 
-	if err := cmd.Check(); err != nil {
+	if err := req.Check(); err != nil {
 		s.logger.Error("invalid request body", "error", err)
 		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
 
-	result, err := s.kvSvc.Range(r.Context(), cmd)
+	result, err := s.kvSvc.Range(r.Context(), req)
 	if err != nil {
 		s.logger.Error(kvGetErrMsg, "error", err)
 		writeError(w, fmt.Sprintf("%s: %v", kvGetErrMsg, err), http.StatusInternalServerError)
 		return
 	}
-	result.Header.NodeID = s.peerSvc.Me().NodeID // setting nodeID, since some reads may not go through raft (and get their header set perfectly by our fsm)
-	s.writeJSON(w, *result, http.StatusOK)
+	s.writeJSON(w, result, http.StatusOK)
 }
 
 func (s *HttpServer) handleKvPut(w http.ResponseWriter, r *http.Request) {
@@ -467,9 +466,9 @@ func (s *HttpServer) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status": "ok"}`))
 }
 
-func (s *HttpServer) writeJSON(w http.ResponseWriter, result command.Result, status int) {
+func (s *HttpServer) writeJSON(w http.ResponseWriter, response any, status int) {
 	w.Header().Set("Content-Type", "application/json")
-	bytes, err := json.Marshal(result)
+	bytes, err := json.Marshal(response)
 	if err != nil {
 		s.logger.Error("Failed to marshal JSON response", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -481,7 +480,6 @@ func (s *HttpServer) writeJSON(w http.ResponseWriter, result command.Result, sta
 	w.Write(bytes)
 }
 
-// TODO:
 func writeError(w http.ResponseWriter, err string, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	bytes, _ := json.Marshal(map[string]string{"error": err})
