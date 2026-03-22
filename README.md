@@ -146,7 +146,12 @@ Hello world
         - [x] bytestore impl's Defrag()
         - [x] lock the backend and call store.Defrag()
             so no user sees an empty db while reading/writing
+    - [ ] KVStore.Restore() doesn't distinguish tombstones from regular entries:
+        - bk.Tombstone is decoded but never acted on. After a snapshot restore, any key that was deleted will have its tombstone entry processed as a Put, making deleted keys reappear as live in the index. This should branch on bk.Tombstone and call kvIndex.Tombstone() for those entries.
     - [ ] metrics
+        - [x] raft.Stats() is constant in RaftMetrics!!!!
+            - moved raft.Stats() call inside every GaugeFunc
+        - [x] WriteTx Commit Observer
         - [ ] Snapshot metrics too
         - [ ] meaningful grafana
         - [ ] figure out where and how to collect every kind of metric

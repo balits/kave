@@ -129,10 +129,43 @@ type raftLibDerivedMetrics struct {
 func newRaftLibDerivedMetrics(reg prometheus.Registerer, r *raft.Raft) raftLibDerivedMetrics {
 	var (
 		factory = promauto.With(reg)
-		stats   = r.Stats()
 	)
 
+	raftTerm := func() float64 {
+		stats   := r.Stats()
+		return parseUint(stats["term"])
+	}
+	lastLogIndex := func() float64 {
+		stats   := r.Stats()
+		return parseUint(stats["last_log_index"])
+	}
+	lastLogTerm := func() float64 {
+		stats   := r.Stats()
+		return parseUint(stats["last_log_term"])
+	}
+	commitIndex := func() float64 {
+		stats   := r.Stats()
+		return parseUint(stats["commit_index"])
+	}
+	appliedIndex := func() float64 {
+		stats   := r.Stats()
+		return parseUint(stats["applied_index"])
+	}
+	fsmPending := func() float64 {
+		stats   := r.Stats()
+		return parseUint(stats["fsm_pending"])
+	}
+	lastSnapshotIndex := func() float64 {
+		stats   := r.Stats()
+		return parseUint(stats["last_snapshot_index"])
+	}
+	lastSnapshotTerm := func() float64 {
+		stats   := r.Stats()
+		return parseUint(stats["last_snapshot_term"])
+	}
+
 	raftState := func() float64 {
+		stats   := r.Stats()
 		switch stats["state"] {
 		case "Follower":
 			return float64(0)
@@ -146,30 +179,6 @@ func newRaftLibDerivedMetrics(reg prometheus.Registerer, r *raft.Raft) raftLibDe
 			// UnknownError
 			return float64(-1)
 		}
-	}
-	raftTerm := func() float64 {
-		return parseUint(stats["term"])
-	}
-	lastLogIndex := func() float64 {
-		return parseUint(stats["last_log_index"])
-	}
-	lastLogTerm := func() float64 {
-		return parseUint(stats["last_log_term"])
-	}
-	commitIndex := func() float64 {
-		return parseUint(stats["commit_index"])
-	}
-	appliedIndex := func() float64 {
-		return parseUint(stats["applied_index"])
-	}
-	fsmPending := func() float64 {
-		return parseUint(stats["fsm_pending"])
-	}
-	lastSnapshotIndex := func() float64 {
-		return parseUint(stats["last_snapshot_index"])
-	}
-	lastSnapshotTerm := func() float64 {
-		return parseUint(stats["last_snapshot_term"])
 	}
 
 	return raftLibDerivedMetrics{
