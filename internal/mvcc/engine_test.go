@@ -14,8 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func intPtr(v int64) *int64 { return &v }
-
 // fakeAttacher is kept only for tests that specifically need to assert
 // whether AttachKey / DetachKey were called. For everything else use
 // the real LeaseManager via newTestEngineWithLeases.
@@ -248,8 +246,8 @@ func Test_EngineApplyTxn_SuccessBranch(t *testing.T) {
 				{
 					Key:         []byte("counter"),
 					Operator:    api.OperatorEqual,
-					Target:      api.FieldVersion,
-					TargetUnion: api.CompareTargetUnion{Version: intPtr(1)},
+					TargetField: api.FieldVersion,
+					TargetValue: api.CompareTargetUnion{Version: 1},
 				},
 			},
 			Success: []command.TxnOp{
@@ -282,8 +280,8 @@ func Test_EngineApplyTxn_FailureBranch(t *testing.T) {
 				{
 					Key:         []byte("counter"),
 					Operator:    api.OperatorEqual,
-					Target:      api.FieldVersion,
-					TargetUnion: api.CompareTargetUnion{Version: intPtr(99)},
+					TargetField: api.FieldVersion,
+					TargetValue: api.CompareTargetUnion{Version: 99},
 				},
 			},
 			Success: []command.TxnOp{
@@ -376,8 +374,8 @@ func Test_EngineApplyTxn_CompareNonExistentKey(t *testing.T) {
 				{
 					Key:         []byte("missing"),
 					Operator:    api.OperatorEqual,
-					Target:      api.FieldVersion,
-					TargetUnion: api.CompareTargetUnion{Version: intPtr(0)},
+					TargetField: api.FieldVersion,
+					TargetValue: api.CompareTargetUnion{Version: 0},
 				},
 			},
 			Success: []command.TxnOp{
@@ -406,8 +404,8 @@ func Test_EngineApplyTxn_MultipleComparisonsAllPass(t *testing.T) {
 		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Comparisons: []command.Comparison{
-				{Key: []byte("a"), Operator: api.OperatorEqual, Target: api.FieldVersion, TargetUnion: api.CompareTargetUnion{Version: intPtr(1)}},
-				{Key: []byte("b"), Operator: api.OperatorEqual, Target: api.FieldVersion, TargetUnion: api.CompareTargetUnion{Version: intPtr(1)}},
+				{Key: []byte("a"), Operator: api.OperatorEqual, TargetField: api.FieldVersion, TargetValue: api.CompareTargetUnion{Version: 1}},
+				{Key: []byte("b"), Operator: api.OperatorEqual, TargetField: api.FieldVersion, TargetValue: api.CompareTargetUnion{Version: 1}},
 			},
 			Success: []command.TxnOp{
 				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("result"), Value: []byte("both_matched")}},
@@ -431,8 +429,8 @@ func Test_EngineApplyTxn_OneComparisonFails(t *testing.T) {
 		Kind: command.KindTxn,
 		Txn: &command.TxnCmd{
 			Comparisons: []command.Comparison{
-				{Key: []byte("a"), Operator: api.OperatorEqual, Target: api.FieldVersion, TargetUnion: api.CompareTargetUnion{Version: intPtr(1)}},
-				{Key: []byte("b"), Operator: api.OperatorEqual, Target: api.FieldVersion, TargetUnion: api.CompareTargetUnion{Version: intPtr(99)}},
+				{Key: []byte("a"), Operator: api.OperatorEqual, TargetField: api.FieldVersion, TargetValue: api.CompareTargetUnion{Version: 1}},
+				{Key: []byte("b"), Operator: api.OperatorEqual, TargetField: api.FieldVersion, TargetValue: api.CompareTargetUnion{Version: 99}},
 			},
 			Success: []command.TxnOp{},
 			Failure: []command.TxnOp{
@@ -541,8 +539,8 @@ func Test_EngineApplyTxn_CompareValue(t *testing.T) {
 				{
 					Key:         []byte("k"),
 					Operator:    api.OperatorEqual,
-					Target:      api.FieldValue,
-					TargetUnion: api.CompareTargetUnion{Value: []byte("expected")},
+					TargetField: api.FieldValue,
+					TargetValue: api.CompareTargetUnion{Value: []byte("expected")},
 				},
 			},
 			Success: []command.TxnOp{
@@ -568,8 +566,8 @@ func Test_EngineApplyTxn_CompareValueMismatch(t *testing.T) {
 				{
 					Key:         []byte("k"),
 					Operator:    api.OperatorEqual,
-					Target:      api.FieldValue,
-					TargetUnion: api.CompareTargetUnion{Value: []byte("wrong")},
+					TargetField: api.FieldValue,
+					TargetValue: api.CompareTargetUnion{Value: []byte("wrong")},
 				},
 			},
 			Success: []command.TxnOp{},
@@ -597,8 +595,8 @@ func Test_EngineApplyTxn_CompareCreateRev(t *testing.T) {
 				{
 					Key:         []byte("k"),
 					Operator:    api.OperatorEqual,
-					Target:      api.FieldCreate,
-					TargetUnion: api.CompareTargetUnion{CreateRevision: intPtr(1)},
+					TargetField: api.FieldCreate,
+					TargetValue: api.CompareTargetUnion{CreateRevision: 1},
 				},
 			},
 			Success: []command.TxnOp{
@@ -626,8 +624,8 @@ func Test_EngineApplyTxn_CompareModRev(t *testing.T) {
 				{
 					Key:         []byte("k"),
 					Operator:    api.OperatorEqual,
-					Target:      api.FieldMod,
-					TargetUnion: api.CompareTargetUnion{ModRevision: intPtr(2)},
+					TargetField: api.FieldMod,
+					TargetValue: api.CompareTargetUnion{ModRevision: 2},
 				},
 			},
 			Success: []command.TxnOp{

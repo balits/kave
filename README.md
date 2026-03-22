@@ -135,11 +135,13 @@ Hello world
     - [x] put request
         - [x] IgnoreLease
         - [x] IgnoreValue
-    - [ ] txn through kvservice (+ http)
+    - [x] txn through kvservice (+ http)
         - [x] kvservice
         - [x] http
         - [x] general tests
-        - [ ] comparison panics: imporve cmp.Check()
+        - [x] comparison panics: imporve cmp.Check()
+            - gob treats var x *int = &0 as nil, so if you wanted to compare against value==0, it wouldve been value==DEREFERENCED_NIL_POINTER
+            - so just use int64 instead of int64, mem layout is the same, and we already have the field target as the "discrimnator tag"
     - [x] backend.Defragment
         - [x] bytestore impl's Defrag()
         - [x] lock the backend and call store.Defrag()
