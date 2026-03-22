@@ -135,8 +135,15 @@ Hello world
     - [x] put request
         - [x] IgnoreLease
         - [x] IgnoreValue
-    - [x] txn through kvservice (+ http)
+    - [ ] txn through kvservice (+ http)
+        - [x] kvservice
+        - [x] http
+        - [x] general tests
+        - [ ] comparison panics: imporve cmp.Check()
     - [ ] backend.Defragment
+        - [ ] bytestore impl's Defrag()
+        - [ ] lock the backend and call store.Defrag()
+            so no user sees an empty db while reading/writing
     - [ ] metrics
         - [ ] Snapshot metrics too
         - [ ] meaningful grafana

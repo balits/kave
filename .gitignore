@@ -36,3 +36,6 @@ data/
 
 # compiled go code
 bin/
+
+# testdata related files and directories
+testdata/

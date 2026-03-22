@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 
@@ -252,45 +253,43 @@ func (s *boltStore) SizeBytes() int64 {
 }
 
 func (s *boltStore) Defragment() error {
-	newPath := s.file + ".defrag"
+	newpath := s.file + ".defrag"
 
-	// use BoltDB built-in copy to compact
+	f, err := os.Create(newpath)
+	if err != nil {
+		return fmt.Errorf("create failed: %w", err)
+	}
+
+	err = s.db.View(func(tx *bolt.Tx) error {
+		_, err := tx.WriteTo(f)
+		return err
+	})
+	if syncErr := f.Sync(); syncErr != nil && err == nil {
+		err = syncErr
+	}
+	f.Close()
+
+	if err != nil {
+		os.Remove(newpath)
+		return fmt.Errorf("writeTo/fsync failed: %w", err)
+	}
+
+	if err := s.db.Close(); err != nil {
+		os.Remove(newpath)
+		return fmt.Errorf("close failed: %w", err)
+	}
+
+	if err := os.Rename(newpath, s.file); err != nil {
+		return fmt.Errorf("rename failed: %w", err)
+	}
+
 	db, err := bolt.Open(s.file, 0600, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("reopen failed: %w", err)
 	}
-	defer db.Close()
 
-	return db.View(func(tx *bolt.Tx) error {
-		return tx.CopyFile(newPath, 0600)
-	})
-}
-
-func (s *boltStore) Compact(bucket storage.Bucket, shouldDelete func([]byte) bool) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
-		bucketBytes, ok := s.bucketMap[bucket]
-		if !ok {
-			return storage.ErrBucketNotFound
-		}
-		bucket := tx.Bucket(bucketBytes)
-		if bucket == nil {
-			return storage.ErrBucketNotFound
-		}
-
-		c := bucket.Cursor()
-
-		for k, _ := c.First(); k != nil; k, _ = c.Next() {
-			if shouldDelete(k) {
-				// err shouldnt happen since we dont have nested buckets
-				// and its a writable tx
-				if err := c.Delete(); err != nil {
-					return fmt.Errorf("%w: %v", storage.ErrInternalStorageError, err)
-				}
-			}
-		}
-
-		return nil
-	})
+	s.db = db
+	return nil
 }
 
 func (s *boltStore) Ping() error {
