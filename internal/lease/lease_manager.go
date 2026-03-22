@@ -116,7 +116,7 @@ func (lm *LeaseManager) Revoke(id int64) (found, revoked bool) {
 	}
 
 	lease.keysMu.Lock()
-	toDelete := make([][]byte, len(lease.keySet))
+	toDelete := make([][]byte, 0, len(lease.keySet))
 	for lk := range lease.keySet {
 		toDelete = append(toDelete, []byte(lk))
 		delete(lease.keySet, lk)

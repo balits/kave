@@ -61,7 +61,7 @@ func (w *writetx) Commit() (storage.CommitInfo, error) {
 		w.opCount = 0
 	}()
 	info, err := w.b.batch.Commit()
-	if err != nil && w.b.obs != nil {
+	if err == nil && w.b.obs != nil {
 		w.b.obs.ObserveCommit(time.Since(start), w.opCount)
 	}
 	return info, err
