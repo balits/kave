@@ -11,8 +11,8 @@ import (
 type Comparison struct {
 	Key         []byte             `json:"key"`          // key of the value ot compare
 	Operator    ComparisonOperator `json:"operator"`     // logical operator to apply
-	Target      CompareTargetField `json:"target_field"` // which field to compare against
-	TargetUnion CompareTargetUnion `json:"target_value"` // actual value of Target
+	TargetField CompareTargetField `json:"target_field"` // which field to compare against
+	TargetValue CompareTargetUnion `json:"target_value"` // actual value of Target
 }
 
 func (c *Comparison) Check() error {
@@ -25,11 +25,11 @@ func (c *Comparison) Check() error {
 	default:
 		return fmt.Errorf("invalid comparison operator: %s", c.Operator)
 	}
-	switch c.Target {
+	switch c.TargetField {
 	case FieldValue, FieldCreate, FieldMod, FieldVersion:
 		// ok
 	default:
-		return fmt.Errorf("invalid comparison target field: %s", c.Target)
+		return fmt.Errorf("invalid comparison target field: %s", c.TargetField)
 	}
 	return nil
 }
@@ -41,18 +41,18 @@ func (c *Comparison) Eval(target *types.KvEntry) (result bool) {
 
 	var t CompareTargetUnion
 
-	switch c.Target {
+	switch c.TargetField {
 	case FieldVersion:
-		t = CompareTargetUnion{Version: &target.Version}
+		t = CompareTargetUnion{Version: target.Version}
 	case FieldCreate:
-		t = CompareTargetUnion{CreateRevision: &target.CreateRev}
+		t = CompareTargetUnion{CreateRevision: target.CreateRev}
 	case FieldMod:
-		t = CompareTargetUnion{ModRevision: &target.ModRev}
+		t = CompareTargetUnion{ModRevision: target.ModRev}
 	case FieldValue:
 		t = CompareTargetUnion{Value: target.Value}
 	}
 
-	return eval(c.Operator, c.Target, t, c.TargetUnion)
+	return eval(c.Operator, c.TargetField, t, c.TargetValue)
 }
 
 type ComparisonOperator string
@@ -77,9 +77,9 @@ const (
 
 type CompareTargetUnion struct {
 	Value          []byte `json:"value,omitempty"`
-	CreateRevision *int64 `json:"create_revision,omitempty"`
-	ModRevision    *int64 `json:"mod_revision,omitempty"`
-	Version        *int64 `json:"version,omitempty"`
+	CreateRevision int64  `json:"create_revision"`
+	ModRevision    int64  `json:"mod_revision"`
+	Version        int64  `json:"version"`
 }
 
 func eval(op ComparisonOperator, field CompareTargetField, a, b CompareTargetUnion) bool {
@@ -102,48 +102,48 @@ func eval(op ComparisonOperator, field CompareTargetField, a, b CompareTargetUni
 	}
 }
 
-func eq(target CompareTargetField, op1, op2 CompareTargetUnion) bool {
+func eq(target CompareTargetField, a, b CompareTargetUnion) bool {
 	switch target {
 	case FieldValue:
-		return bytes.Equal(op1.Value, op2.Value)
+		return bytes.Equal(a.Value, b.Value)
 	case FieldCreate:
-		return *op1.CreateRevision == *op2.CreateRevision
+		return a.CreateRevision == b.CreateRevision
 	case FieldMod:
-		return *op1.ModRevision == *op2.ModRevision
+		return a.ModRevision == b.ModRevision
 	case FieldVersion:
-		return *op1.Version == *op2.Version
+		return a.Version == b.Version
 	default:
 		// panic(unknownTargetMsg)
 		return false // default to false instead of panicking
 	}
 }
 
-func gt(target CompareTargetField, op1, op2 CompareTargetUnion) bool {
+func gt(target CompareTargetField, a, b CompareTargetUnion) bool {
 	switch target {
 	case FieldValue:
-		return bytes.Compare(op1.Value, op2.Value) > 0
+		return bytes.Compare(a.Value, b.Value) > 0
 	case FieldCreate:
-		return *op1.CreateRevision > *op2.CreateRevision
+		return a.CreateRevision > b.CreateRevision
 	case FieldMod:
-		return *op1.ModRevision > *op2.ModRevision
+		return a.ModRevision > b.ModRevision
 	case FieldVersion:
-		return *op1.Version > *op2.Version
+		return a.Version > b.Version
 	default:
 		// panic(unknownTargetMsg)
 		return false // default to false instead of panicking
 	}
 }
 
-func lt(target CompareTargetField, op1, op2 CompareTargetUnion) bool {
+func lt(target CompareTargetField, a, b CompareTargetUnion) bool {
 	switch target {
 	case FieldValue:
-		return bytes.Compare(op1.Value, op2.Value) < 0
+		return bytes.Compare(a.Value, b.Value) < 0
 	case FieldCreate:
-		return *op1.CreateRevision < *op2.CreateRevision
+		return a.CreateRevision < b.CreateRevision
 	case FieldMod:
-		return *op1.ModRevision < *op2.ModRevision
+		return a.ModRevision < b.ModRevision
 	case FieldVersion:
-		return *op1.Version < *op2.Version
+		return a.Version < b.Version
 	default:
 		// panic(unknownTargetMsg)
 		return false // default to false instead of panicking

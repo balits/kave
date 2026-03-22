@@ -1193,8 +1193,8 @@ func Test_KVService_Txn_SuccessBranch(t *testing.T) {
 			{
 				Key:         []byte("counter"),
 				Operator:    api.OperatorEqual,
-				Target:      api.FieldVersion,
-				TargetUnion: api.CompareTargetUnion{Version: intPtr(1)},
+				TargetField: api.FieldVersion,
+				TargetValue: api.CompareTargetUnion{Version: 1},
 			},
 		},
 		Success: []command.TxnOp{
@@ -1223,8 +1223,8 @@ func Test_KVService_Txn_FailureBranch(t *testing.T) {
 			{
 				Key:         []byte("counter"),
 				Operator:    api.OperatorEqual,
-				Target:      api.FieldVersion,
-				TargetUnion: api.CompareTargetUnion{Version: intPtr(99)},
+				TargetField: api.FieldVersion,
+				TargetValue: api.CompareTargetUnion{Version: 99},
 			},
 		},
 		Success: []command.TxnOp{
@@ -1271,15 +1271,14 @@ func Test_KVService_Txn_EmptyOps(t *testing.T) {
 
 func Test_KVService_Txn_CompareNonExistentKey_VersionZero(t *testing.T) {
 	ts := newTestKVService(t)
-	one := int64(1)
 
 	result := ts.mustTxn(api.TxnRequest{
 		Comparisons: []command.Comparison{
 			{
 				Key:         []byte("missing"),
 				Operator:    api.OperatorEqual,
-				Target:      api.FieldVersion,
-				TargetUnion: api.CompareTargetUnion{Version: &one},
+				TargetField: api.FieldVersion,
+				TargetValue: api.CompareTargetUnion{Version: 1},
 			},
 		},
 		Failure: []command.TxnOp{
@@ -1302,8 +1301,8 @@ func Test_KVService_Txn_MultipleComparisons_AllPass(t *testing.T) {
 
 	result := ts.mustTxn(api.TxnRequest{
 		Comparisons: []command.Comparison{
-			{Key: []byte("a"), Operator: api.OperatorEqual, Target: api.FieldVersion, TargetUnion: api.CompareTargetUnion{Version: intPtr(1)}},
-			{Key: []byte("b"), Operator: api.OperatorEqual, Target: api.FieldVersion, TargetUnion: api.CompareTargetUnion{Version: intPtr(1)}},
+			{Key: []byte("a"), Operator: api.OperatorEqual, TargetField: api.FieldVersion, TargetValue: api.CompareTargetUnion{Version: 1}},
+			{Key: []byte("b"), Operator: api.OperatorEqual, TargetField: api.FieldVersion, TargetValue: api.CompareTargetUnion{Version: 1}},
 		},
 		Success: []command.TxnOp{
 			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("result"), Value: []byte("both_matched")}},
@@ -1321,8 +1320,8 @@ func Test_KVService_Txn_MultipleComparisons_OneFails(t *testing.T) {
 
 	result := ts.mustTxn(api.TxnRequest{
 		Comparisons: []command.Comparison{
-			{Key: []byte("a"), Operator: api.OperatorEqual, Target: api.FieldVersion, TargetUnion: api.CompareTargetUnion{Version: intPtr(1)}},
-			{Key: []byte("b"), Operator: api.OperatorEqual, Target: api.FieldVersion, TargetUnion: api.CompareTargetUnion{Version: intPtr(99)}},
+			{Key: []byte("a"), Operator: api.OperatorEqual, TargetField: api.FieldVersion, TargetValue: api.CompareTargetUnion{Version: 1}},
+			{Key: []byte("b"), Operator: api.OperatorEqual, TargetField: api.FieldVersion, TargetValue: api.CompareTargetUnion{Version: 99}},
 		},
 		Success: []command.TxnOp{},
 		Failure: []command.TxnOp{
@@ -1343,8 +1342,8 @@ func Test_KVService_Txn_CompareValue(t *testing.T) {
 			{
 				Key:         []byte("k"),
 				Operator:    api.OperatorEqual,
-				Target:      api.FieldValue,
-				TargetUnion: api.CompareTargetUnion{Value: []byte("expected")},
+				TargetField: api.FieldValue,
+				TargetValue: api.CompareTargetUnion{Value: []byte("expected")},
 			},
 		},
 		Success: []command.TxnOp{
@@ -1365,8 +1364,8 @@ func Test_KVService_Txn_CompareValue_Mismatch(t *testing.T) {
 			{
 				Key:         []byte("k"),
 				Operator:    api.OperatorEqual,
-				Target:      api.FieldValue,
-				TargetUnion: api.CompareTargetUnion{Value: []byte("wrong")},
+				TargetField: api.FieldValue,
+				TargetValue: api.CompareTargetUnion{Value: []byte("wrong")},
 			},
 		},
 		Success: []command.TxnOp{},
@@ -1389,8 +1388,8 @@ func Test_KVService_Txn_CompareCreateRev(t *testing.T) {
 			{
 				Key:         []byte("k"),
 				Operator:    api.OperatorEqual,
-				Target:      api.FieldCreate,
-				TargetUnion: api.CompareTargetUnion{CreateRevision: intPtr(1)},
+				TargetField: api.FieldCreate,
+				TargetValue: api.CompareTargetUnion{CreateRevision: 1},
 			},
 		},
 		Success: []command.TxnOp{
@@ -1412,8 +1411,8 @@ func Test_KVService_Txn_CompareModRev(t *testing.T) {
 			{
 				Key:         []byte("k"),
 				Operator:    api.OperatorEqual,
-				Target:      api.FieldMod,
-				TargetUnion: api.CompareTargetUnion{ModRevision: intPtr(2)},
+				TargetField: api.FieldMod,
+				TargetValue: api.CompareTargetUnion{ModRevision: 2},
 			},
 		},
 		Success: []command.TxnOp{
@@ -1572,8 +1571,8 @@ func Test_KVService_Txn_IsAtomic_FailureOpsDoNotApplyOnSuccess(t *testing.T) {
 			{
 				Key:         []byte("flag"),
 				Operator:    api.OperatorEqual,
-				Target:      api.FieldValue,
-				TargetUnion: api.CompareTargetUnion{Value: []byte("true")},
+				TargetField: api.FieldValue,
+				TargetValue: api.CompareTargetUnion{Value: []byte("true")},
 			},
 		},
 		Success: []command.TxnOp{
@@ -1617,8 +1616,8 @@ func Test_KVService_Txn_EmptyFailureBranch_NoWrites(t *testing.T) {
 			{
 				Key:         []byte("k"),
 				Operator:    api.OperatorEqual,
-				Target:      api.FieldVersion,
-				TargetUnion: api.CompareTargetUnion{Version: intPtr(99)},
+				TargetField: api.FieldVersion,
+				TargetValue: api.CompareTargetUnion{Version: 99},
 			},
 		},
 		Success: []command.TxnOp{
@@ -1741,8 +1740,8 @@ func Test_KVService_Txn_MalformedRequest_ComparisonEmptyKey(t *testing.T) {
 			{
 				Key:         []byte(""), // empty key — invalid
 				Operator:    api.OperatorEqual,
-				Target:      api.FieldVersion,
-				TargetUnion: api.CompareTargetUnion{Version: intPtr(1)},
+				TargetField: api.FieldVersion,
+				TargetValue: api.CompareTargetUnion{Version: 1},
 			},
 		},
 	})
@@ -1758,8 +1757,8 @@ func Test_KVService_Txn_MalformedRequest_InvalidOperator(t *testing.T) {
 			{
 				Key:         []byte("k"),
 				Operator:    api.ComparisonOperator("INVALID"),
-				Target:      api.FieldVersion,
-				TargetUnion: api.CompareTargetUnion{Version: intPtr(1)},
+				TargetField: api.FieldVersion,
+				TargetValue: api.CompareTargetUnion{Version: 1},
 			},
 		},
 	})
@@ -1773,9 +1772,9 @@ func Test_KVService_Txn_MalformedRequest_InvalidTargetField(t *testing.T) {
 	_, err := ts.Txn(ts.ctx, api.TxnRequest{
 		Comparisons: []command.Comparison{
 			{
-				Key:      []byte("k"),
-				Operator: api.OperatorEqual,
-				Target:   api.CompareTargetField("BADFIELD"),
+				Key:         []byte("k"),
+				Operator:    api.OperatorEqual,
+				TargetField: api.CompareTargetField("BADFIELD"),
 			},
 		},
 	})
@@ -1832,3 +1831,34 @@ func Test_KVService_Txn_MalformedRequest_FailureOpNilPut(t *testing.T) {
 }
 
 func intPtr(v int64) *int64 { return &v }
+
+func Test_KVService_Txn_CompareNonExistentKey_VersionNonZero_Fails(t *testing.T) {
+	ts := newTestKVService(t)
+
+	req := api.TxnRequest{
+		Comparisons: []command.Comparison{
+			{
+				Key:         []byte("missing"),
+				Operator:    api.OperatorGreaterThan,
+				TargetField: api.FieldVersion,
+				TargetValue: api.CompareTargetUnion{Version: 0},
+			},
+		},
+		Success: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("missing"), Value: []byte("should_not_appear")}},
+		},
+		Failure: []command.TxnOp{
+			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("missing"), Value: []byte("key_did_not_exist")}},
+		},
+	}
+	require.NoError(t, req.Comparisons[0].Check())
+
+	// key doesn't exist, version is effectively 0
+	// comparing version > 0 should fail, routing to failure branch
+	result := ts.mustTxn(req)
+
+	require.False(t, result.Success, "version > 0 on nonexistent key should fail")
+
+	rangeResult := ts.mustRange(api.RangeRequest{Key: []byte("missing")})
+	require.Equal(t, "key_did_not_exist", string(rangeResult.Entries[0].Value))
+}

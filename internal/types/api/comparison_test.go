@@ -18,8 +18,8 @@ func Test_ComparisonEvalEqual(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorEqual,
-				Target:      FieldValue,
-				TargetUnion: CompareTargetUnion{Value: []byte("expected_value")},
+				TargetField: FieldValue,
+				TargetValue: CompareTargetUnion{Value: []byte("expected_value")},
 			},
 			target: types.KvEntry{
 				Key:   []byte("test_key"),
@@ -32,8 +32,8 @@ func Test_ComparisonEvalEqual(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorEqual,
-				Target:      FieldValue,
-				TargetUnion: CompareTargetUnion{Value: []byte("expected_value")},
+				TargetField: FieldValue,
+				TargetValue: CompareTargetUnion{Value: []byte("expected_value")},
 			},
 			target: types.KvEntry{
 				Key:   []byte("test_key"),
@@ -44,11 +44,11 @@ func Test_ComparisonEvalEqual(t *testing.T) {
 		{
 			name: "Equal version comparison: matching versions",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorEqual,
-				Target:   FieldVersion,
-				TargetUnion: CompareTargetUnion{
-					Version: intPtr(5),
+				Key:         []byte("test_key"),
+				Operator:    OperatorEqual,
+				TargetField: FieldVersion,
+				TargetValue: CompareTargetUnion{
+					Version: 5,
 				},
 			},
 			target: types.KvEntry{
@@ -60,11 +60,11 @@ func Test_ComparisonEvalEqual(t *testing.T) {
 		{
 			name: "Equal version comparison: non-matching versions",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorEqual,
-				Target:   FieldVersion,
-				TargetUnion: CompareTargetUnion{
-					Version: intPtr(5),
+				Key:         []byte("test_key"),
+				Operator:    OperatorEqual,
+				TargetField: FieldVersion,
+				TargetValue: CompareTargetUnion{
+					Version: 5,
 				},
 			},
 			target: types.KvEntry{
@@ -76,11 +76,11 @@ func Test_ComparisonEvalEqual(t *testing.T) {
 		{
 			name: "Equal create revision comparison: matching",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorEqual,
-				Target:   FieldCreate,
-				TargetUnion: CompareTargetUnion{
-					CreateRevision: intPtr(100),
+				Key:         []byte("test_key"),
+				Operator:    OperatorEqual,
+				TargetField: FieldCreate,
+				TargetValue: CompareTargetUnion{
+					CreateRevision: 100,
 				},
 			},
 			target: types.KvEntry{
@@ -92,11 +92,11 @@ func Test_ComparisonEvalEqual(t *testing.T) {
 		{
 			name: "Equal mod revision comparison: matching",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorEqual,
-				Target:   FieldMod,
-				TargetUnion: CompareTargetUnion{
-					ModRevision: intPtr(200),
+				Key:         []byte("test_key"),
+				Operator:    OperatorEqual,
+				TargetField: FieldMod,
+				TargetValue: CompareTargetUnion{
+					ModRevision: 200,
 				},
 			},
 			target: types.KvEntry{
@@ -110,8 +110,8 @@ func Test_ComparisonEvalEqual(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorEqual,
-				Target:      FieldValue,
-				TargetUnion: CompareTargetUnion{Value: []byte("")},
+				TargetField: FieldValue,
+				TargetValue: CompareTargetUnion{Value: []byte("")},
 			},
 			target: types.KvEntry{
 				Key:   []byte("test_key"),
@@ -143,8 +143,8 @@ func Test_ComparisonEvalNotEqual(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorNotEqual,
-				Target:      FieldValue,
-				TargetUnion: CompareTargetUnion{Value: []byte("value1")},
+				TargetField: FieldValue,
+				TargetValue: CompareTargetUnion{Value: []byte("value1")},
 			},
 			target: types.KvEntry{
 				Key:   []byte("test_key"),
@@ -157,8 +157,8 @@ func Test_ComparisonEvalNotEqual(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorNotEqual,
-				Target:      FieldValue,
-				TargetUnion: CompareTargetUnion{Value: []byte("value1")},
+				TargetField: FieldValue,
+				TargetValue: CompareTargetUnion{Value: []byte("value1")},
 			},
 			target: types.KvEntry{
 				Key:   []byte("test_key"),
@@ -169,11 +169,11 @@ func Test_ComparisonEvalNotEqual(t *testing.T) {
 		{
 			name: "Not equal version comparison: different versions",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorNotEqual,
-				Target:   FieldVersion,
-				TargetUnion: CompareTargetUnion{
-					Version: intPtr(5),
+				Key:         []byte("test_key"),
+				Operator:    OperatorNotEqual,
+				TargetField: FieldVersion,
+				TargetValue: CompareTargetUnion{
+					Version: 5,
 				},
 			},
 			target: types.KvEntry{
@@ -185,11 +185,11 @@ func Test_ComparisonEvalNotEqual(t *testing.T) {
 		{
 			name: "Not equal version comparison: same versions",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorNotEqual,
-				Target:   FieldVersion,
-				TargetUnion: CompareTargetUnion{
-					Version: intPtr(5),
+				Key:         []byte("test_key"),
+				Operator:    OperatorNotEqual,
+				TargetField: FieldVersion,
+				TargetValue: CompareTargetUnion{
+					Version: 5,
 				},
 			},
 			target: types.KvEntry{
@@ -222,8 +222,8 @@ func Test_ComparisonEvalGreaterThan(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorGreaterThan,
-				Target:      FieldValue,
-				TargetUnion: CompareTargetUnion{Value: []byte("aaa")},
+				TargetField: FieldValue,
+				TargetValue: CompareTargetUnion{Value: []byte("aaa")},
 			},
 			target: types.KvEntry{
 				Key:   []byte("test_key"),
@@ -236,8 +236,8 @@ func Test_ComparisonEvalGreaterThan(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorGreaterThan,
-				Target:      FieldValue,
-				TargetUnion: CompareTargetUnion{Value: []byte("zzz")},
+				TargetField: FieldValue,
+				TargetValue: CompareTargetUnion{Value: []byte("zzz")},
 			},
 			target: types.KvEntry{
 				Key:   []byte("test_key"),
@@ -250,8 +250,8 @@ func Test_ComparisonEvalGreaterThan(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorGreaterThan,
-				Target:      FieldValue,
-				TargetUnion: CompareTargetUnion{Value: []byte("equal")},
+				TargetField: FieldValue,
+				TargetValue: CompareTargetUnion{Value: []byte("equal")},
 			},
 			target: types.KvEntry{
 				Key:   []byte("test_key"),
@@ -262,11 +262,11 @@ func Test_ComparisonEvalGreaterThan(t *testing.T) {
 		{
 			name: "Greater than version comparison: target version greater",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorGreaterThan,
-				Target:   FieldVersion,
-				TargetUnion: CompareTargetUnion{
-					Version: intPtr(5),
+				Key:         []byte("test_key"),
+				Operator:    OperatorGreaterThan,
+				TargetField: FieldVersion,
+				TargetValue: CompareTargetUnion{
+					Version: 5,
 				},
 			},
 			target: types.KvEntry{
@@ -278,11 +278,11 @@ func Test_ComparisonEvalGreaterThan(t *testing.T) {
 		{
 			name: "Greater than create revision comparison",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorGreaterThan,
-				Target:   FieldCreate,
-				TargetUnion: CompareTargetUnion{
-					CreateRevision: intPtr(100),
+				Key:         []byte("test_key"),
+				Operator:    OperatorGreaterThan,
+				TargetField: FieldCreate,
+				TargetValue: CompareTargetUnion{
+					CreateRevision: 100,
 				},
 			},
 			target: types.KvEntry{
@@ -294,11 +294,11 @@ func Test_ComparisonEvalGreaterThan(t *testing.T) {
 		{
 			name: "Greater than mod revision comparison",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorGreaterThan,
-				Target:   FieldMod,
-				TargetUnion: CompareTargetUnion{
-					ModRevision: intPtr(200),
+				Key:         []byte("test_key"),
+				Operator:    OperatorGreaterThan,
+				TargetField: FieldMod,
+				TargetValue: CompareTargetUnion{
+					ModRevision: 200,
 				},
 			},
 			target: types.KvEntry{
@@ -331,8 +331,8 @@ func Test_ComparisonEvalGreaterOrEqual(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorGreaterEqual,
-				Target:      FieldValue,
-				TargetUnion: CompareTargetUnion{Value: []byte("aaa")},
+				TargetField: FieldValue,
+				TargetValue: CompareTargetUnion{Value: []byte("aaa")},
 			},
 			target: types.KvEntry{
 				Key:   []byte("test_key"),
@@ -345,8 +345,8 @@ func Test_ComparisonEvalGreaterOrEqual(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorGreaterEqual,
-				Target:      FieldValue,
-				TargetUnion: CompareTargetUnion{Value: []byte("equal")},
+				TargetField: FieldValue,
+				TargetValue: CompareTargetUnion{Value: []byte("equal")},
 			},
 			target: types.KvEntry{
 				Key:   []byte("test_key"),
@@ -359,8 +359,8 @@ func Test_ComparisonEvalGreaterOrEqual(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorGreaterEqual,
-				Target:      FieldValue,
-				TargetUnion: CompareTargetUnion{Value: []byte("zzz")},
+				TargetField: FieldValue,
+				TargetValue: CompareTargetUnion{Value: []byte("zzz")},
 			},
 			target: types.KvEntry{
 				Key:   []byte("test_key"),
@@ -371,11 +371,11 @@ func Test_ComparisonEvalGreaterOrEqual(t *testing.T) {
 		{
 			name: "Greater or equal version comparison: target greater",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorGreaterEqual,
-				Target:   FieldVersion,
-				TargetUnion: CompareTargetUnion{
-					Version: intPtr(5),
+				Key:         []byte("test_key"),
+				Operator:    OperatorGreaterEqual,
+				TargetField: FieldVersion,
+				TargetValue: CompareTargetUnion{
+					Version: 5,
 				},
 			},
 			target: types.KvEntry{
@@ -387,11 +387,11 @@ func Test_ComparisonEvalGreaterOrEqual(t *testing.T) {
 		{
 			name: "Greater or equal version comparison: target equal",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorGreaterEqual,
-				Target:   FieldVersion,
-				TargetUnion: CompareTargetUnion{
-					Version: intPtr(5),
+				Key:         []byte("test_key"),
+				Operator:    OperatorGreaterEqual,
+				TargetField: FieldVersion,
+				TargetValue: CompareTargetUnion{
+					Version: 5,
 				},
 			},
 			target: types.KvEntry{
@@ -424,8 +424,8 @@ func Test_ComparisonEvalLessThan(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorLessThan,
-				Target:      FieldValue,
-				TargetUnion: CompareTargetUnion{Value: []byte("zzz")},
+				TargetField: FieldValue,
+				TargetValue: CompareTargetUnion{Value: []byte("zzz")},
 			},
 			target: types.KvEntry{
 				Key:   []byte("test_key"),
@@ -438,8 +438,8 @@ func Test_ComparisonEvalLessThan(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorLessThan,
-				Target:      FieldValue,
-				TargetUnion: CompareTargetUnion{Value: []byte("aaa")},
+				TargetField: FieldValue,
+				TargetValue: CompareTargetUnion{Value: []byte("aaa")},
 			},
 			target: types.KvEntry{
 				Key:   []byte("test_key"),
@@ -450,11 +450,11 @@ func Test_ComparisonEvalLessThan(t *testing.T) {
 		{
 			name: "Less than version comparison: target version less",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorLessThan,
-				Target:   FieldVersion,
-				TargetUnion: CompareTargetUnion{
-					Version: intPtr(10),
+				Key:         []byte("test_key"),
+				Operator:    OperatorLessThan,
+				TargetField: FieldVersion,
+				TargetValue: CompareTargetUnion{
+					Version: 10,
 				},
 			},
 			target: types.KvEntry{
@@ -466,11 +466,11 @@ func Test_ComparisonEvalLessThan(t *testing.T) {
 		{
 			name: "Less than create revision comparison",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorLessThan,
-				Target:   FieldCreate,
-				TargetUnion: CompareTargetUnion{
-					CreateRevision: intPtr(150),
+				Key:         []byte("test_key"),
+				Operator:    OperatorLessThan,
+				TargetField: FieldCreate,
+				TargetValue: CompareTargetUnion{
+					CreateRevision: 150,
 				},
 			},
 			target: types.KvEntry{
@@ -503,8 +503,8 @@ func Test_ComparisonEvalLessOrEqual(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorLessEqual,
-				Target:      FieldValue,
-				TargetUnion: CompareTargetUnion{Value: []byte("zzz")},
+				TargetField: FieldValue,
+				TargetValue: CompareTargetUnion{Value: []byte("zzz")},
 			},
 			target: types.KvEntry{
 				Key:   []byte("test_key"),
@@ -517,8 +517,8 @@ func Test_ComparisonEvalLessOrEqual(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorLessEqual,
-				Target:      FieldValue,
-				TargetUnion: CompareTargetUnion{Value: []byte("equal")},
+				TargetField: FieldValue,
+				TargetValue: CompareTargetUnion{Value: []byte("equal")},
 			},
 			target: types.KvEntry{
 				Key:   []byte("test_key"),
@@ -531,8 +531,8 @@ func Test_ComparisonEvalLessOrEqual(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorLessEqual,
-				Target:      FieldValue,
-				TargetUnion: CompareTargetUnion{Value: []byte("aaa")},
+				TargetField: FieldValue,
+				TargetValue: CompareTargetUnion{Value: []byte("aaa")},
 			},
 			target: types.KvEntry{
 				Key:   []byte("test_key"),
@@ -543,11 +543,11 @@ func Test_ComparisonEvalLessOrEqual(t *testing.T) {
 		{
 			name: "Less or equal version comparison: target less",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorLessEqual,
-				Target:   FieldVersion,
-				TargetUnion: CompareTargetUnion{
-					Version: intPtr(10),
+				Key:         []byte("test_key"),
+				Operator:    OperatorLessEqual,
+				TargetField: FieldVersion,
+				TargetValue: CompareTargetUnion{
+					Version: 10,
 				},
 			},
 			target: types.KvEntry{
@@ -559,11 +559,11 @@ func Test_ComparisonEvalLessOrEqual(t *testing.T) {
 		{
 			name: "Less or equal version comparison: target equal",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorLessEqual,
-				Target:   FieldVersion,
-				TargetUnion: CompareTargetUnion{
-					Version: intPtr(5),
+				Key:         []byte("test_key"),
+				Operator:    OperatorLessEqual,
+				TargetField: FieldVersion,
+				TargetValue: CompareTargetUnion{
+					Version: 5,
 				},
 			},
 			target: types.KvEntry{
@@ -595,19 +595,19 @@ func Test_MatchZeroValue(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorEqual,
-				Target:      FieldValue,
-				TargetUnion: CompareTargetUnion{Value: []byte("")},
+				TargetField: FieldValue,
+				TargetValue: CompareTargetUnion{Value: []byte("")},
 			},
 			expected: true, // Emptytypes.Entry has empty value
 		},
 		{
 			name: "Zero value comparison: version equals zero",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorEqual,
-				Target:   FieldVersion,
-				TargetUnion: CompareTargetUnion{
-					Version: intPtr(0),
+				Key:         []byte("test_key"),
+				Operator:    OperatorEqual,
+				TargetField: FieldVersion,
+				TargetValue: CompareTargetUnion{
+					Version: 0,
 				},
 			},
 			expected: true, // Emptytypes.Entry has version 0
@@ -615,11 +615,11 @@ func Test_MatchZeroValue(t *testing.T) {
 		{
 			name: "Zero value comparison: create revision equals zero",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorEqual,
-				Target:   FieldCreate,
-				TargetUnion: CompareTargetUnion{
-					CreateRevision: intPtr(0),
+				Key:         []byte("test_key"),
+				Operator:    OperatorEqual,
+				TargetField: FieldCreate,
+				TargetValue: CompareTargetUnion{
+					CreateRevision: 0,
 				},
 			},
 			expected: true, // Emptytypes.Entry has CreateRev 0
@@ -627,11 +627,11 @@ func Test_MatchZeroValue(t *testing.T) {
 		{
 			name: "Zero value comparison: mod revision equals zero",
 			comparison: Comparison{
-				Key:      []byte("test_key"),
-				Operator: OperatorEqual,
-				Target:   FieldMod,
-				TargetUnion: CompareTargetUnion{
-					ModRevision: intPtr(0),
+				Key:         []byte("test_key"),
+				Operator:    OperatorEqual,
+				TargetField: FieldMod,
+				TargetValue: CompareTargetUnion{
+					ModRevision: 0,
 				},
 			},
 			expected: true, // Emptytypes.Entry has ModRev 0
@@ -639,11 +639,11 @@ func Test_MatchZeroValue(t *testing.T) {
 		{
 			name: "Zero value comparison: key doesn't exist (version != 0)",
 			comparison: Comparison{
-				Key:      []byte("nonexistent"),
-				Operator: OperatorNotEqual,
-				Target:   FieldVersion,
-				TargetUnion: CompareTargetUnion{
-					Version: intPtr(0),
+				Key:         []byte("nonexistent"),
+				Operator:    OperatorNotEqual,
+				TargetField: FieldVersion,
+				TargetValue: CompareTargetUnion{
+					Version: 0,
 				},
 			},
 			expected: false, // Should match zero value
@@ -700,8 +700,8 @@ func Test_InvalidOperator(t *testing.T) {
 	comparison := Comparison{
 		Key:         []byte("test_key"),
 		Operator:    ComparisonOperator("invalid_op"),
-		Target:      FieldValue,
-		TargetUnion: CompareTargetUnion{Value: []byte("test")},
+		TargetField: FieldValue,
+		TargetValue: CompareTargetUnion{Value: []byte("test")},
 	}
 
 	result := comparison.Eval(&types.KvEntry{
@@ -727,15 +727,15 @@ func Test_ComplexTransactionComparisons(t *testing.T) {
 				{
 					Key:         []byte("key1"),
 					Operator:    OperatorEqual,
-					Target:      FieldValue,
-					TargetUnion: CompareTargetUnion{Value: []byte("value1")},
+					TargetField: FieldValue,
+					TargetValue: CompareTargetUnion{Value: []byte("value1")},
 				},
 				{
-					Key:      []byte("key1"),
-					Operator: OperatorGreaterThan,
-					Target:   FieldVersion,
-					TargetUnion: CompareTargetUnion{
-						Version: intPtr(0),
+					Key:         []byte("key1"),
+					Operator:    OperatorGreaterThan,
+					TargetField: FieldVersion,
+					TargetValue: CompareTargetUnion{
+						Version: 0,
 					},
 				},
 			},
@@ -752,15 +752,15 @@ func Test_ComplexTransactionComparisons(t *testing.T) {
 				{
 					Key:         []byte("key1"),
 					Operator:    OperatorEqual,
-					Target:      FieldValue,
-					TargetUnion: CompareTargetUnion{Value: []byte("value1")},
+					TargetField: FieldValue,
+					TargetValue: CompareTargetUnion{Value: []byte("value1")},
 				},
 				{
-					Key:      []byte("key1"),
-					Operator: OperatorEqual,
-					Target:   FieldVersion,
-					TargetUnion: CompareTargetUnion{
-						Version: intPtr(10),
+					Key:         []byte("key1"),
+					Operator:    OperatorEqual,
+					TargetField: FieldVersion,
+					TargetValue: CompareTargetUnion{
+						Version: 10,
 					},
 				},
 			},
@@ -788,8 +788,4 @@ func Test_ComplexTransactionComparisons(t *testing.T) {
 			}
 		})
 	}
-}
-
-func intPtr(v int64) *int64 {
-	return &v
 }
