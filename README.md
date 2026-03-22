@@ -140,9 +140,9 @@ Hello world
         - [x] http
         - [x] general tests
         - [ ] comparison panics: imporve cmp.Check()
-    - [ ] backend.Defragment
-        - [ ] bytestore impl's Defrag()
-        - [ ] lock the backend and call store.Defrag()
+    - [x] backend.Defragment
+        - [x] bytestore impl's Defrag()
+        - [x] lock the backend and call store.Defrag()
             so no user sees an empty db while reading/writing
     - [ ] metrics
         - [ ] Snapshot metrics too
