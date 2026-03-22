@@ -18,11 +18,11 @@ func (c codecError) Error() string {
 	return fmt.Sprintf("codec error (while working on %s): %s ", c.field, c.err.Error())
 }
 
-// Encode is responsible for writing the snapshot
+// encode is responsible for writing the snapshot
 // to the given writer. It uses a simple, gob backed protocol:
 // first the number of buckets are encoded, then for each bucket, its name and size is encoded,
 // then in order, the key-value elements of the tree are encoded
-func Encode(w io.Writer, store *InmemStore) error {
+func encode(w io.Writer, store *InmemStore) error {
 	enc := gob.NewEncoder(w)
 
 	if err := enc.Encode(len(store.buckets)); err != nil {
@@ -46,13 +46,13 @@ func Encode(w io.Writer, store *InmemStore) error {
 	return nil
 }
 
-// Decode is responsible for reading the snapshot from the given reader and reconstructing the in-memory tree
+// decode is responsible for reading the snapshot from the given reader and reconstructing the in-memory tree
 // It uses the same protocol as Encode, first it reads the number of buckets, then for each bucket, its name is read,
 // then in order, the key-value elements of the tree is read
-func Decode(r io.Reader) (map[storage.Bucket]*btree.BTree, error) {
+func decode(r io.Reader) (map[storage.Bucket]*btree.BTreeG[Item], error) {
 	var (
 		dec         = gob.NewDecoder(r)
-		buckets     = make(map[storage.Bucket]*btree.BTree)
+		buckets     = make(map[storage.Bucket]*btree.BTreeG[Item])
 		bucketCount int
 	)
 
@@ -77,14 +77,14 @@ func Decode(r io.Reader) (map[storage.Bucket]*btree.BTree, error) {
 	return buckets, nil
 }
 
-func encodeTree(enc *gob.Encoder, tree *btree.BTree) *codecError {
+func encodeTree(enc *gob.Encoder, tree *btree.BTreeG[Item]) *codecError {
 	var err error
 	if err = enc.Encode(tree.Len()); err != nil {
 		return &codecError{err: err, field: "btree item count"}
 	}
 
-	tree.Ascend(func(item btree.Item) bool {
-		err = enc.Encode(item.(KVBtreeItem))
+	tree.Ascend(func(item Item) bool {
+		err = enc.Encode(item)
 		return err == nil
 	})
 
@@ -95,11 +95,13 @@ func encodeTree(enc *gob.Encoder, tree *btree.BTree) *codecError {
 	return nil
 }
 
-func decodeTree(dec *gob.Decoder) (*btree.BTree, *codecError) {
+func decodeTree(dec *gob.Decoder) (*btree.BTreeG[Item], *codecError) {
 	var (
 		count int
 		err   error
-		tree  = btree.New(BtreeDegreeDefault)
+		tree  = btree.NewG(BtreeDegreeDefault, func(a, b Item) bool {
+			return a.Less(b)
+		})
 	)
 
 	if err = dec.Decode(&count); err != nil {
@@ -107,7 +109,7 @@ func decodeTree(dec *gob.Decoder) (*btree.BTree, *codecError) {
 	}
 
 	for range count {
-		var item KVBtreeItem
+		var item Item
 		if err = dec.Decode(&item); err != nil {
 			return nil, &codecError{err: err, field: "btree item"}
 		}

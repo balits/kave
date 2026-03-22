@@ -28,7 +28,7 @@ type Backend interface {
 	SizeBytes() int64
 
 	// TOOD
-	//Defragment() error
+	Defragment() error
 
 	//ForceCommit() error
 	// Commit() error // commit should be the responsibility of the write transaction
@@ -128,7 +128,7 @@ func (b *backend) Commit() (storage.CommitInfo, error) {
 	return info, nil
 }
 
-func (b *backend) Defrag() error {
+func (b *backend) Defragment() error {
 	b.rwlock.Lock()
 	defer b.rwlock.Unlock()
 	if err := b.store.Defragment(); err != nil {

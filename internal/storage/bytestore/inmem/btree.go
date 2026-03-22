@@ -12,15 +12,15 @@ const (
 	BtreeDegreeBatching = 16
 )
 
-type KVBtreeItem struct {
+type Item struct {
 	Key   []byte
 	Value []byte
 }
 
-func (i KVBtreeItem) Less(than btree.Item) bool {
-	return bytes.Compare(i.Key, than.(KVBtreeItem).Key) < 0
+func (i Item) Less(than btree.Item) bool {
+	return bytes.Compare(i.Key, than.(Item).Key) < 0
 }
 
-func (i KVBtreeItem) String() string {
+func (i Item) String() string {
 	return fmt.Sprintf("<%s, %s>", i.Key, i.Value)
 }

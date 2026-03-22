@@ -9,6 +9,7 @@ import (
 
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/storage"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -910,5 +911,15 @@ func Test_SequentialWriteTransactions(t *testing.T) {
 		if !bytes.Equal(val, []byte("v3")) {
 			t.Errorf("after sequential txns: val = %q, want %q", val, "v3")
 		}
+	})
+}
+
+func Test_Defrag_NoError(t *testing.T) {
+	runForAllKinds(t, "Defrag_NoError", func(t *testing.T, kind storage.StorageKind) {
+		b := newTestBackend(t, kind)
+		defer b.Close()
+
+		// more detailed defrag testings are available in each bytestore impls tests
+		require.NoError(t, b.Defragment(), "expected defrag to return no error")
 	})
 }

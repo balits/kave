@@ -14,7 +14,7 @@ import (
 
 type InmemStore struct {
 	rwlock  sync.RWMutex
-	buckets map[storage.Bucket]*btree.BTree
+	buckets map[storage.Bucket]*btree.BTreeG[Item]
 	sz      atomic.Int64
 }
 
@@ -24,9 +24,11 @@ func NewStore(opts storage.StorageOptions) bytestore.ByteStore {
 		panic("failed to create inmem store: param opts.Kind was not StorageKindInMemory")
 	}
 
-	buckets := make(map[storage.Bucket]*btree.BTree)
+	buckets := make(map[storage.Bucket]*btree.BTreeG[Item])
 	for _, bucket := range opts.InitialBuckets {
-		buckets[bucket] = btree.New(BtreeDegreeDefault)
+		buckets[bucket] = btree.NewG(BtreeDegreeDefault, func(a, b Item) bool {
+			return a.Less(b)
+		})
 	}
 
 	return &InmemStore{
@@ -64,8 +66,7 @@ func (s *InmemStore) PrefixScan(bucket storage.Bucket, prefix []byte, f func(key
 		return storage.ErrBucketNotFound
 	}
 
-	tree.AscendGreaterOrEqual(KVBtreeItem{Key: prefix}, func(it btree.Item) bool {
-		item := it.(KVBtreeItem)
+	tree.AscendGreaterOrEqual(Item{Key: prefix}, func(item Item) bool {
 		if bytes.HasPrefix(item.Key, prefix) {
 			return f(item.Key, item.Value)
 		}
@@ -84,8 +85,7 @@ func (s *InmemStore) Scan(bucket storage.Bucket, op func(key, value []byte) bool
 		return storage.ErrBucketNotFound
 	}
 
-	tree.Ascend(func(it btree.Item) bool {
-		item := it.(KVBtreeItem)
+	tree.Ascend(func(item Item) bool {
 		b := op(item.Key, item.Value)
 		return b
 	})
@@ -100,20 +100,20 @@ func (s *InmemStore) NewBatch() (bytestore.Batch, error) {
 
 func (s *InmemStore) WriteTo(w io.Writer) (int64, error) {
 	s.rwlock.RLock()
-	clone := make(map[storage.Bucket]*btree.BTree, len(s.buckets))
+	clone := make(map[storage.Bucket]*btree.BTreeG[Item], len(s.buckets))
 	for bucket, tree := range s.buckets {
 		clone[bucket] = tree.Clone()
 	}
 	defer s.rwlock.RUnlock()
 
-	if err := Encode(w, s); err != nil {
+	if err := encode(w, s); err != nil {
 		return 0, err
 	}
 	return 0, nil // we dont really know how many bytes were written, and it doesnt matter for us, so we just return 0
 }
 
 func (s *InmemStore) ReadFrom(r io.Reader) (int64, error) {
-	tree, err := Decode(r)
+	tree, err := decode(r)
 	if err != nil {
 		return 0, err
 	}
@@ -135,14 +135,15 @@ func (s *InmemStore) Defragment() error {
 	defer s.rwlock.Unlock()
 
 	var newSz int64
-	copy := make(map[storage.Bucket]*btree.BTree)
+	copy := make(map[storage.Bucket]*btree.BTreeG[Item])
 
 	for b, t := range s.buckets {
-		copy[b] = btree.New(BtreeDegreeDefault)
-		t.Ascend(func(item btree.Item) bool {
-			kv := item.(KVBtreeItem)
-			copy[b].ReplaceOrInsert(kv)
-			newSz += int64(len(kv.Key) + len(kv.Value))
+		copy[b] = btree.NewG(BtreeDegreeDefault, func(a, b Item) bool {
+			return a.Less(b)
+		})
+		t.Ascend(func(item Item) bool {
+			copy[b].ReplaceOrInsert(item)
+			newSz += int64(len(item.Key) + len(item.Value))
 			return true
 		})
 	}
@@ -175,12 +176,12 @@ func (s *InmemStore) unsafeGet(bucket storage.Bucket, key []byte) ([]byte, error
 		return nil, fmt.Errorf("%w: %s", storage.ErrBucketNotFound, string(bucket))
 	}
 
-	item := tree.Get(KVBtreeItem{Key: []byte(key)})
-	if item == nil {
+	item, ok := tree.Get(Item{Key: []byte(key)})
+	if !ok {
 		return nil, nil
 	}
 
-	return item.(KVBtreeItem).Value, nil
+	return item.Value, nil
 }
 
 func (s *InmemStore) unsafePut(bucket storage.Bucket, key, value []byte) ([]byte, error) {
@@ -193,9 +194,9 @@ func (s *InmemStore) unsafePut(bucket storage.Bucket, key, value []byte) ([]byte
 		return nil, storage.ErrBucketNotFound
 	}
 
-	old := tree.ReplaceOrInsert(KVBtreeItem{key, value})
-	if old != nil {
-		return old.(KVBtreeItem).Value, nil
+	old, ok := tree.ReplaceOrInsert(Item{key, value})
+	if ok {
+		return old.Value, nil
 	}
 	return nil, nil
 }
@@ -206,9 +207,9 @@ func (s *InmemStore) unsafeDelete(bucket storage.Bucket, key []byte) ([]byte, er
 		return nil, storage.ErrBucketNotFound
 	}
 
-	old := tree.Delete(KVBtreeItem{Key: key})
-	if old != nil {
-		return old.(KVBtreeItem).Value, nil
+	old, ok := tree.Delete(Item{Key: key})
+	if ok {
+		return old.Value, nil
 	}
 	return nil, nil
 }

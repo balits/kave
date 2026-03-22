@@ -10,17 +10,23 @@ import (
 // amivel ellenőrizhetjük a parancs helyességét a feldolgozás előtt
 // hogy ne a raft log apply előtt derüljön ki, hogy hibás a parancs (illetve ne vesztegessünk több időt az apply-ban)
 type Command struct {
-	Kind            CmdKind             `json:"kind"`
-	Put             *PutCmd             `json:"put,omitempty"`
-	Delete          *DeleteCmd          `json:"delete,omitempty"`
-	Txn             *TxnCmd             `json:"txn,omitempty"`
-	LeaseGrant      *LeaseGrantCmd      `json:"lease_grant,omitempty"`
-	LeaseRevoke     *LeaseRevokeCmd     `json:"lease_revoke,omitempty"`
-	LeaseKeepAlive  *LeaseKeepAliveCmd  `json:"lease_keep_alive,omitempty"`
-	LeaseLookup     *LeaseLookupCmd     `json:"lease_lookup,omitempty"`
-	LeaseCheckpoint *LeaseCheckpointCmd // its not a client facing command, so no need for json tag
-	LeaseExpired    *LeaseExpireCmd     // its not a client facing command, so no need for json tag
-	Compact         *CompactCmd         // its not a client facing command, so no need for json tag
+	Kind CmdKind `json:"kind"`
+
+	// =====  public, client facing commands =====
+
+	Put            *PutCmd            `json:"put,omitempty"`
+	Delete         *DeleteCmd         `json:"delete,omitempty"`
+	Txn            *TxnCmd            `json:"txn,omitempty"`
+	LeaseGrant     *LeaseGrantCmd     `json:"lease_grant,omitempty"`
+	LeaseRevoke    *LeaseRevokeCmd    `json:"lease_revoke,omitempty"`
+	LeaseKeepAlive *LeaseKeepAliveCmd `json:"lease_keep_alive,omitempty"`
+	LeaseLookup    *LeaseLookupCmd    `json:"lease_lookup,omitempty"`
+
+	// =====  private, internal commands =====
+
+	LeaseCheckpoint *LeaseCheckpointCmd
+	LeaseExpired    *LeaseExpireCmd
+	Compact         *CompactCmd
 }
 
 type CmdKind string
