@@ -105,11 +105,17 @@ func (s *KVStore) Restore(r io.Reader) error {
 	rtx.UnsafeScan(schema.BucketKV, min, max, func(k, v []byte) error {
 		bk := kv.DecodeKvBucketKey(k)
 		entry, err := types.DecodeKvEntry(v)
-		if err != nil {
-			s.logger.Debug("restore error: failed to decode entry", "error", err)
-		}
-		if err := s.kvIndex.Put(entry.Key, bk.Revision); err != nil {
-			s.logger.Debug("restore error: failed to put entry into kvIndex", "error", err)
+		if bk.Tombstone {
+			if err := s.kvIndex.Tombstone(entry.Key, bk.Revision); err != nil {
+				s.logger.Warn("restore error: failed to tombstone entry in the kvIndex", "error", err)
+			}
+		} else {
+			if err != nil {
+				s.logger.Warn("restore error: failed to decode entry", "error", err)
+			}
+			if err := s.kvIndex.Put(entry.Key, bk.Revision); err != nil {
+				s.logger.Warn("restore error: failed to put entry into kvIndex", "error", err)
+			}
 		}
 		lastRev = bk.Revision
 		return nil
