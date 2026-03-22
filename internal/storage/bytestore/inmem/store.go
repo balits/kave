@@ -128,11 +128,26 @@ func (s *InmemStore) SizeBytes() int64 {
 	return s.sz.Load()
 }
 
+// TODO: super slow defragmentation....
+// IDEA: maybe use redises double dict solution?
 func (s *InmemStore) Defragment() error {
 	s.rwlock.Lock()
 	defer s.rwlock.Unlock()
 
-	//TODO build new tree after iterating
+	var newSz int64
+	copy := make(map[storage.Bucket]*btree.BTree)
+
+	for b, t := range s.buckets {
+		copy[b] = btree.New(BtreeDegreeDefault)
+		t.Ascend(func(item btree.Item) bool {
+			kv := item.(KVBtreeItem)
+			copy[b].ReplaceOrInsert(kv)
+			newSz += int64(len(kv.Key) + len(kv.Value))
+			return true
+		})
+	}
+	s.buckets = copy
+	s.sz.Store(newSz)
 	return nil
 }
 

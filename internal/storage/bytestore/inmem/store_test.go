@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/balits/kave/internal/storage"
+	"github.com/stretchr/testify/require"
 )
 
 const testBucket storage.Bucket = "test"
@@ -364,4 +365,147 @@ func TestManyKeys(t *testing.T) {
 	if count != n {
 		t.Errorf("scanned %d, want %d", count, n)
 	}
+}
+
+// defrag tests
+
+func Test_Defragment_DataSurvives(t *testing.T) {
+	s := newTestStore()
+
+	for i := range 100 {
+		s.Put(testBucket, fmt.Appendf(nil, "key%05d", i), []byte("bar"))
+	}
+
+	err := s.Defragment()
+	require.NoError(t, err)
+
+	// all data should still be readable after defrag
+	for i := range 100 {
+		val, err := s.Get(testBucket, fmt.Appendf(nil, "key%05d", i))
+		require.NoError(t, err)
+		require.Equal(t, []byte("bar"), val, "key k%05d lost after defrag", i)
+	}
+}
+
+func Test_Defragment_StoreRemainsWritable(t *testing.T) {
+	s := newTestStore()
+
+	s.Put(testBucket, []byte("before"), []byte("value"))
+
+	require.NoError(t, s.Defragment())
+
+	_, err := s.Put(testBucket, []byte("after"), []byte("value"))
+	require.NoError(t, err)
+
+	val, err := s.Get(testBucket, []byte("after"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("value"), val)
+}
+
+func Test_Defragment_EmptyStore(t *testing.T) {
+	s := newTestStore()
+
+	// defraging empty store should be a no-op not a crash
+	require.NoError(t, s.Defragment())
+
+	// should still work
+	_, err := s.Put(testBucket, []byte("k"), []byte("v"))
+	require.NoError(t, err)
+}
+
+func TestDefragment_MultipleBuckets(t *testing.T) {
+	s := newTestStore()
+
+	s.Put(testBucket, []byte("dk"), []byte("dv"))
+	s.Put(metaBucket, []byte("mk"), []byte("mv"))
+
+	require.NoError(t, s.Defragment())
+
+	dv, err := s.Get(testBucket, []byte("dk"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("dv"), dv, "data bucket value lost after defrag")
+
+	mv, err := s.Get(metaBucket, []byte("mk"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("mv"), mv, "meta bucket value lost after defrag")
+}
+
+func TestDefragment_AfterManyDeletes(t *testing.T) {
+	s := newTestStore()
+
+	for i := range 1000 {
+		s.Put(testBucket, fmt.Appendf(nil, "key%05d", i), fmt.Appendf(nil, "val%05d", i))
+	}
+	for i := range 900 {
+		s.Delete(testBucket, fmt.Appendf(nil, "key%05d", i))
+	}
+
+	require.NoError(t, s.Defragment())
+
+	// the remaining 100 keys should still be there
+	for i := 900; i < 1000; i++ {
+		val, err := s.Get(testBucket, fmt.Appendf(nil, "key%05d", i))
+		require.NoError(t, err)
+		require.Equal(t, fmt.Appendf(nil, "val%05d", i), val, "key%05d lost after defrag", i)
+	}
+
+	// the deleted 900 should be gone
+	for i := range 900 {
+		val, err := s.Get(testBucket, fmt.Appendf(nil, "key%05d", i))
+		require.NoError(t, err)
+		require.Nil(t, val, "deleted key%05d still present after defrag", i)
+	}
+}
+
+func TestDefragment_IdempotentMultipleTimes(t *testing.T) {
+	s := newTestStore()
+
+	s.Put(testBucket, []byte("k"), []byte("v"))
+
+	for range 3 {
+		require.NoError(t, s.Defragment())
+	}
+
+	val, err := s.Get(testBucket, []byte("k"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("v"), val)
+}
+
+func TestDefragment_ScanStillWorksAfter(t *testing.T) {
+	s := newTestStore()
+
+	for i := range 10 {
+		s.Put(testBucket, fmt.Appendf(nil, "key%02d", i), fmt.Appendf(nil, "val%02d", i))
+	}
+
+	require.NoError(t, s.Defragment())
+
+	var count int
+	err := s.Scan(testBucket, func(k, v []byte) bool {
+		count++
+		return true
+	})
+	require.NoError(t, err)
+	require.Equal(t, 10, count, "scan should return all keys after defrag")
+}
+
+func TestDefragment_ReducesFileSize(t *testing.T) {
+	s := newTestStore()
+
+	// write and delete enough data that boltdb's file should have
+	// meaningful free pages to reclaim
+	bigVal := make([]byte, 4096)
+	for i := range 500 {
+		s.Put(testBucket, fmt.Appendf(nil, "k%05d", i), bigVal)
+	}
+	for i := range 500 {
+		s.Delete(testBucket, fmt.Appendf(nil, "k%05d", i))
+	}
+
+	sizeBefore := s.sz.Load()
+	require.NoError(t, s.Defragment())
+	sizeAfter := s.sz.Load()
+
+	t.Logf("size: before=%d after=%d", sizeBefore, sizeAfter)
+	require.Equal(t, sizeAfter, sizeBefore)
 }

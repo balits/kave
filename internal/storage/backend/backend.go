@@ -92,29 +92,49 @@ func (b *backend) Snapshot(w io.Writer) error {
 	b.rwlock.RLock()
 	defer b.rwlock.RUnlock()
 	_, err := b.store.WriteTo(w)
-	return err
+	if err != nil {
+		return fmt.Errorf("backend snapshot error: %w", err)
+	}
+	return nil
 }
 
 func (b *backend) Restore(r io.Reader) error {
 	b.rwlock.Lock()
 	defer b.rwlock.Unlock()
 	_, err := b.store.ReadFrom(r)
-	return err
+	if err != nil {
+		return fmt.Errorf("backend snapshot error: %w", err)
+	}
+	return nil
 }
 
 func (b *backend) Commit() (storage.CommitInfo, error) {
 	b.rwlock.Lock()
-	defer b.rwlock.Unlock()
+	defer func() {
+		b.batch = nil
+		b.rwlock.Unlock()
+	}()
+
+	var info storage.CommitInfo
 
 	if b.batch == nil {
-		return storage.CommitInfo{}, fmt.Errorf("attempting to commit a nil batch")
+		return info, fmt.Errorf("backend commit error: attempted to commit a nil batch")
 	}
-	b.batch = nil
-	return b.batch.Commit()
+
+	info, err := b.batch.Commit()
+	if err != nil {
+		return info, fmt.Errorf("backend commit error: %w", err)
+	}
+	return info, nil
 }
 
 func (b *backend) Defrag() error {
-	return b.store.Defragment()
+	b.rwlock.Lock()
+	defer b.rwlock.Unlock()
+	if err := b.store.Defragment(); err != nil {
+		return fmt.Errorf("backend defrag error: %w", err)
+	}
+	return nil
 }
 
 func (b *backend) Close() error {
@@ -126,7 +146,10 @@ func (b *backend) Close() error {
 		b.batch = nil
 	}
 
-	return b.store.Close()
+	if err := b.store.Close(); err != nil {
+		return fmt.Errorf("backend close error: %w", err)
+	}
+	return nil
 }
 
 func (b *backend) Ping() error {

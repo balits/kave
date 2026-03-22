@@ -19,8 +19,9 @@ import (
 // which allows callers to group multiple ops together and commit them atomically.
 //
 // The store should only return ErrBucketNotFound or any errors wrapped in ErrInternalStorageError.
-
 type ByteStore interface {
+	// ===== kv operations =====
+
 	// Get returns the value for the given bucket and key,
 	// or an error if the bucket is not found.
 	// If the key is not found, it returns nil value and no error.
@@ -36,20 +37,25 @@ type ByteStore interface {
 	Delete(bucket storage.Bucket, key []byte) (old []byte, err error)
 
 	Scan(bucket storage.Bucket, f func(key, value []byte) bool) error
+
 	PrefixScan(bucket storage.Bucket, prefix []byte, f func(key, value []byte) bool) error
 
 	// ===== raft.FSM related methods =====
 	// Snapshot() (raft.FSMSnapshot, error)
 	// Restore(io.ReadCloser) error
-	io.WriterTo
-	io.ReaderFrom
+	// instead of coupling the lowest layer to the raft library
+	// we use standard go interfaces instead
+	io.WriterTo   // Snapshot
+	io.ReaderFrom // Restore
 
 	// ===== misc =====
+
 	SizeBytes() int64
 	Defragment() error
 	Close() error
 	Ping() error
 
 	// ====== batching ======
+
 	NewBatch() (Batch, error)
 }
