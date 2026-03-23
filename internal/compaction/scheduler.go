@@ -18,19 +18,19 @@ const (
 	DefaultMaxRevGap   = 10
 )
 
-type Options struct {
-	Threshold   int64
-	IntervalMin int64
-	MaxRevGap   int64
+type CompactionOptions struct {
+	Threshold   int64 `json:"compaction_threshold"`
+	IntervalMin int64 `json:"compaction_interval_minutes"`
+	MaxRevGap   int64 `json:"compaction_max_rev_gap"`
 }
 
-var DefaultOptions = Options{
+var DefaultOptions = CompactionOptions{
 	Threshold:   DefaultThreshold,
 	IntervalMin: DefaultIntervalMin,
 	MaxRevGap:   DefaultMaxRevGap,
 }
 
-func (co *Options) Validate() error {
+func (co *CompactionOptions) Validate() error {
 	if co.Threshold <= 0 {
 		return errors.New("compactor threshold must be positive")
 	}
@@ -44,7 +44,7 @@ func (co *Options) Validate() error {
 }
 
 type CompactionScheduler struct {
-	opts           Options
+	opts           CompactionOptions
 	store          mvcc.SmartRevisionGetter
 	ticker         util.Ticker
 	running        atomic.Bool
@@ -58,8 +58,8 @@ type CompactionScheduler struct {
 	logger         *slog.Logger
 }
 
-func NewScheduler(logger *slog.Logger, store mvcc.SmartRevisionGetter, propose util.ProposeFunc, isLeader util.IsLeaderFunc, opts *Options) *CompactionScheduler {
-	var o Options
+func NewScheduler(logger *slog.Logger, store mvcc.SmartRevisionGetter, propose util.ProposeFunc, isLeader util.IsLeaderFunc, opts *CompactionOptions) *CompactionScheduler {
+	var o CompactionOptions
 	if opts != nil {
 		o = *opts
 	} else {
@@ -120,12 +120,10 @@ func (cs *CompactionScheduler) Run(ctx context.Context) {
 }
 
 func (cs *CompactionScheduler) run() {
-	defer cs.ticker.Stop()
 	var tickerC <-chan time.Time
 
 	if cs.isLeader() {
-		cs.logger.Info("Already leader, setting up ticker channel")
-		tickerC = cs.ticker.C()
+		tickerC = cs.ticker.Tick()
 	}
 
 	for {
@@ -136,7 +134,7 @@ func (cs *CompactionScheduler) run() {
 				return
 			}
 			if granted && cs.isLeader() {
-				tickerC = cs.ticker.C()
+				tickerC = cs.ticker.Tick()
 			} else {
 				tickerC = nil
 			}

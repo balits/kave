@@ -13,6 +13,13 @@ import (
 	"github.com/balits/kave/internal/util"
 )
 
+type ReadOnlyStore interface {
+	mvcc.SmartRevisionGetter
+	NewReader() mvcc.Reader
+	RaftMeta() (logIndex, logTerm uint64)
+	Ping() error
+}
+
 type KVService interface {
 	Range(ctx context.Context, req api.RangeRequest) (*api.RangeResponse, error)
 	Put(ctx context.Context, req api.PutRequest) (*api.PutResponse, error)
@@ -23,13 +30,13 @@ type KVService interface {
 }
 
 type kvSvc struct {
-	store       *mvcc.KVStore
+	store       ReadOnlyStore
 	proposeFunc util.ProposeFunc
 	peerSvc     PeerService
 	logger      *slog.Logger
 }
 
-func NewKVService(logger *slog.Logger, store *mvcc.KVStore, peerSvc PeerService, proposeFunc util.ProposeFunc) KVService {
+func NewKVService(logger *slog.Logger, store ReadOnlyStore, peerSvc PeerService, proposeFunc util.ProposeFunc) KVService {
 	return &kvSvc{
 		store:       store,
 		proposeFunc: proposeFunc,

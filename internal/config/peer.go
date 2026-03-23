@@ -22,10 +22,29 @@ func (p *Peer) GetRaftAddress() raft.ServerAddress {
 	return raft.ServerAddress(p.Hostname + ":" + p.RaftPort)
 }
 
-func (p *Peer) GetHttpAddress() string {
-	return p.NodeID + ":" + p.HttpPort
+func (p *Peer) GetHttpAdvertisedAddress() string {
+	if p.Hostname == "" {
+		return p.NodeID + ":" + p.HttpPort
+	}
+	return p.Hostname + ":" + p.HttpPort
 }
 
+func (p *Peer) GetRaftListenAddress() string {
+	return "0.0.0.0:" + p.RaftPort
+}
+
+func (p *Peer) GetHttpListenAddress() string {
+	return "0.0.0.0:" + p.HttpPort
+}
+
+func (p *Peer) HttpScheme() string {
+	return "http"
+}
+
+// "http://" + p.GetHttpAddress() 
+func (p *Peer) HttpURL() string {
+	return p.HttpScheme() + "://" + p.GetHttpAdvertisedAddress()
+}
 
 func (p *Peer) validateNodeConfig() error {
 	if p.NodeID == "" {

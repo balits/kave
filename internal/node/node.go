@@ -70,7 +70,7 @@ func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*No
 	n.proposeFunc = util.NewProposeFunc(n.raft)
 	n.isLeaderFunc = util.NewIsLeaderFunc(n.raft, raft.ServerID(cfg.Me.NodeID))
 
-	if err := n.initBackgroundRoutines(cfg.CheckpointInterval, &cfg.CompactionOpts); err != nil {
+	if err := n.initBackgroundRoutines(cfg.CheckpointIntervalMinutes, &cfg.CompactionOpts); err != nil {
 		return nil, fmt.Errorf("failed to setup background processes: %v", err)
 	}
 
@@ -84,12 +84,11 @@ func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*No
 
 	n.httpServer = transport.NewHTTPServer(
 		logger,
-		cfg.Me.HttpPort,
+		cfg.Me.GetHttpAdvertisedAddress(),
 		n.kvService,
 		n.leaseService,
 		n.clusterService,
 		n.peerService,
-		cfg,
 		reg,
 	)
 	return n, nil
@@ -215,7 +214,7 @@ func (n *Node) initRaft(reg prometheus.Registerer, cfg *config.Config) error {
 
 	hclogger := logutil.NewHcLogAdapter(n.logger, cfg.LogLevel)
 	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, hclogger, cfg.LogLevel)
-	raftDeps, err := config.NewRaftDependencies(cfg.Me.GetRaftAddress(), cfg.StorageOpts.Dir, hclogger)
+	raftDeps, err := config.NewRaftDependencies(cfg.Me.GetRaftAddress(), cfg.Me.GetRaftListenAddress(), cfg.StorageOpts.Dir, hclogger)
 	if err != nil {
 		return err
 	}
@@ -237,8 +236,8 @@ func (n *Node) initRaft(reg prometheus.Registerer, cfg *config.Config) error {
 }
 
 // registering the raft observer happens here, so that our background routines have the most up to date info
-func (n *Node) initBackgroundRoutines(interval time.Duration, opts *compaction.Options) error {
-	n.checkpointScheduler = lease.NewCheckpointScheduler(n.logger, n.leaseMgr, interval, n.proposeFunc, n.isLeaderFunc)
+func (n *Node) initBackgroundRoutines(intervalMinutes time.Duration, opts *compaction.CompactionOptions) error {
+	n.checkpointScheduler = lease.NewCheckpointScheduler(n.logger, n.leaseMgr, intervalMinutes*time.Minute, n.proposeFunc, n.isLeaderFunc)
 	n.expiryLoop = lease.NewExpiryLoop(n.logger, n.leaseMgr, n.proposeFunc, n.isLeaderFunc)
 	n.compactionScheduler = compaction.NewScheduler(n.logger, n.kvstore, n.proposeFunc, n.isLeaderFunc, opts)
 	return nil

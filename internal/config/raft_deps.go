@@ -38,7 +38,7 @@ func NewRaftConfig(nodeID string, logger *logutil.HcLogAdapter, logLevel slog.Le
 	return rc
 }
 
-func NewRaftDependencies(addr raft.ServerAddress, dir string, logger *util.HcLogAdapter) (*RaftDependencies, error) {
+func NewRaftDependencies(advertiseAddr raft.ServerAddress, listenAddr string, dir string, logger *util.HcLogAdapter) (*RaftDependencies, error) {
 	var (
 		logs     raft.LogStore
 		stable   raft.StableStore
@@ -69,14 +69,14 @@ func NewRaftDependencies(addr raft.ServerAddress, dir string, logger *util.HcLog
 		}
 	}
 
-	tcpAddr, err := net.ResolveTCPAddr("tcp", string(addr))
+	tcpAdvertiseAddr, err := net.ResolveTCPAddr("tcp", string(advertiseAddr))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transport: %v", err)
 	}
 
-	tr, err := raft.NewTCPTransport(tcpAddr.String(), tcpAddr, 2, 10*time.Second, os.Stderr)
+	tr, err := raft.NewTCPTransport(listenAddr, tcpAdvertiseAddr, 2, 10*time.Second, os.Stderr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create transport: %v", err)
+		return nil, fmt.Errorf("failed to create transport(listen = %s, adverstise = %s): %v", listenAddr, advertiseAddr, err)
 	}
 
 	deps := &RaftDependencies{

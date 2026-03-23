@@ -35,8 +35,6 @@ const (
 	jsonDecodeErrMsg string = "failed to decode JSON body"
 )
 
-// TODO: need to attach valid headers to results on the error path in handlers: maybe add KVStore to ClusterService and call clusterSvc.Meta()
-// also TODO: sometimes http responses have header sometiems no, sometiems they have error sometimes not
 type HttpServer struct {
 	kvSvc      service.KVService
 	leaseSvc   service.LeaseService
@@ -48,15 +46,13 @@ type HttpServer struct {
 
 func NewHTTPServer(
 	logger *slog.Logger,
-	httpPort string,
+	addr string,
 	kvService service.KVService,
 	leaseService service.LeaseService,
 	clusterService service.ClusterService,
 	peerService service.PeerService,
-	cfg *config.Config,
 	reg *prometheus.Registry,
 ) *HttpServer {
-	addr := "0.0.0.0:" + httpPort
 	mux := http.NewServeMux()
 	s := &HttpServer{
 		kvSvc:      kvService,
@@ -119,13 +115,13 @@ func (s *HttpServer) leaderMiddleware(next http.HandlerFunc) http.HandlerFunc {
 func (s *HttpServer) proxyToLeader(w http.ResponseWriter, r *http.Request, leader config.Peer) {
 	target := &url.URL{
 		Scheme: "http",
-		Host:   leader.GetHttpAddress(),
+		Host:   leader.GetHttpAdvertisedAddress(),
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		s.logger.Error("proxy to leader failed",
 			"leader_id", leader.NodeID,
-			"leader_addr", leader.GetHttpAddress(),
+			"leader_addr", leader.GetHttpAdvertisedAddress(),
 			"error", err,
 		)
 		errMsg := fmt.Sprintf("failed to proxy request to leader %s: %v", leader.NodeID, err)
@@ -360,14 +356,13 @@ func (s *HttpServer) handleLivez(w http.ResponseWriter, r *http.Request) {
 	s.logger.Debug("Received READYZ request")
 	if s.peerSvc.State() == raft.Shutdown {
 		s.logger.Error("Live check failed", "error", "raft is shutdown")
-		s.writeJSON(w, map[string]string{"status": "raft_shutdown"}, http.StatusServiceUnavailable)
+		writeError(w, "raft_shutdown", http.StatusServiceUnavailable)
 		return
 	}
 
 	if err := s.kvSvc.Ping(); err != nil {
 		s.logger.Error("Live check failed", "error", err)
-		statusErr := fmt.Sprintf("kv store ping failed: %v", err)
-		s.writeJSON(w, map[string]string{"status": statusErr}, http.StatusServiceUnavailable)
+		writeError(w, fmt.Sprintf("kv store ping failed: %v", err), http.StatusServiceUnavailable)
 		return
 	}
 
@@ -378,22 +373,20 @@ func (s *HttpServer) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	s.logger.Debug("Received LIVEZ request")
 	if s.peerSvc.State() == raft.Shutdown {
 		s.logger.Error("Readiness check failed", "error", "raft is shutdown")
-		s.writeJSON(w, map[string]string{"status": "raft_shutdown"}, http.StatusServiceUnavailable)
+		writeError(w, "raft_shutdown", http.StatusServiceUnavailable)
 		return
 	}
 
 	_, err := s.peerSvc.GetLeader()
 	if err != nil {
 		s.logger.Error("Failed to get leader info", "error", err)
-		statusErr := fmt.Sprintf("failed to get leader info: %v", err)
-		s.writeJSON(w, map[string]string{"status": statusErr}, http.StatusServiceUnavailable)
+		writeError(w, fmt.Sprintf("failed to get leader info: %v", err), http.StatusServiceUnavailable)
 		return
 	}
 
 	if err := s.peerSvc.LaggingBehind(); err != nil {
 		s.logger.Error("Readiness check failed", "error", err)
-		statusErr := fmt.Sprintf("raft is lagging behind: %v", err)
-		s.writeJSON(w, map[string]string{"status": statusErr}, http.StatusServiceUnavailable)
+		writeError(w, fmt.Sprintf("raft is lagging behind: %v", err), http.StatusServiceUnavailable)
 		return
 	}
 

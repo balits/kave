@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestScheduler(t *testing.T, threshold int64, ticker util.Ticker, isLeaderValue bool, opts *Options) *CompactionScheduler {
+func newTestScheduler(t *testing.T, threshold int64, ticker util.Ticker, isLeaderValue bool, opts *CompactionOptions) *CompactionScheduler {
 	t.Helper()
 	isLeader := func() bool { return isLeaderValue }
 
@@ -58,11 +58,11 @@ func newTestScheduler(t *testing.T, threshold int64, ticker util.Ticker, isLeade
 		return &result, nil
 	}
 
-	var o Options
+	var o CompactionOptions
 	if opts != nil {
 		o = *opts
 	} else {
-		o = Options{
+		o = CompactionOptions{
 			Threshold:   threshold,
 			IntervalMin: DefaultIntervalMin,
 			MaxRevGap:   math.MaxInt64,
@@ -326,7 +326,7 @@ func Test_CompactionScheduler_CompactsToCorrectRevision(t *testing.T) {
 	mustPut(t, cs.propose, "c", "v1") // rev 4
 
 	// tick 1: candidateRev = 4, nothing compacted yet
-	ft.Tick()
+	ft.FakeTick()
 	cs.tick(false)
 	_, compacted := cs.store.Revisions()
 	require.Equal(t, int64(0), compacted, "no compaction on first tick")
@@ -334,7 +334,7 @@ func Test_CompactionScheduler_CompactsToCorrectRevision(t *testing.T) {
 	mustPut(t, cs.propose, "d", "v1") // rev 5 — enough to exceed threshold from rev 4
 
 	// tick 2: compacts to rev 4 (the previous candidate)
-	ft.Tick()
+	ft.FakeTick()
 	cs.tick(false)
 	_, compacted = cs.store.Revisions()
 	require.Equal(t, int64(4), compacted)
@@ -419,7 +419,7 @@ func Test_CompactionScheduler_ThresholdNotMet_NoCompaction(t *testing.T) {
 
 func Test_CompactionScheduler_WritePressure_TriggerFires(t *testing.T) {
 	ft := util.NewFakeTicker().(*util.FakeTicker)
-	cs := newTestScheduler(t, 0, ft, true, &Options{
+	cs := newTestScheduler(t, 0, ft, true, &CompactionOptions{
 		IntervalMin: 30,
 		Threshold:   100,
 		MaxRevGap:   10,
@@ -453,7 +453,7 @@ func Test_CompactionScheduler_WritePressure_TriggerFires(t *testing.T) {
 
 func Test_CompactionScheduler_WritePressure_IgnoredAsNonLeader(t *testing.T) {
 	ft := util.NewFakeTicker().(*util.FakeTicker)
-	cs := newTestScheduler(t, 0, ft, true, &Options{
+	cs := newTestScheduler(t, 0, ft, true, &CompactionOptions{
 		IntervalMin: 30,
 		Threshold:   100,
 		MaxRevGap:   10,
@@ -485,7 +485,7 @@ func Test_CompactionScheduler_WritePressure_IgnoredAsNonLeader(t *testing.T) {
 }
 
 func Test_CompactionScheduler_WritePressure_NoDuplicateSignals(t *testing.T) {
-	opts := Options{
+	opts := CompactionOptions{
 		Threshold:   2,
 		IntervalMin: 30,
 		MaxRevGap:   5,
@@ -501,7 +501,7 @@ func Test_CompactionScheduler_WritePressure_NoDuplicateSignals(t *testing.T) {
 }
 
 func Test_CompactionScheduler_NormalInterval_WhenGapIsSmall(t *testing.T) {
-	opts := Options{
+	opts := CompactionOptions{
 		Threshold:   2,
 		IntervalMin: 30,
 		MaxRevGap:   100, // high enough
@@ -530,7 +530,7 @@ func Test_CompactionScheduler_NormalInterval_WhenGapIsSmall(t *testing.T) {
 }
 
 func Test_CompactionScheduler_BothIntervalAndBackpressure_WorkTogether(t *testing.T) {
-	opts := Options{
+	opts := CompactionOptions{
 		Threshold:   2,
 		IntervalMin: 30,
 		MaxRevGap:   5,

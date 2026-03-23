@@ -59,7 +59,7 @@ func Test_ExpiryLoop_Run(t *testing.T) {
 
 	l1, _ := lm.Grant(0, 10)
 	fc.AdvanceSeconds(11)
-	ft.Tick()
+	ft.FakeTick()
 
 	select {
 	case <-time.After(50 * time.Millisecond):
@@ -108,7 +108,7 @@ func Test_ExpiryLoop_LosesLeadership_StopsProposing(t *testing.T) {
 	// as leader, tick
 	l1, _ := lm.Grant(0, 10)
 	fc.AdvanceSeconds(11)
-	ft.Tick()
+	ft.FakeTick()
 
 	select {
 	case res := <-resultC:
@@ -128,7 +128,7 @@ func Test_ExpiryLoop_LosesLeadership_StopsProposing(t *testing.T) {
 			r := recover()
 			fmt.Println(r)
 		}()
-		ft.Tick() // this should block until tickerC is not nil which will never happen
+		ft.FakeTick() // this should block until tickerC is not nil which will never happen
 	}()
 
 	select {
@@ -155,7 +155,7 @@ func Test_ExpiryLoop_RegainsLeadership_ResumesProposing(t *testing.T) {
 
 	l, _ := lm.Grant(0, 10)
 	fc.AdvanceSeconds(11)
-	ft.Tick()
+	ft.FakeTick()
 
 	select {
 	case res := <-resultC:
@@ -176,7 +176,7 @@ func Test_ExpiryLoop_NoExpiredLeases(t *testing.T) {
 	loop(t, ex)
 
 	lm.Grant(0, 3600)
-	ft.Tick()
+	ft.FakeTick()
 
 	select {
 	case res := <-resultC:
@@ -199,7 +199,7 @@ func Test_ExpiryLoop_MultipleLeases_OnlyExpiredProposed(t *testing.T) {
 	live, _ := lm.Grant(0, 3600)
 
 	fc.AdvanceSeconds(10)
-	ft.Tick()
+	ft.FakeTick()
 
 	select {
 	case <-time.After(50 * time.Millisecond):
@@ -234,7 +234,7 @@ func Test_ExpiryLoop_KeepAlive_PreventsExpiry(t *testing.T) {
 	require.NoError(t, err)
 
 	fc.AdvanceSeconds(5) // past original TTL, keepalive reset it
-	ft.Tick()
+	ft.FakeTick()
 
 	select {
 	case res := <-resultC:
@@ -256,7 +256,7 @@ func Test_ExpiryLoop_ExpiredLease_ProposedOnlyOnce(t *testing.T) {
 	l, _ := lm.Grant(0, 10)
 	fc.AdvanceSeconds(11)
 
-	ft.Tick()
+	ft.FakeTick()
 	select {
 	case <-time.After(50 * time.Millisecond):
 		t.Fatal("timed out waiting for first tick")
@@ -265,7 +265,7 @@ func Test_ExpiryLoop_ExpiredLease_ProposedOnlyOnce(t *testing.T) {
 		require.Nil(t, lm.Lookup(l.ID))
 	}
 
-	ft.Tick()
+	ft.FakeTick()
 	select {
 	case res := <-resultC:
 		require.Equal(t, 0, res.RemovedLeaseCount)
@@ -287,7 +287,7 @@ func Test_ExpiryLoop_ExpiryAcrossTwoTicks(t *testing.T) {
 	l2, _ := lm.Grant(0, 15)
 
 	fc.AdvanceSeconds(6)
-	ft.Tick()
+	ft.FakeTick()
 	select {
 	case <-time.After(50 * time.Millisecond):
 		t.Fatal("timed out waiting for l1 revoke")
@@ -297,7 +297,7 @@ func Test_ExpiryLoop_ExpiryAcrossTwoTicks(t *testing.T) {
 	}
 
 	fc.AdvanceSeconds(10)
-	ft.Tick()
+	ft.FakeTick()
 	select {
 	case <-time.After(50 * time.Millisecond):
 		t.Fatal("timed out waiting for l2 revoke")
@@ -316,7 +316,7 @@ func Test_ExpiryLoop_EmptyManager_NoProposals(t *testing.T) {
 	loop(t, ex)
 
 	fc.AdvanceSeconds(100)
-	ft.Tick()
+	ft.FakeTick()
 
 	select {
 	case res := <-resultC:

@@ -38,22 +38,20 @@ func (fc *FakeClock) Until(t time.Time) time.Duration {
 }
 
 type Ticker interface {
-	C() <-chan time.Time
-	Stop()
+	Tick() <-chan time.Time
 }
 
 type RealTicker struct {
-	ticker time.Ticker
+	c <-chan time.Time
 }
 
 func NewRealTicker(d time.Duration) Ticker {
 	return &RealTicker{
-		ticker: *time.NewTicker(d),
+		c: time.Tick(d),
 	}
 }
 
-func (rt *RealTicker) C() <-chan time.Time { return rt.ticker.C }
-func (rt *RealTicker) Stop()               { rt.ticker.Stop() }
+func (rt *RealTicker) Tick() <-chan time.Time { return rt.c }
 
 type FakeTicker struct {
 	c chan time.Time
@@ -65,7 +63,7 @@ func NewFakeTicker() Ticker {
 	}
 }
 
-func (ft *FakeTicker) Tick() {
+func (ft *FakeTicker) FakeTick() {
 	if ft.c != nil {
 		ft.c <- time.Now()
 	}
@@ -78,5 +76,5 @@ func (ft *FakeTicker) TickOrDone(ctx context.Context) {
 	}
 }
 
-func (ft *FakeTicker) C() <-chan time.Time { return ft.c }
-func (ft *FakeTicker) Stop()               { close(ft.c) }
+func (ft *FakeTicker) Tick() <-chan time.Time { return ft.c }
+func (ft *FakeTicker) Stop()                  { close(ft.c) }

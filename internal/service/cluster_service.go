@@ -59,7 +59,6 @@ func (s *clusterService) Bootstrap(ctx context.Context) error {
 }
 
 func (s *clusterService) AddToCluster(ctx context.Context, req transport.JoinRequest) error {
-	//TODO Info -> Debug
 	s.logger.Info("Adding peer to cluster", "peer_id", req.NodeID, "peer_addr", req.RaftAddr)
 
 	if err := util.WaitFuture(ctx, s.raft.VerifyLeader()); err != nil {
@@ -91,7 +90,7 @@ func (s *clusterService) AddToCluster(ctx context.Context, req transport.JoinReq
 func (s *clusterService) JoinCluster(ctx context.Context, peers map[string]config.Peer) error {
 	var urls []string
 	for _, p := range peers {
-		urls = append(urls, "http://"+p.GetHttpAddress()+transport.UriCluster+"/join")
+		urls = append(urls, p.HttpURL()+transport.UriCluster+"/join")
 	}
 	s.logger.Info("Attempting to join cluster", "peers", urls)
 

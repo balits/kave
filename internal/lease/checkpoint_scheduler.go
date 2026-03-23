@@ -72,19 +72,10 @@ func (cs *CheckpointScheduler) Run(ctx context.Context) {
 }
 
 func (cs *CheckpointScheduler) run() {
-	var ticker *time.Ticker
 	var tickerC <-chan time.Time
 
-	defer func() {
-		if ticker != nil {
-			ticker.Stop()
-		}
-	}()
-
-	// initial check (if the channel didnt caught up to any leadership updates)
 	if cs.isLeader() {
-		ticker = time.NewTicker(cs.interval)
-		tickerC = ticker.C
+		tickerC = time.Tick(cs.interval)
 	}
 
 	for {
@@ -95,11 +86,8 @@ func (cs *CheckpointScheduler) run() {
 				return
 			}
 			if granted && cs.isLeader() {
-				ticker = time.NewTicker(cs.interval)
-				tickerC = ticker.C
+				tickerC = time.Tick(cs.interval)
 			} else {
-				ticker.Stop()
-				ticker = nil
 				tickerC = nil
 			}
 		case <-cs.ctx.Done():
