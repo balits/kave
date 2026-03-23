@@ -159,13 +159,15 @@ Hello world
             - [ ] kv
             - [ ] backend
             - [x] lease
-    - [ ] tls
-        - [ ] tls on http server
-        - [ ] tls on raft inter node communication
-    - [ ] handle http redirects from follower to leader
-        - [ ] single host reverse proxy
-    - [ ] http tests
-    - [ ] cluster integratino tests
+    - [ ] use time.Tick() instead of time.Ticker() (no need for ticker.Stop() from now on)
+    - [ ] http layer touch ups
+        - [ ] tls
+            - [ ] tls on http server
+            - [ ] tls on raft inter node communication
+        - [x] handle http redirects from follower to leader
+            - single host reverse proxy?
+        - [x] http tests
+    - [ ] cluster integration tests
     - [ ] live workload + web ui for stats, metrics and manual commands
 
 # CHORES

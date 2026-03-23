@@ -18,21 +18,21 @@ import (
 const ApplyLagReadinessThreshold uint = 10
 
 type Config struct {
-	Me                 Peer
-	Bootstrap          bool
-	StorageOpts        storage.StorageOptions
-	CompactionOpts     compaction.Options
-	CheckpointInterval time.Duration
-	LogLevel           slog.Level
-	Peers              []Peer
+	Me                        Peer
+	Bootstrap                 bool
+	StorageOpts               storage.StorageOptions
+	CompactionOpts            compaction.CompactionOptions
+	CheckpointIntervalMinutes time.Duration
+	LogLevel                  slog.Level
+	Peers                     []Peer
 }
 
 type ConfigJson struct {
 	storage.StorageOptions
-	compaction.Options
-	CheckpointInterval time.Duration  `json:"checkpoint_interval_ns"`
-	LogLevel           configLogLevel `json:"log_level"`
-	Peers              string         `json:"peers"`
+	compaction.CompactionOptions
+	CheckpointIntervalMinutes time.Duration  `json:"checkpoint_interval_minutes"`
+	LogLevel                  configLogLevel `json:"log_level"`
+	Peers                     string         `json:"peers"`
 }
 
 type configLogLevel = string
@@ -63,7 +63,7 @@ func (cj *ConfigJson) validate() error {
 		return errors.New("unrecognised loglevel kind")
 	}
 
-	return cj.Options.Validate()
+	return cj.CompactionOptions.Validate()
 }
 
 // ToConfig parses the raw json configuration, and turns them
@@ -108,10 +108,10 @@ func (cj *ConfigJson) ToConfig() (*Config, error) {
 	logLevel := configLogLevelToSlogLogLevel(cj.LogLevel)
 
 	c := &Config{
-		LogLevel:           logLevel,
-		Peers:              peers,
-		CheckpointInterval: cj.CheckpointInterval,
-		CompactionOpts:     cj.Options,
+		LogLevel:                  logLevel,
+		Peers:                     peers,
+		CheckpointIntervalMinutes: cj.CheckpointIntervalMinutes,
+		CompactionOpts:            cj.CompactionOptions,
 		StorageOpts: storage.StorageOptions{
 			Kind:           cj.StorageOptions.Kind,
 			Dir:            cj.Dir,

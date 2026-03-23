@@ -73,11 +73,10 @@ func (ex *ExpiryLoop) Run(ctx context.Context) {
 }
 
 func (ex *ExpiryLoop) run() {
-	defer ex.innerTicker.Stop()
 	var tickerC <-chan time.Time
 
 	if ex.isLeader() {
-		tickerC = ex.innerTicker.C()
+		tickerC = ex.innerTicker.Tick()
 	}
 
 	for {
@@ -88,7 +87,7 @@ func (ex *ExpiryLoop) run() {
 				return
 			}
 			if granted && ex.isLeader() {
-				tickerC = ex.innerTicker.C()
+				tickerC = ex.innerTicker.Tick()
 			} else {
 				tickerC = nil
 			}
