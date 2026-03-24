@@ -115,7 +115,7 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 	leaseSvc := service.NewLeaseService(logger, propose)
 	clusterSvc := &mockClusterSvc{}
 
-	httpServer := NewHTTPServer(logger, me.GetHttpAdvertisedAddress(), kvSvc, leaseSvc, clusterSvc, peerSvc, reg)
+	httpServer := NewHTTPServer(logger, me.GetHttpListenAddress(), kvSvc, leaseSvc, clusterSvc, peerSvc, reg)
 
 	ts := httptest.NewServer(httpServer.server.Handler)
 	t.Cleanup(ts.Close)

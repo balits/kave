@@ -180,7 +180,7 @@ func (e *Engine) applyTxnOps(w Writer, ops []command.TxnOp) ([]command.TxnOpResu
 	res := make([]command.TxnOpResult, 0, len(ops))
 	for _, op := range ops {
 		if err := op.Check(); err != nil {
-			return nil, fmt.Errorf("txn failed operations interrupted: %w", err)
+			return nil, fmt.Errorf("invalid operation: %w", err)
 		}
 
 		switch op.Type {
@@ -193,7 +193,7 @@ func (e *Engine) applyTxnOps(w Writer, ops []command.TxnOp) ([]command.TxnOpResu
 
 			_, err := w.Put(put.Key, put.Value, put.LeaseID)
 			if err != nil {
-				return nil, fmt.Errorf("txn failed: error during put op: %w", err)
+				return nil, fmt.Errorf("error during PUT op: %w", err)
 			}
 			res = append(res, command.TxnOpResult{
 				Put: &command.PutResult{
@@ -207,13 +207,13 @@ func (e *Engine) applyTxnOps(w Writer, ops []command.TxnOp) ([]command.TxnOpResu
 				var err error
 				prevs, _, _, err = w.Range(del.Key, del.End, 0, 0)
 				if err != nil {
-					return nil, fmt.Errorf("txn failed: error on prev entries on delete op: %w", err)
+					return nil, fmt.Errorf("error during prev entries retrieval on DELETE op: %w", err)
 				}
 			}
 
 			cnt, _, err := w.DeleteRange(del.Key, del.End)
 			if err != nil {
-				return nil, fmt.Errorf("txn failed: error during delete op: %w", err)
+				return nil, fmt.Errorf("error during DELETE op: %w", err)
 			}
 			res = append(res, command.TxnOpResult{
 				Delete: &command.DeleteResult{
@@ -228,7 +228,8 @@ func (e *Engine) applyTxnOps(w Writer, ops []command.TxnOp) ([]command.TxnOpResu
 			}
 			entries, cnt, _, err := w.Range(rng.Key, rng.End, rng.Revision, rng.Limit)
 			if err != nil {
-				// TODO: should a read failure terminate the whole txn?
+				//should a read failure terminate the whole txn? : YES
+				return nil, fmt.Errorf("error during RANGE op: %w", err)
 			}
 			res = append(res, command.TxnOpResult{
 				Range: &command.RangeResult{

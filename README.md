@@ -7,11 +7,9 @@ Hello world
 - dirty reads -> Leader, follower GET, no VerifyLeader()
 
 # TODO
-- [ ] finish workload generator/checker
 - [x] simplify http server handlers
-- [ ] BatchingFSM
 - [x] prune random string(bytes) and []byte(string)
-- [ ] bytestrore.Defragment
+- [x] bytestrore.Defragment
 - [ ] raft index -> mvcc 
     - [x] Global monotonic revision
     - ~~[x] Snapshot isolation~~
@@ -27,8 +25,8 @@ Hello world
             - distinguishing between txn ending errors and regural errors that should be converted into TxnOpResult
             - encode/decode should use binary so it doesnt return errors
         - [x] add TxnOpTypeGet = ~~"GET"~~ "RANGE" (if no writes chosen ops then then return early, no new rev needed)
-        - [ ] abort on read error
-        - [ ] kv http endpoint
+        - [x] abort on read error
+        - [x] kv http endpoint
     - ~~Compaction~~  (see combined compactor below)
         - automatic retention window: currentRev - compactedRev > THRESHOLD
         - deterministic
@@ -97,8 +95,6 @@ Hello world
             - update key_index (key) -> (modRev, tombstone = true, ++version)
             - update _meta/current_revision = newRev
     - [x] TODO: ~~snapshot  storage~~ compaction metrics too
-    - [ ] LICENSE from etcd: http://www.apache.org/licenses/LICENSE-2.0
-    - [ ] batch kvindex updates, rollback on commit failure
     - [x] mvcc.writer: support revision.sub++ on txn ops
     - [x] lease:
         - [x] type Lease
@@ -159,7 +155,7 @@ Hello world
             - [ ] kv
             - [ ] backend
             - [x] lease
-    - [ ] use time.Tick() instead of time.Ticker() (no need for ticker.Stop() from now on)
+    - [x] use time.Tick() instead of time.Ticker() (no need for ticker.Stop() from now on)
     - [ ] http layer touch ups
         - [ ] tls
             - [ ] tls on http server
@@ -167,6 +163,11 @@ Hello world
         - [x] handle http redirects from follower to leader
             - single host reverse proxy?
         - [x] http tests
+    - [ ] BatchingFSM
+    - [ ] kv index
+        - [ ] LICENSE from etcd: http://www.apache.org/licenses/LICENSE-2.0
+        - [ ] batch kvindex updates, rollback on commit failure
+    - [ ] OT
     - [ ] cluster integration tests
     - [ ] live workload + web ui for stats, metrics and manual commands
 
