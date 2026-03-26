@@ -1,9 +1,12 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
@@ -29,15 +32,27 @@ const (
 	leaseKeepAliveErrMsg string = "failed to keep lease alive"
 	leaseLookupErrMsg    string = "failed to lookup lease"
 
+	otInitErrMsg     string = "failed to execute OT init"
+	otTransferErrMsg string = "failed to execute OT transfer"
+	otWriteAllErrMsg string = "failed to execute OT write all"
+
 	addClusterErrMsg string = "failed to add peer to the cluster"
 
 	jsonEncodeErrMsg string = "failed to encode JSON body"
 	jsonDecodeErrMsg string = "failed to decode JSON body"
 )
 
+var (
+	errConsistencyMiddleware = errors.New("consistency middleware error")
+	errLeaderMiddleware      = errors.New("leader middleware error")
+	errProxyLeader           = errors.New("proxying to leader failed")
+	errLeaderCheck           = errors.New("failed to determine leader")
+)
+
 type HttpServer struct {
 	kvSvc      service.KVService
 	leaseSvc   service.LeaseService
+	otSvc      service.OTService
 	clusterSvc service.ClusterService
 	peerSvc    service.PeerService
 	logger     *slog.Logger
@@ -49,6 +64,7 @@ func NewHTTPServer(
 	addr string,
 	kvService service.KVService,
 	leaseService service.LeaseService,
+	otService service.OTService,
 	clusterService service.ClusterService,
 	peerService service.PeerService,
 	reg *prometheus.Registry,
@@ -57,6 +73,7 @@ func NewHTTPServer(
 	s := &HttpServer{
 		kvSvc:      kvService,
 		leaseSvc:   leaseService,
+		otSvc:      otService,
 		clusterSvc: clusterService,
 		peerSvc:    peerService,
 		logger:     logger.With("component", "http_server", "addr", addr),
@@ -69,7 +86,7 @@ func NewHTTPServer(
 	// ops requiring a leader
 
 	// kv
-	mux.HandleFunc("GET "+transport.UriKv+"/get", s.leaderMiddleware(s.handleKvGet))
+	mux.HandleFunc("GET "+transport.UriKv+"/get", s.consistencyModeMiddleware(s.handleKvGet)) // optional leader middleware if we want the latest data
 	mux.HandleFunc("POST "+transport.UriKv+"/put", s.leaderMiddleware(s.handleKvPut))
 	mux.HandleFunc("DELETE "+transport.UriKv+"/delete", s.leaderMiddleware(s.handleKvDelete))
 	mux.HandleFunc("POST "+transport.UriKv+"/txn", s.leaderMiddleware(s.handleKvTxn))
@@ -78,6 +95,10 @@ func NewHTTPServer(
 	mux.HandleFunc("DELETE "+transport.UriLease+"/revoke", s.leaderMiddleware(s.handleLeaseRevoke))
 	mux.HandleFunc("POST "+transport.UriLease+"/keep-alive", s.leaderMiddleware(s.handleLeaseKeepAlive))
 	mux.HandleFunc("POST "+transport.UriLease+"/lookup", s.leaderMiddleware(s.handleLeaseLookup))
+	// ot
+	mux.HandleFunc("GET "+transport.UriOT+"/init", s.handleOTInit)                                      // Init does not read anything from the backend, no middleware need
+	mux.HandleFunc("GET "+transport.UriOT+"/transfer", s.consistencyModeMiddleware(s.handleOTTransfer)) // optional leader middleware if we want the latest data
+	mux.HandleFunc("POST "+transport.UriOT+"/write-all", s.leaderMiddleware(s.handleOTWriteAll))
 	// cluster
 	mux.HandleFunc("POST "+transport.UriCluster+"/join", s.leaderMiddleware(s.handleJoin))
 
@@ -89,22 +110,58 @@ func NewHTTPServer(
 	return s
 }
 
-// leaderMiddleware is a wrapper around normal requests that requires a leader,
-// internally it checks if we are the leader, and if not we proxy the request to the leader.
-//
+// leaderMiddleware is a wrapper around normal requests that requires a leader.
+// Internally it checks if we are the leader, and if not we proxy the request to the leader.
 // If the leader is not found, we return 503
 func (s *HttpServer) leaderMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		leader, err := s.peerSvc.GetLeader()
 		if err != nil {
-			s.logger.Error("LeaderMiddleware error: failed to determine leader", "error", err)
-			errMsg := fmt.Sprintf("failed to determine leader: %v", err)
-			writeError(w, errMsg, http.StatusServiceUnavailable)
+			msg := fmt.Sprintf("%s: %s", errLeaderMiddleware, errLeaderCheck)
+			s.logger.Error(msg, "error", err)
+			writeError(w, fmt.Sprintf("%s: %s", errLeaderCheck, err), http.StatusServiceUnavailable)
 			return
 		}
 
 		if leader.NodeID != s.peerSvc.Me().NodeID {
 			s.proxyToLeader(w, r, leader)
+			return
+		}
+
+		next(w, r)
+	}
+}
+
+// consistencyModeMiddleware is a wrapper around normal requests whose response body
+// contains a "serializable" field, used to determine if we need to proxy to the leader or not.
+//
+// Internally it peeks at and replays the request body to find the "serializable" field,
+// then if its false we pass the request to [leaderMiddleware].
+//
+// If the reading the body was unsuccessful, we return 400
+func (s *HttpServer) consistencyModeMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		newBody, err := drainBody(r.Body)
+		if err != nil {
+			msg := fmt.Sprintf("%s: failed to read body", errConsistencyMiddleware)
+			s.logger.Error(msg, "error", err)
+			writeError(w, fmt.Sprintf("%v: %v", msg, err), http.StatusBadRequest)
+			return
+		}
+		r.Body = newBody
+
+		var peek struct {
+			Serializable bool `json:"serializable"`
+		}
+		if err := json.NewDecoder(newBody).Decode(&peek); err != nil {
+			msg := fmt.Sprintf("%s: failed to decode body", errConsistencyMiddleware)
+			s.logger.Error(msg, "error", err)
+			writeError(w, fmt.Sprintf("%v: %v", msg, err), http.StatusBadRequest)
+			return
+		}
+
+		if !peek.Serializable {
+			s.leaderMiddleware(next)
 			return
 		}
 
@@ -162,6 +219,21 @@ func (s *HttpServer) handleKvGet(w http.ResponseWriter, r *http.Request) {
 		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
 		writeError(w, err, http.StatusBadRequest)
 		return
+	}
+
+	if !req.Serializable {
+		leader, err := s.peerSvc.GetLeader()
+		if err != nil {
+			s.logger.Error("failed to determine leader", "error", err)
+			errMsg := fmt.Sprintf("failed to determine leader: %v", err)
+			writeError(w, errMsg, http.StatusServiceUnavailable)
+			return
+		}
+
+		if leader.NodeID != s.peerSvc.Me().NodeID {
+			s.proxyToLeader(w, r, leader)
+			return
+		}
 	}
 
 	result, err := s.kvSvc.Range(r.Context(), req)
@@ -340,6 +412,67 @@ func (s *HttpServer) handleLeaseLookup(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, command.Result{LeaseLookup: result}, http.StatusOK)
 }
 
+func (s *HttpServer) handleOTInit(w http.ResponseWriter, r *http.Request) {
+	s.logger.Debug("Recieved OT_INIT request")
+
+	var req api.OTInitRequest
+	// req is empty by desing as of yet
+	// if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// 	s.logger.Error(jsonDecodeErrMsg, "error", err)
+	// 	err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
+	// 	writeError(w, err, http.StatusBadRequest)
+	// 	return
+	// }
+
+	result, err := s.otSvc.Init(r.Context(), req)
+	if err != nil {
+		s.logger.Error(otInitErrMsg, "error", err)
+		writeError(w, fmt.Sprintf("%s: %v", otInitErrMsg, err), http.StatusInternalServerError)
+		return
+	}
+	s.writeJSON(w, result, http.StatusOK)
+}
+
+func (s *HttpServer) handleOTTransfer(w http.ResponseWriter, r *http.Request) {
+	s.logger.Debug("Recieved OT_TRANSFER request")
+
+	var req api.OTTransferRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error(jsonDecodeErrMsg, "error", err)
+		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+
+	result, err := s.otSvc.Transfer(r.Context(), req)
+	if err != nil {
+		s.logger.Error(otTransferErrMsg, "error", err)
+		writeError(w, fmt.Sprintf("%s: %v", otTransferErrMsg, err), http.StatusInternalServerError)
+		return
+	}
+	s.writeJSON(w, result, http.StatusOK)
+}
+
+func (s *HttpServer) handleOTWriteAll(w http.ResponseWriter, r *http.Request) {
+	s.logger.Debug("Recieved OT_WRITE_ALL request")
+
+	var req api.OTWriteAllRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error(jsonDecodeErrMsg, "error", err)
+		err := fmt.Sprintf("%s: %v", jsonDecodeErrMsg, err)
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+
+	result, err := s.otSvc.WriteAll(r.Context(), req)
+	if err != nil {
+		s.logger.Error(otWriteAllErrMsg, "error", err)
+		writeError(w, fmt.Sprintf("%s: %v", otWriteAllErrMsg, err), http.StatusInternalServerError)
+		return
+	}
+	s.writeJSON(w, result, http.StatusOK)
+}
+
 func (s *HttpServer) handleStats(w http.ResponseWriter, r *http.Request) {
 	s.logger.Debug("Received STATS request")
 	stats, err := s.clusterSvc.Stats()
@@ -412,4 +545,13 @@ func writeError(w http.ResponseWriter, err string, status int) {
 	bytes, _ := json.Marshal(map[string]string{"error": err})
 	w.WriteHeader(status)
 	w.Write(bytes)
+}
+
+func drainBody(oldBody io.ReadCloser) (newBody io.ReadCloser, err error) {
+	read, err := io.ReadAll(oldBody)
+	defer oldBody.Close()
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewReader(read)), nil
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/balits/kave/internal/lease"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
+	"github.com/balits/kave/internal/ot"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/service"
 	"github.com/balits/kave/internal/storage"
@@ -88,8 +89,10 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 	})
 	kvstore := mvcc.NewKvStore(reg, logger, backend)
 	lm := lease.NewManager(reg, logger, kvstore, backend)
+	om, err := ot.NewOTManager(reg, logger, backend, ot.DefaultOptions)
+	require.NoError(t, err)
 	t.Cleanup(func() { backend.Close() })
-	fsm := fsm.New(logger, kvstore, lm, nil, me.NodeID)
+	fsm := fsm.New(logger, kvstore, lm, om, me.NodeID)
 
 	var logIndex atomic.Uint64
 	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {
@@ -113,9 +116,10 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 
 	kvSvc := service.NewKVService(logger, kvstore, peerSvc, propose)
 	leaseSvc := service.NewLeaseService(logger, propose)
+	otService := service.NewOTService(logger, kvstore, om, peerSvc, propose)
 	clusterSvc := &mockClusterSvc{}
 
-	httpServer := NewHTTPServer(logger, me.GetHttpListenAddress(), kvSvc, leaseSvc, clusterSvc, peerSvc, reg)
+	httpServer := NewHTTPServer(logger, me.GetHttpListenAddress(), kvSvc, leaseSvc, otService, clusterSvc, peerSvc, reg)
 
 	ts := httptest.NewServer(httpServer.server.Handler)
 	t.Cleanup(ts.Close)

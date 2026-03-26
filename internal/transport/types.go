@@ -5,6 +5,7 @@ const (
 	UriKv         = UriApiVersion + "/kv"
 	UriLease      = UriApiVersion + "/lease"
 	UriCluster    = UriApiVersion + "/cluster"
+	UriOT         = UriApiVersion + "/ot"
 )
 
 type JoinRequest struct {

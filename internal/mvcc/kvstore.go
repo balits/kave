@@ -21,6 +21,17 @@ type SmartRevisionGetter interface {
 	Revisions() (currentRev kv.Revision, compacted int64)
 }
 
+type StoreMetaReader interface {
+	SmartRevisionGetter
+	RaftMeta() (logIndex, logTerm uint64)
+}
+
+type ReadOnlyStore interface {
+	StoreMetaReader
+	Ping() error
+	NewReader() Reader
+}
+
 const MAX_COMPACTION_BATCH_SIZE int = 100
 
 type KvStore struct {

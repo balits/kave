@@ -45,7 +45,7 @@ func newTestOTManager(t *testing.T, opts *Options) *OTManager {
 	require.NotNil(t, res)
 	require.Len(t, res.Key, ClusterKeySize, "key length = %d, want %d", len(res.Key), ClusterKeySize)
 
-	err = om.SetTokenCodec(DefaultTokenTTL)
+	err = om.InitTokenCodec()
 	require.NoError(t, err)
 	return om
 }
@@ -134,7 +134,7 @@ func Test_OTManager_Init_UniquePerCall(t *testing.T) {
 
 func Test_OTManager_SetTokenCodec_DoubleInitFails(t *testing.T) {
 	om := newTestOTManager(t, nil)
-	require.Error(t, om.SetTokenCodec(DefaultTokenTTL))
+	require.Error(t, om.InitTokenCodec())
 }
 
 func Test_OTManager_CheckBlob_Nil(t *testing.T) {
@@ -212,7 +212,7 @@ func Test_OTManager_E2E_ChosenSlotDecrypts(t *testing.T) {
 }
 
 func Test_OTManager_EndToEnd_NonChosenSlotsFail(t *testing.T) {
-	om := newTestOTManager(t,nil)
+	om := newTestOTManager(t, nil)
 	mustWriteBlob(t, om)
 	cl := &client{t: t}
 
