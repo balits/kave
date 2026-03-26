@@ -12,11 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestExpiryLoop(t *testing.T, lm *LeaseManager, ticker util.Ticker, isLeaderValue bool) (*ExpiryLoop, <-chan command.LeaseExpireResult) {
+func newTestExpiryLoop(t *testing.T, lm *LeaseManager, ticker util.Ticker, isLeaderValue bool) (*ExpiryLoop, <-chan command.ResultLeaseExpire) {
 	t.Helper()
 	var (
 		isLeader    = func() bool { return isLeaderValue }
-		resultC     = make(chan command.LeaseExpireResult)
+		resultC     = make(chan command.ResultLeaseExpire)
 		leadershipC = make(chan bool, 1)
 		propose     = func(_ context.Context, cmd command.Command) (*command.Result, error) {
 			if cmd.LeaseExpired == nil {
@@ -357,7 +357,7 @@ func loop(t *testing.T, ex *ExpiryLoop) {
 }
 
 type expiryFuture struct {
-	result command.LeaseRevokeResult
+	result command.ResultLeaseRevoke
 }
 
 func (f *expiryFuture) Error() error {

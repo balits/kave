@@ -37,13 +37,13 @@ type LeaseManager struct {
 	leaseMap map[int64]*Lease
 	heap     heap.Interface
 	heapMap  map[int64]*heapItem
-	store    *mvcc.KVStore
+	store    *mvcc.KvStore
 	backend  backend.Backend
 	metrics  *metrics.LeaseMetrics
 	logger   *slog.Logger
 }
 
-func NewManager(reg prometheus.Registerer, logger *slog.Logger, store *mvcc.KVStore, backend backend.Backend) *LeaseManager {
+func NewManager(reg prometheus.Registerer, logger *slog.Logger, store *mvcc.KvStore, backend backend.Backend) *LeaseManager {
 	h := NewLeaseHeap()
 	heap.Init(&h)
 	m := &LeaseManager{
@@ -231,7 +231,7 @@ func (lm *LeaseManager) Checkpoint() []command.Checkpoint {
 	return checks
 }
 
-func (lm *LeaseManager) ApplyCheckpoint(cmd command.LeaseCheckpointCmd) {
+func (lm *LeaseManager) ApplyCheckpoint(cmd command.CmdLeaseCheckpoint) {
 	lm.rwlock.Lock()
 	defer lm.rwlock.Unlock()
 
@@ -281,7 +281,7 @@ func (lm *LeaseManager) DrainExpiredLeases() []*Lease {
 	return expired
 }
 
-func (lm *LeaseManager) ApplyExpired(cmd command.LeaseExpireCmd) (*command.LeaseExpireResult, error) {
+func (lm *LeaseManager) ApplyExpired(cmd command.CmdLeaseExpire) (*command.ResultLeaseExpire, error) {
 	lm.rwlock.Lock()
 	defer lm.rwlock.Unlock()
 	start := time.Now()
@@ -329,7 +329,7 @@ func (lm *LeaseManager) ApplyExpired(cmd command.LeaseExpireCmd) (*command.Lease
 	defer wtx.Unlock()
 	for _, id := range cmd.ExpiredIDs {
 		bk := LeaseBucketKey(id)
-		if err := wtx.UnsafeDelete(schema.BucketLeaseWIP, EncodeLeaseBucketKey(bk)); err != nil {
+		if err := wtx.UnsafeDelete(schema.BucketLease, EncodeLeaseBucketKey(bk)); err != nil {
 			lm.logger.Error("apply expired: failed to remove lease",
 				"error", err,
 				"lease_id", id,
@@ -348,7 +348,7 @@ func (lm *LeaseManager) ApplyExpired(cmd command.LeaseExpireCmd) (*command.Lease
 	lm.logger.Info("apply expired: removed leases from backend", "lease_count", leaseCount)
 	lm.metrics.LeasesExpired.Add(float64(leaseCount))
 
-	return &command.LeaseExpireResult{
+	return &command.ResultLeaseExpire{
 		RemovedLeaseCount: leaseCount,
 		RemovedKeyCount:   len(attachedKeys),
 	}, nil
@@ -388,7 +388,7 @@ func (lm *LeaseManager) Restore() error {
 		rtx := lm.backend.ReadTx()
 		rtx.RLock()
 		// only return error on MAX_BATCH_SIZE
-		errBatchExceeded := rtx.UnsafeScan(schema.BucketLeaseWIP, startLeaseBucket, nil, func(k, v []byte) error {
+		errBatchExceeded := rtx.UnsafeScan(schema.BucketLease, startLeaseBucket, nil, func(k, v []byte) error {
 			if len(leaseBatch) == MAX_BATCH_SIZE {
 				return errors.New("batch size limit exceeded")
 			}
@@ -547,7 +547,7 @@ func (lm *LeaseManager) unsafePersistToBackend(lease *Lease) error {
 	wtx := lm.backend.WriteTx()
 	wtx.Lock()
 	defer wtx.Unlock()
-	if err := wtx.UnsafePut(schema.BucketLeaseWIP, bucketKey, leaseBytes); err != nil {
+	if err := wtx.UnsafePut(schema.BucketLease, bucketKey, leaseBytes); err != nil {
 		wtx.Abort()
 		return fmt.Errorf("%v: %w", errLease, err)
 	}
@@ -566,7 +566,7 @@ func (lm *LeaseManager) unsafeRemoveFromBackend(lease *Lease) error {
 	wtx := lm.backend.WriteTx()
 	wtx.Lock()
 	defer wtx.Unlock()
-	if err := wtx.UnsafeDelete(schema.BucketLeaseWIP, bucketKey); err != nil {
+	if err := wtx.UnsafeDelete(schema.BucketLease, bucketKey); err != nil {
 		wtx.Abort()
 		return fmt.Errorf("%v: %w", errLease, err)
 	}

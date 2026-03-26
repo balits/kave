@@ -41,12 +41,12 @@ func (p *Peer) HttpScheme() string {
 	return "http"
 }
 
-// "http://" + p.GetHttpAddress() 
+// "http://" + p.GetHttpAddress()
 func (p *Peer) HttpURL() string {
 	return p.HttpScheme() + "://" + p.GetHttpAdvertisedAddress()
 }
 
-func (p *Peer) validateNodeConfig() error {
+func (p *Peer) check() error {
 	if p.NodeID == "" {
 		return errors.New("node ID is required")
 	}

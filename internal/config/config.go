@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/balits/kave/internal/compaction"
+	"github.com/balits/kave/internal/ot"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
 )
@@ -22,17 +23,19 @@ type Config struct {
 	Bootstrap                 bool
 	StorageOpts               storage.StorageOptions
 	CompactionOpts            compaction.CompactionOptions
+	OtOpts                    ot.Options
 	CheckpointIntervalMinutes time.Duration
 	LogLevel                  slog.Level
 	Peers                     []Peer
 }
 
 type ConfigJson struct {
-	storage.StorageOptions
-	compaction.CompactionOptions
-	CheckpointIntervalMinutes time.Duration  `json:"checkpoint_interval_minutes"`
-	LogLevel                  configLogLevel `json:"log_level"`
-	Peers                     string         `json:"peers"`
+	StorageOpts               storage.StorageOptions       `json:"storage"`
+	CompactionOpts            compaction.CompactionOptions `json:"compaction"`
+	OtOpts                    ot.Options                   `json:"ot"`
+	CheckpointIntervalMinutes time.Duration                `json:"checkpoint_interval_minutes"`
+	LogLevel                  configLogLevel               `json:"log_level"`
+	Peers                     string                       `json:"peers"`
 }
 
 type configLogLevel = string
@@ -44,33 +47,27 @@ const (
 	levelError configLogLevel = "error"
 )
 
-func (cj *ConfigJson) validate() error {
-	if cj.Dir == "" {
-		return errors.New("data dir is required")
+func (cj *ConfigJson) check() error {
+	if err := cj.StorageOpts.Check(); err != nil {
+		return err
 	}
 
-	switch cj.StorageOptions.Kind {
-	case storage.StorageKindBoltdb, storage.StorageKindInMemory:
-		// ok
-	default:
-		return errors.New("unrecognised storage kind")
+	if err := cj.CompactionOpts.Check(); err != nil {
+		return err
 	}
 
-	switch cj.LogLevel {
-	case levelDebug, levelInfo, levelWarn, levelError:
-		// ok
-	default:
-		return errors.New("unrecognised loglevel kind")
+	if err := cj.OtOpts.Check(); err != nil {
+		return err
 	}
 
-	return cj.CompactionOptions.Validate()
+	return nil
 }
 
 // ToConfig parses the raw json configuration, and turns them
 // into a usable Config, or returns with an error.
 // It also removes a given node from the peer list
 func (cj *ConfigJson) ToConfig() (*Config, error) {
-	if err := cj.validate(); err != nil {
+	if err := cj.check(); err != nil {
 		return nil, fmt.Errorf("failed to validate config json: %v", err)
 	}
 
@@ -92,7 +89,7 @@ func (cj *ConfigJson) ToConfig() (*Config, error) {
 				HttpPort: parts[2],
 			}
 
-			if err := n.validateNodeConfig(); err != nil {
+			if err := n.check(); err != nil {
 				return nil, err
 			}
 			peers = append(peers, n)
@@ -111,10 +108,11 @@ func (cj *ConfigJson) ToConfig() (*Config, error) {
 		LogLevel:                  logLevel,
 		Peers:                     peers,
 		CheckpointIntervalMinutes: cj.CheckpointIntervalMinutes,
-		CompactionOpts:            cj.CompactionOptions,
+		CompactionOpts:            cj.CompactionOpts,
+		OtOpts:                    cj.OtOpts,
 		StorageOpts: storage.StorageOptions{
-			Kind:           cj.StorageOptions.Kind,
-			Dir:            cj.Dir,
+			Kind:           cj.StorageOpts.Kind,
+			Dir:            cj.StorageOpts.Dir,
 			InitialBuckets: schema.AllBuckets,
 		},
 	}
@@ -171,7 +169,7 @@ func LoadConfig() *Config {
 		RaftPort: *raftPort,
 		HttpPort: *httpPort,
 	}
-	check(me.validateNodeConfig())
+	check(me.check())
 
 	var cj ConfigJson
 	file, err := os.Open(*configPath)

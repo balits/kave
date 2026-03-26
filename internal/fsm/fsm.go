@@ -11,6 +11,7 @@ import (
 	"github.com/balits/kave/internal/lease"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
+	"github.com/balits/kave/internal/ot"
 	"github.com/hashicorp/raft"
 )
 
@@ -22,19 +23,21 @@ var (
 
 type Fsm struct {
 	myID           string // hack to set Result.Header.NodeID
-	store          *mvcc.KVStore
+	store          *mvcc.KvStore
 	engine         *mvcc.Engine
 	lm             *lease.LeaseManager
+	om             *ot.OTManager
 	metrics        *metrics.RaftMetrics
 	writeObservers []WriteObserver
 	logger         *slog.Logger
 }
 
-func New(logger *slog.Logger, store *mvcc.KVStore, lm *lease.LeaseManager, nodeID string) *Fsm {
+func New(logger *slog.Logger, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager, nodeID string) *Fsm {
 	f := &Fsm{
 		engine: mvcc.NewEngine(store, lm),
 		lm:     lm,
 		store:  store,
+		om:     om,
 		logger: logger.With("component", "fsm"),
 		myID:   nodeID,
 	}
@@ -81,6 +84,8 @@ func (f *Fsm) Apply(log *raft.Log) interface{} {
 		res = f.applyLease(cmd)
 	case command.KindCompact:
 		res = f.applyCompaction(cmd)
+	case command.KindOTWriteAll, command.KindOTGenerateClusterKey:
+		res = f.applyOT(cmd)
 	case "":
 		panic("No command kind specified")
 	default:
@@ -102,6 +107,12 @@ func (f *Fsm) Apply(log *raft.Log) interface{} {
 }
 
 func (f *Fsm) applyKv(cmd command.Command) command.Result {
+	switch cmd.Kind {
+	case command.KindPut, command.KindDelete, command.KindTxn:
+	default:
+		panic(fmt.Sprintf("applyKv called with non-kv command: %s", cmd.Kind))
+	}
+
 	res, err := f.engine.ApplyWrite(cmd)
 	if err != nil {
 		return command.Result{Error: err}
@@ -110,18 +121,20 @@ func (f *Fsm) applyKv(cmd command.Command) command.Result {
 }
 
 // TODO: should we create more meaningful return type for lease commands?
-func (f *Fsm) applyLease(cmd command.Command) command.Result {
-	var (
-		res command.Result
-		err error
-	)
+func (f *Fsm) applyLease(cmd command.Command) (res command.Result) {
+	switch cmd.Kind {
+	case command.KindLeaseGrant, command.KindLeaseRevoke, command.KindLeaseKeepAlive, command.KindLeaseLookup, command.KindLeaseCheckpoint:
+	default:
+		panic(fmt.Sprintf("applyLease called with non-lease command: %s", cmd.Kind))
+	}
 
+	var err error
 	switch cmd.Kind {
 	case command.KindLeaseGrant:
 		var lease *lease.Lease
 		lease, err = f.lm.Grant(cmd.LeaseGrant.LeaseID, cmd.LeaseGrant.TTL)
 		if err == nil {
-			res.LeaseGrant = &command.LeaseGrantResult{
+			res.LeaseGrant = &command.ResultLeaseGrant{
 				TTL:     lease.TTL,
 				LeaseID: lease.ID,
 			}
@@ -130,7 +143,7 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 	case command.KindLeaseRevoke:
 		var found, revoked bool
 		found, revoked = f.lm.Revoke(cmd.LeaseRevoke.LeaseID)
-		res.LeaseRevoke = &command.LeaseRevokeResult{
+		res.LeaseRevoke = &command.ResultLeaseRevoke{
 			Found:   found,
 			Revoked: revoked,
 		}
@@ -139,7 +152,7 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 		var ttl int64
 		ttl, err = f.lm.KeepAlive(cmd.LeaseKeepAlive.LeaseID)
 		if err == nil {
-			res.LeaseKeepAlive = &command.LeaseKeepAliveResult{
+			res.LeaseKeepAlive = &command.ResultLeaseKeepAlive{
 				TTL:     ttl,
 				LeaseID: cmd.LeaseKeepAlive.LeaseID,
 			}
@@ -148,7 +161,7 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 	case command.KindLeaseLookup:
 		l := f.lm.Lookup(cmd.LeaseLookup.LeaseID)
 		if l != nil {
-			res.LeaseLookup = &command.LeaseLookupResult{
+			res.LeaseLookup = &command.ResultLeaseLookup{
 				LeaseID:      l.ID,
 				OriginalTTL:  l.TTL,
 				RemainingTTL: l.RemainingTTL(),
@@ -161,7 +174,7 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 		f.lm.ApplyCheckpoint(*cmd.LeaseCheckpoint)
 
 	case command.KindLeaseExpire:
-		var subres *command.LeaseExpireResult
+		var subres *command.ResultLeaseExpire
 		subres, err = f.lm.ApplyExpired(*cmd.LeaseExpired)
 		if err != nil {
 			res.LeaseExpire = subres
@@ -184,13 +197,46 @@ func (f *Fsm) applyLease(cmd command.Command) command.Result {
 }
 
 func (f *Fsm) applyCompaction(cmd command.Command) command.Result {
+	if cmd.Kind != command.KindCompact {
+		panic(fmt.Sprintf("applyCompaction called with non-compaction command: %s", cmd.Kind))
+	}
+
 	doneC, err := f.store.Compact(cmd.Compact.TargetRev)
 	return command.Result{
-		Compact: &command.CompactResult{
+		Compact: &command.ResultCompact{
 			DoneC: doneC,
 			Error: err,
 		},
 	}
+}
+
+func (f *Fsm) applyOT(cmd command.Command) (res command.Result) {
+	switch cmd.Kind {
+	case command.KindOTGenerateClusterKey, command.KindOTWriteAll:
+	default:
+		panic(fmt.Sprintf("applyOT called with non-OT command: %s", cmd.Kind))
+	}
+
+	var err error
+	switch cmd.Kind {
+	case command.KindOTGenerateClusterKey:
+		var sub *command.ResultOTGenerateClusterKey
+		sub, err = f.om.ApplyGenerateClusterKey()
+		if err != nil {
+			res.OtGenerateClusterKey = sub
+		}
+	case command.KindOTWriteAll:
+		var sub *command.ResultOTWriteAll
+		sub, err = f.om.ApplyWriteAll(*cmd.OTWriteAll)
+		if err != nil {
+			res.OtWriteAll = sub
+		}
+	}
+
+	if err != nil {
+		res.Error = err
+	}
+	return res
 }
 
 // Snapshot also should be fast, just take a pointer to the data

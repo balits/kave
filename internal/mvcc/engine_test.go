@@ -69,7 +69,7 @@ func newTestEngine(t *testing.T) *Engine {
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})
-	s := NewKVStore(reg, logger, b)
+	s := NewKvStore(reg, logger, b)
 	t.Cleanup(func() { b.Close() })
 	return &Engine{store: s}
 }
@@ -87,7 +87,7 @@ func Test_EngineApplyPut(t *testing.T) {
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
-		Put:  &command.PutCmd{Key: []byte("foo"), Value: []byte("bar")},
+		Put:  &command.CmdPut{Key: []byte("foo"), Value: []byte("bar")},
 	})
 
 	require.NoError(t, err)
@@ -99,13 +99,13 @@ func Test_EngineApplyPut(t *testing.T) {
 func Test_EngineApplyPutMultiple(t *testing.T) {
 	e := newTestEngine(t)
 
-	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}})
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("a"), Value: []byte("1")}})
 	require.NoError(t, err)
 
-	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}})
+	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("b"), Value: []byte("2")}})
 	require.NoError(t, err)
 
-	result, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("c"), Value: []byte("3")}})
+	result, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("c"), Value: []byte("3")}})
 	require.NoError(t, err)
 
 	require.Equal(t, int64(3), result.Header.Revision)
@@ -116,10 +116,10 @@ func Test_EngineApplyPutMultiple(t *testing.T) {
 func Test_EngineApplyPutOverwrite(t *testing.T) {
 	e := newTestEngine(t)
 
-	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}})
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("v1")}})
 	require.NoError(t, err)
 
-	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v2")}})
+	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("v2")}})
 	require.NoError(t, err)
 
 	r := e.store.NewReader()
@@ -131,12 +131,12 @@ func Test_EngineApplyPutOverwrite(t *testing.T) {
 func Test_EngineApplyPutWithPrevEntry(t *testing.T) {
 	e := newTestEngine(t)
 
-	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}})
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("v1")}})
 	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
-		Put:  &command.PutCmd{Key: []byte("k"), Value: []byte("v2"), PrevEntry: true},
+		Put:  &command.CmdPut{Key: []byte("k"), Value: []byte("v2"), PrevEntry: true},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, result.Put)
@@ -149,7 +149,7 @@ func Test_EngineApplyPutWithPrevEntryNonExistent(t *testing.T) {
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
-		Put:  &command.PutCmd{Key: []byte("new"), Value: []byte("val"), PrevEntry: true},
+		Put:  &command.CmdPut{Key: []byte("new"), Value: []byte("val"), PrevEntry: true},
 	})
 	require.NoError(t, err)
 	require.Nil(t, result.Put.PrevEntry)
@@ -158,12 +158,12 @@ func Test_EngineApplyPutWithPrevEntryNonExistent(t *testing.T) {
 func Test_EngineApplyDeleteSingleKey(t *testing.T) {
 	e := newTestEngine(t)
 
-	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("foo"), Value: []byte("bar")}})
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("foo"), Value: []byte("bar")}})
 	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind:   command.KindDelete,
-		Delete: &command.DeleteCmd{Key: []byte("foo")},
+		Delete: &command.CmdDelete{Key: []byte("foo")},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, result.Delete)
@@ -179,7 +179,7 @@ func Test_EngineApplyDeleteNonExistent(t *testing.T) {
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind:   command.KindDelete,
-		Delete: &command.DeleteCmd{Key: []byte("nope")},
+		Delete: &command.CmdDelete{Key: []byte("nope")},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, result.Delete)
@@ -190,13 +190,13 @@ func Test_EngineApplyDeleteRange(t *testing.T) {
 	e := newTestEngine(t)
 
 	for _, kv := range [][]string{{"a", "1"}, {"b", "2"}, {"c", "3"}, {"d", "4"}} {
-		_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte(kv[0]), Value: []byte(kv[1])}})
+		_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte(kv[0]), Value: []byte(kv[1])}})
 		require.NoError(t, err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind:   command.KindDelete,
-		Delete: &command.DeleteCmd{Key: []byte("b"), End: []byte("d")},
+		Delete: &command.CmdDelete{Key: []byte("b"), End: []byte("d")},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, result.Delete)
@@ -206,14 +206,14 @@ func Test_EngineApplyDeleteRange(t *testing.T) {
 func Test_EngineApplyDeleteWithPrevEntries(t *testing.T) {
 	e := newTestEngine(t)
 
-	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("x"), Value: []byte("xv")}})
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("x"), Value: []byte("xv")}})
 	require.NoError(t, err)
-	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("y"), Value: []byte("yv")}})
+	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("y"), Value: []byte("yv")}})
 	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind:   command.KindDelete,
-		Delete: &command.DeleteCmd{Key: []byte("x"), End: []byte("z"), PrevEntries: true},
+		Delete: &command.CmdDelete{Key: []byte("x"), End: []byte("z"), PrevEntries: true},
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(2), result.Delete.NumDeleted)
@@ -226,7 +226,7 @@ func Test_EngineApplyDeleteWithPrevEntriesNonExistent(t *testing.T) {
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind:   command.KindDelete,
-		Delete: &command.DeleteCmd{Key: []byte("nope"), PrevEntries: true},
+		Delete: &command.CmdDelete{Key: []byte("nope"), PrevEntries: true},
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(0), result.Delete.NumDeleted)
@@ -236,12 +236,12 @@ func Test_EngineApplyDeleteWithPrevEntriesNonExistent(t *testing.T) {
 func Test_EngineApplyTxn_SuccessBranch(t *testing.T) {
 	e := newTestEngine(t)
 
-	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("hello")}})
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("counter"), Value: []byte("hello")}})
 	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
-		Txn: &command.TxnCmd{
+		Txn: &command.CmdTxn{
 			Comparisons: []command.Comparison{
 				{
 					Key:         []byte("counter"),
@@ -251,10 +251,10 @@ func Test_EngineApplyTxn_SuccessBranch(t *testing.T) {
 				},
 			},
 			Success: []command.TxnOp{
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("updated")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("counter"), Value: []byte("updated")}},
 			},
 			Failure: []command.TxnOp{
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("failed")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("counter"), Value: []byte("failed")}},
 			},
 		},
 	})
@@ -270,12 +270,12 @@ func Test_EngineApplyTxn_SuccessBranch(t *testing.T) {
 func Test_EngineApplyTxn_FailureBranch(t *testing.T) {
 	e := newTestEngine(t)
 
-	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("hello")}})
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("counter"), Value: []byte("hello")}})
 	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
-		Txn: &command.TxnCmd{
+		Txn: &command.CmdTxn{
 			Comparisons: []command.Comparison{
 				{
 					Key:         []byte("counter"),
@@ -285,10 +285,10 @@ func Test_EngineApplyTxn_FailureBranch(t *testing.T) {
 				},
 			},
 			Success: []command.TxnOp{
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("should_not")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("counter"), Value: []byte("should_not")}},
 			},
 			Failure: []command.TxnOp{
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("failed_path")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("counter"), Value: []byte("failed_path")}},
 			},
 		},
 	})
@@ -306,10 +306,10 @@ func Test_EngineApplyTxn_NoComparisonsAlwaysSuccess(t *testing.T) {
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
-		Txn: &command.TxnCmd{
+		Txn: &command.CmdTxn{
 			Comparisons: nil,
 			Success: []command.TxnOp{
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("v")}},
 			},
 			Failure: []command.TxnOp{},
 		},
@@ -326,7 +326,7 @@ func Test_EngineApplyTxn_EmptyOps(t *testing.T) {
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
-		Txn: &command.TxnCmd{
+		Txn: &command.CmdTxn{
 			Comparisons: nil,
 			Success:     nil,
 			Failure:     nil,
@@ -340,17 +340,17 @@ func Test_EngineApplyTxn_EmptyOps(t *testing.T) {
 func Test_EngineApplyTxn_WithDeleteOp(t *testing.T) {
 	e := newTestEngine(t)
 
-	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k1"), Value: []byte("v1")}})
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k1"), Value: []byte("v1")}})
 	require.NoError(t, err)
-	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k2"), Value: []byte("v2")}})
+	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k2"), Value: []byte("v2")}})
 	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
-		Txn: &command.TxnCmd{
+		Txn: &command.CmdTxn{
 			Success: []command.TxnOp{
-				{Type: command.TxnOpDelete, Delete: &command.DeleteCmd{Key: []byte("k1")}},
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("k3"), Value: []byte("v3")}},
+				{Type: command.TxnOpDelete, Delete: &command.CmdDelete{Key: []byte("k1")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("k3"), Value: []byte("v3")}},
 			},
 		},
 	})
@@ -369,7 +369,7 @@ func Test_EngineApplyTxn_CompareNonExistentKey(t *testing.T) {
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
-		Txn: &command.TxnCmd{
+		Txn: &command.CmdTxn{
 			Comparisons: []command.Comparison{
 				{
 					Key:         []byte("missing"),
@@ -379,7 +379,7 @@ func Test_EngineApplyTxn_CompareNonExistentKey(t *testing.T) {
 				},
 			},
 			Success: []command.TxnOp{
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("missing"), Value: []byte("created")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("missing"), Value: []byte("created")}},
 			},
 			Failure: []command.TxnOp{},
 		},
@@ -395,20 +395,20 @@ func Test_EngineApplyTxn_CompareNonExistentKey(t *testing.T) {
 func Test_EngineApplyTxn_MultipleComparisonsAllPass(t *testing.T) {
 	e := newTestEngine(t)
 
-	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}})
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("a"), Value: []byte("1")}})
 	require.NoError(t, err)
-	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}})
+	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("b"), Value: []byte("2")}})
 	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
-		Txn: &command.TxnCmd{
+		Txn: &command.CmdTxn{
 			Comparisons: []command.Comparison{
 				{Key: []byte("a"), Operator: api.OperatorEqual, TargetField: api.FieldVersion, TargetValue: api.CompareTargetUnion{Version: 1}},
 				{Key: []byte("b"), Operator: api.OperatorEqual, TargetField: api.FieldVersion, TargetValue: api.CompareTargetUnion{Version: 1}},
 			},
 			Success: []command.TxnOp{
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("result"), Value: []byte("both_matched")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("result"), Value: []byte("both_matched")}},
 			},
 			Failure: []command.TxnOp{},
 		},
@@ -420,21 +420,21 @@ func Test_EngineApplyTxn_MultipleComparisonsAllPass(t *testing.T) {
 func Test_EngineApplyTxn_OneComparisonFails(t *testing.T) {
 	e := newTestEngine(t)
 
-	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}})
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("a"), Value: []byte("1")}})
 	require.NoError(t, err)
-	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}})
+	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("b"), Value: []byte("2")}})
 	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
-		Txn: &command.TxnCmd{
+		Txn: &command.CmdTxn{
 			Comparisons: []command.Comparison{
 				{Key: []byte("a"), Operator: api.OperatorEqual, TargetField: api.FieldVersion, TargetValue: api.CompareTargetUnion{Version: 1}},
 				{Key: []byte("b"), Operator: api.OperatorEqual, TargetField: api.FieldVersion, TargetValue: api.CompareTargetUnion{Version: 99}},
 			},
 			Success: []command.TxnOp{},
 			Failure: []command.TxnOp{
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("result"), Value: []byte("one_failed")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("result"), Value: []byte("one_failed")}},
 			},
 		},
 	})
@@ -445,14 +445,14 @@ func Test_EngineApplyTxn_OneComparisonFails(t *testing.T) {
 func Test_EngineApplyTxn_PutWithPrevEntry(t *testing.T) {
 	e := newTestEngine(t)
 
-	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("old")}})
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("old")}})
 	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
-		Txn: &command.TxnCmd{
+		Txn: &command.CmdTxn{
 			Success: []command.TxnOp{
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("new"), PrevEntry: true}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("new"), PrevEntry: true}},
 			},
 		},
 	})
@@ -469,14 +469,14 @@ func Test_EngineApplyTxn_PutWithPrevEntry(t *testing.T) {
 func Test_EngineApplyTxn_DeleteWithPrevEntries(t *testing.T) {
 	e := newTestEngine(t)
 
-	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("x"), Value: []byte("xv")}})
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("x"), Value: []byte("xv")}})
 	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
-		Txn: &command.TxnCmd{
+		Txn: &command.CmdTxn{
 			Success: []command.TxnOp{
-				{Type: command.TxnOpDelete, Delete: &command.DeleteCmd{Key: []byte("x"), PrevEntries: true}},
+				{Type: command.TxnOpDelete, Delete: &command.CmdDelete{Key: []byte("x"), PrevEntries: true}},
 			},
 		},
 	})
@@ -494,17 +494,17 @@ func Test_EngineApplyTxn_MixedOps(t *testing.T) {
 	e := newTestEngine(t)
 
 	for _, kv := range [][]string{{"a", "1"}, {"b", "2"}, {"c", "3"}} {
-		_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte(kv[0]), Value: []byte(kv[1])}})
+		_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte(kv[0]), Value: []byte(kv[1])}})
 		require.NoError(t, err)
 	}
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
-		Txn: &command.TxnCmd{
+		Txn: &command.CmdTxn{
 			Success: []command.TxnOp{
-				{Type: command.TxnOpDelete, Delete: &command.DeleteCmd{Key: []byte("a")}},
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("updated")}},
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("d"), Value: []byte("new")}},
+				{Type: command.TxnOpDelete, Delete: &command.CmdDelete{Key: []byte("a")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("b"), Value: []byte("updated")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("d"), Value: []byte("new")}},
 			},
 		},
 	})
@@ -529,12 +529,12 @@ func Test_EngineApplyTxn_MixedOps(t *testing.T) {
 func Test_EngineApplyTxn_CompareValue(t *testing.T) {
 	e := newTestEngine(t)
 
-	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("expected")}})
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("expected")}})
 	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
-		Txn: &command.TxnCmd{
+		Txn: &command.CmdTxn{
 			Comparisons: []command.Comparison{
 				{
 					Key:         []byte("k"),
@@ -544,7 +544,7 @@ func Test_EngineApplyTxn_CompareValue(t *testing.T) {
 				},
 			},
 			Success: []command.TxnOp{
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("matched")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("matched")}},
 			},
 			Failure: []command.TxnOp{},
 		},
@@ -556,12 +556,12 @@ func Test_EngineApplyTxn_CompareValue(t *testing.T) {
 func Test_EngineApplyTxn_CompareValueMismatch(t *testing.T) {
 	e := newTestEngine(t)
 
-	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("actual")}})
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("actual")}})
 	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
-		Txn: &command.TxnCmd{
+		Txn: &command.CmdTxn{
 			Comparisons: []command.Comparison{
 				{
 					Key:         []byte("k"),
@@ -572,7 +572,7 @@ func Test_EngineApplyTxn_CompareValueMismatch(t *testing.T) {
 			},
 			Success: []command.TxnOp{},
 			Failure: []command.TxnOp{
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("result"), Value: []byte("mismatch")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("result"), Value: []byte("mismatch")}},
 			},
 		},
 	})
@@ -583,14 +583,14 @@ func Test_EngineApplyTxn_CompareValueMismatch(t *testing.T) {
 func Test_EngineApplyTxn_CompareCreateRev(t *testing.T) {
 	e := newTestEngine(t)
 
-	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}})
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("v1")}})
 	require.NoError(t, err)
-	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v2")}})
+	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("v2")}})
 	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
-		Txn: &command.TxnCmd{
+		Txn: &command.CmdTxn{
 			Comparisons: []command.Comparison{
 				{
 					Key:         []byte("k"),
@@ -600,7 +600,7 @@ func Test_EngineApplyTxn_CompareCreateRev(t *testing.T) {
 				},
 			},
 			Success: []command.TxnOp{
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("check"), Value: []byte("createRev_ok")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("check"), Value: []byte("createRev_ok")}},
 			},
 			Failure: []command.TxnOp{},
 		},
@@ -612,14 +612,14 @@ func Test_EngineApplyTxn_CompareCreateRev(t *testing.T) {
 func Test_EngineApplyTxn_CompareModRev(t *testing.T) {
 	e := newTestEngine(t)
 
-	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v1")}})
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("v1")}})
 	require.NoError(t, err)
-	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v2")}})
+	_, err = e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("v2")}})
 	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
-		Txn: &command.TxnCmd{
+		Txn: &command.CmdTxn{
 			Comparisons: []command.Comparison{
 				{
 					Key:         []byte("k"),
@@ -629,7 +629,7 @@ func Test_EngineApplyTxn_CompareModRev(t *testing.T) {
 				},
 			},
 			Success: []command.TxnOp{
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("check"), Value: []byte("modRev_ok")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("check"), Value: []byte("modRev_ok")}},
 			},
 			Failure: []command.TxnOp{},
 		},
@@ -649,11 +649,11 @@ func Test_EngineApplyTxn_ResultCount(t *testing.T) {
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindTxn,
-		Txn: &command.TxnCmd{
+		Txn: &command.CmdTxn{
 			Success: []command.TxnOp{
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}},
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}},
-				{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("c"), Value: []byte("3")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("a"), Value: []byte("1")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("b"), Value: []byte("2")}},
+				{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("c"), Value: []byte("3")}},
 			},
 		},
 	})
@@ -669,13 +669,13 @@ func Test_EngineApplyPut_IgnoreValue_PreservesValue(t *testing.T) {
 
 	_, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
-		Put:  &command.PutCmd{Key: []byte("k"), Value: []byte("original")},
+		Put:  &command.CmdPut{Key: []byte("k"), Value: []byte("original")},
 	})
 	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
-		Put:  &command.PutCmd{Key: []byte("k"), IgnoreValue: true},
+		Put:  &command.CmdPut{Key: []byte("k"), IgnoreValue: true},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, result.Put)
@@ -690,7 +690,7 @@ func Test_EngineApplyPut_IgnoreValue_NonExistent_ReturnsError(t *testing.T) {
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
-		Put:  &command.PutCmd{Key: []byte("ghost"), IgnoreValue: true},
+		Put:  &command.CmdPut{Key: []byte("ghost"), IgnoreValue: true},
 	})
 
 	// engine encodes the error inside Result.Error rather than returning
@@ -702,12 +702,12 @@ func Test_EngineApplyPut_IgnoreValue_NonExistent_ReturnsError(t *testing.T) {
 func Test_EngineApplyPut_IgnoreValue_BumpsRevisionAndVersion(t *testing.T) {
 	e := newTestEngine(t)
 
-	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v")}})
+	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("v")}})
 	require.NoError(t, err)
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
-		Put:  &command.PutCmd{Key: []byte("k"), IgnoreValue: true},
+		Put:  &command.CmdPut{Key: []byte("k"), IgnoreValue: true},
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(2), result.Header.Revision)
@@ -725,7 +725,7 @@ func Test_EngineApplyPut_IgnoreLease_NonExistent_ReturnsError(t *testing.T) {
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
-		Put:  &command.PutCmd{Key: []byte("ghost"), Value: []byte("v"), IgnoreLease: true},
+		Put:  &command.CmdPut{Key: []byte("ghost"), Value: []byte("v"), IgnoreLease: true},
 	})
 
 	require.NoError(t, err)
@@ -737,7 +737,7 @@ func Test_EngineApplyPut_IgnoreLease_DoesNotDetachWhenLeaseUnchanged(t *testing.
 
 	_, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
-		Put:  &command.PutCmd{Key: []byte("k"), Value: []byte("v1"), LeaseID: 99},
+		Put:  &command.CmdPut{Key: []byte("k"), Value: []byte("v1"), LeaseID: 99},
 	})
 	require.NoError(t, err)
 
@@ -746,7 +746,7 @@ func Test_EngineApplyPut_IgnoreLease_DoesNotDetachWhenLeaseUnchanged(t *testing.
 
 	_, err = e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
-		Put:  &command.PutCmd{Key: []byte("k"), Value: []byte("v2"), IgnoreLease: true},
+		Put:  &command.CmdPut{Key: []byte("k"), Value: []byte("v2"), IgnoreLease: true},
 	})
 	require.NoError(t, err)
 
@@ -759,7 +759,7 @@ func Test_EngineApplyPut_BothIgnore_TouchDoesNotDetach(t *testing.T) {
 
 	_, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
-		Put:  &command.PutCmd{Key: []byte("k"), Value: []byte("v"), LeaseID: 7},
+		Put:  &command.CmdPut{Key: []byte("k"), Value: []byte("v"), LeaseID: 7},
 	})
 	require.NoError(t, err)
 
@@ -768,7 +768,7 @@ func Test_EngineApplyPut_BothIgnore_TouchDoesNotDetach(t *testing.T) {
 
 	_, err = e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
-		Put:  &command.PutCmd{Key: []byte("k"), IgnoreValue: true, IgnoreLease: true},
+		Put:  &command.CmdPut{Key: []byte("k"), IgnoreValue: true, IgnoreLease: true},
 	})
 	require.NoError(t, err)
 
@@ -780,7 +780,7 @@ func Test_EngineApplyPut_BothIgnore_NonExistent_ReturnsError(t *testing.T) {
 
 	result, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
-		Put:  &command.PutCmd{Key: []byte("ghost"), IgnoreValue: true, IgnoreLease: true},
+		Put:  &command.CmdPut{Key: []byte("ghost"), IgnoreValue: true, IgnoreLease: true},
 	})
 
 	require.NoError(t, err)
@@ -793,13 +793,13 @@ func Test_EngineApplyPut_IgnoreLease_PreservesLease(t *testing.T) {
 	// seed with a fake lease ID — engine doesn't care if it's real
 	_, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
-		Put:  &command.PutCmd{Key: []byte("k"), Value: []byte("v1"), LeaseID: 42},
+		Put:  &command.CmdPut{Key: []byte("k"), Value: []byte("v1"), LeaseID: 42},
 	})
 	require.NoError(t, err)
 
 	_, err = e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
-		Put:  &command.PutCmd{Key: []byte("k"), Value: []byte("v2"), IgnoreLease: true},
+		Put:  &command.CmdPut{Key: []byte("k"), Value: []byte("v2"), IgnoreLease: true},
 	})
 	require.NoError(t, err)
 

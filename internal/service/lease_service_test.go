@@ -35,10 +35,10 @@ func newTestLeaseService(t *testing.T) *testLeaseService {
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})
-	kvstore := mvcc.NewKVStore(reg, logger, backend)
+	kvstore := mvcc.NewKvStore(reg, logger, backend)
 	t.Cleanup(func() { backend.Close() })
 	lm := lease.NewManager(reg, logger, kvstore, backend)
-	fsm := fsm.New(logger, kvstore, lm, "test")
+	fsm := fsm.New(logger, kvstore, lm, nil, "test")
 
 	var logIndex atomic.Uint64
 	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {

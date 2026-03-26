@@ -6,6 +6,7 @@ import (
 	"github.com/balits/kave/internal/storage"
 )
 
+// TODO: read error prefix
 type ReadTx interface {
 	RLock()
 	RUnlock()
@@ -26,7 +27,7 @@ func (r *readtx) UnsafeGet(bucket storage.Bucket, key []byte) ([]byte, error) {
 	return r.b.store.Get(bucket, key)
 }
 
-// TODO: dedup, cleanup
+// TODO: dedup, cleanup = ????
 func (r *readtx) UnsafeRange(bucket storage.Bucket, start, end []byte, f func(k, v []byte) error) (res [][]byte, err error) {
 	var fErr error
 	err = r.b.store.Scan(bucket, func(k, v []byte) bool {

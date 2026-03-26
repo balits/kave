@@ -29,7 +29,7 @@ func newTestLm(t *testing.T) *LeaseManager {
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})
-	store := mvcc.NewKVStore(reg, logger, backend)
+	store := mvcc.NewKvStore(reg, logger, backend)
 	t.Cleanup(func() { backend.Close() })
 	return NewManager(reg, logger, store, backend)
 }
@@ -166,7 +166,7 @@ func Test_LeaseManager_Checkpoint(t *testing.T) {
 		require.Equal(t, c.RemainingTTL, lm.leaseMap[c.LeaseID].remainingTTL-int64(advancedSec), "wanted remaining ttl to be update")
 	}
 
-	lm.ApplyCheckpoint(command.LeaseCheckpointCmd{Checkpoints: cs})
+	lm.ApplyCheckpoint(command.CmdLeaseCheckpoint{Checkpoints: cs})
 	for _, c := range cs {
 		t.Log(c.LeaseID, c.RemainingTTL)
 		require.Equal(t, c.RemainingTTL, lm.Lookup(c.LeaseID).remainingTTL, "wanted remaining ttl to be update")
@@ -217,7 +217,7 @@ func Test_LeaseManager_ApplyExpired(t *testing.T) {
 		ids = append(ids, l.ID)
 	}
 
-	res, err := lm.ApplyExpired(command.LeaseExpireCmd{ExpiredIDs: ids})
+	res, err := lm.ApplyExpired(command.CmdLeaseExpire{ExpiredIDs: ids})
 	require.NoError(t, err)
 	require.Equal(t, len(ids), res.RemovedLeaseCount)
 
@@ -286,7 +286,7 @@ func Test_LeaseManager_Restore_BasicRoundTrip_WithKeys(t *testing.T) {
 			t.Fatal("unexpected ID in checkpoint:", c.LeaseID)
 		}
 	}
-	lm.ApplyCheckpoint(command.LeaseCheckpointCmd{Checkpoints: cs})
+	lm.ApplyCheckpoint(command.CmdLeaseCheckpoint{Checkpoints: cs})
 	for _, c := range cs {
 		t.Log(c.LeaseID, c.RemainingTTL)
 		require.Equal(t, c.RemainingTTL, lm.Lookup(c.LeaseID).remainingTTL, "wanted remaining ttl to be update")
@@ -295,7 +295,7 @@ func Test_LeaseManager_Restore_BasicRoundTrip_WithKeys(t *testing.T) {
 	for _, l := range lm.DrainExpiredLeases() {
 		ids = append(ids, l.ID)
 	}
-	res, err := lm.ApplyExpired(command.LeaseExpireCmd{
+	res, err := lm.ApplyExpired(command.CmdLeaseExpire{
 		ExpiredIDs: ids,
 	})
 	require.NoError(t, err, "apply expired")
@@ -376,7 +376,7 @@ func Test_Restore_CorruptLeaseRecordIsSkipped(t *testing.T) {
 		key := EncodeLeaseBucketKey(LeaseBucketKey(15))
 		wtx := lm.backend.WriteTx()
 		wtx.Lock()
-		require.NoError(t, wtx.UnsafePut(schema.BucketLeaseWIP, key, []byte("garbage")))
+		require.NoError(t, wtx.UnsafePut(schema.BucketLease, key, []byte("garbage")))
 		_, err := wtx.Commit()
 		require.NoError(t, err)
 		wtx.Unlock()
@@ -403,7 +403,7 @@ func unsafeGetFromBackend(lm *LeaseManager, id int64) *Lease {
 	r := lm.backend.ReadTx()
 	r.RLock()
 	defer r.RUnlock()
-	bs, err := r.UnsafeGet(schema.BucketLeaseWIP, bucketKey)
+	bs, err := r.UnsafeGet(schema.BucketLease, bucketKey)
 	if err != nil {
 		return nil
 	}

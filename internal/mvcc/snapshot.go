@@ -3,7 +3,7 @@ package mvcc
 import "github.com/hashicorp/raft"
 
 type Snapshot struct {
-	store *KVStore
+	store *KvStore
 }
 
 func (s Snapshot) Persist(sink raft.SnapshotSink) error {

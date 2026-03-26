@@ -14,11 +14,11 @@ type LeaseAttacher interface {
 }
 
 type Engine struct {
-	store    *KVStore
+	store    *KvStore
 	attacher LeaseAttacher
 }
 
-func NewEngine(store *KVStore, attacher LeaseAttacher) *Engine {
+func NewEngine(store *KvStore, attacher LeaseAttacher) *Engine {
 	return &Engine{
 		store:    store,
 		attacher: attacher,
@@ -38,7 +38,7 @@ func (e *Engine) ApplyWrite(cmd command.Command) (command.Result, error) {
 	}
 }
 
-func (e *Engine) applyPut(cmd *command.PutCmd) (command.Result, error) {
+func (e *Engine) applyPut(cmd *command.CmdPut) (command.Result, error) {
 	prev := e.store.NewReader().Get([]byte(cmd.Key), 0)
 
 	if prev == nil && (cmd.IgnoreLease || cmd.IgnoreValue) {
@@ -84,7 +84,7 @@ func (e *Engine) applyPut(cmd *command.PutCmd) (command.Result, error) {
 		Header: command.ResultHeader{
 			Revision: rev.Main,
 		},
-		Put: &command.PutResult{},
+		Put: &command.ResultPut{},
 	}
 	if cmd.PrevEntry {
 		res.Put.PrevEntry = prev
@@ -92,7 +92,7 @@ func (e *Engine) applyPut(cmd *command.PutCmd) (command.Result, error) {
 	return res, nil
 }
 
-func (e *Engine) applyDelete(cmd *command.DeleteCmd) (command.Result, error) {
+func (e *Engine) applyDelete(cmd *command.CmdDelete) (command.Result, error) {
 	var (
 		prevs []types.KvEntry
 		err   error
@@ -122,14 +122,14 @@ func (e *Engine) applyDelete(cmd *command.DeleteCmd) (command.Result, error) {
 		Header: command.ResultHeader{
 			Revision: rev.Main,
 		},
-		Delete: &command.DeleteResult{
+		Delete: &command.ResultDelete{
 			NumDeleted:  cnt,
 			PrevEntries: prevs,
 		},
 	}, nil
 }
 
-func (e *Engine) applyTxn(cmd *command.TxnCmd) (command.Result, error) {
+func (e *Engine) applyTxn(cmd *command.CmdTxn) (command.Result, error) {
 	// Txn has two parts: evaluating conditions (read) and applying txn ops (read/write)
 	// since we want this to be atomic, start of by locking the store using a new writer
 	w := e.store.NewWriter()
@@ -154,7 +154,7 @@ func (e *Engine) applyTxn(cmd *command.TxnCmd) (command.Result, error) {
 		Header: command.ResultHeader{
 			Revision: finalRev.Main,
 		},
-		Txn: &command.TxnResult{
+		Txn: &command.ResultTxn{
 			Success: cond,
 			Results: res,
 		},
@@ -196,7 +196,7 @@ func (e *Engine) applyTxnOps(w Writer, ops []command.TxnOp) ([]command.TxnOpResu
 				return nil, fmt.Errorf("error during PUT op: %w", err)
 			}
 			res = append(res, command.TxnOpResult{
-				Put: &command.PutResult{
+				Put: &command.ResultPut{
 					PrevEntry: prev,
 				},
 			})
@@ -216,7 +216,7 @@ func (e *Engine) applyTxnOps(w Writer, ops []command.TxnOp) ([]command.TxnOpResu
 				return nil, fmt.Errorf("error during DELETE op: %w", err)
 			}
 			res = append(res, command.TxnOpResult{
-				Delete: &command.DeleteResult{
+				Delete: &command.ResultDelete{
 					NumDeleted:  cnt,
 					PrevEntries: prevs,
 				},
@@ -232,7 +232,7 @@ func (e *Engine) applyTxnOps(w Writer, ops []command.TxnOp) ([]command.TxnOpResu
 				return nil, fmt.Errorf("error during RANGE op: %w", err)
 			}
 			res = append(res, command.TxnOpResult{
-				Range: &command.RangeResult{
+				Range: &command.ResultRange{
 					Entries: entries,
 					Count:   cnt,
 				},

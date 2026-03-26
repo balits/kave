@@ -5,7 +5,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-func newKVMetrics(reg prometheus.Registerer, s *KVStore) *metrics.KVMetrics {
+func newKVMetrics(reg prometheus.Registerer, s *KvStore) *metrics.KVMetrics {
 	currentRevFn := func() float64 {
 		rev, _ := s.Revisions()
 		return float64(rev.Main)

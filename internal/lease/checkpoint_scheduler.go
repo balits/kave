@@ -113,7 +113,7 @@ func (cs *CheckpointScheduler) tick() {
 
 	cmd := command.Command{
 		Kind: command.KindLeaseCheckpoint,
-		LeaseCheckpoint: &command.LeaseCheckpointCmd{
+		LeaseCheckpoint: &command.CmdLeaseCheckpoint{
 			Checkpoints: cps,
 		},
 	}

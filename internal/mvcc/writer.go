@@ -34,7 +34,7 @@ type Writer interface {
 }
 
 type writer struct {
-	store    *KVStore
+	store    *KvStore
 	writeTx  backend.WriteTx
 	startRev kv.Revision
 	changes  []types.KvEntry
@@ -44,7 +44,7 @@ type writer struct {
 }
 
 func newWriter(
-	store *KVStore,
+	store *KvStore,
 	writeTx backend.WriteTx,
 	startRev kv.Revision,
 ) *writer {
@@ -252,12 +252,12 @@ func (w *writer) End() {
 	if len(w.changes) != 0 {
 		w.store.revMu.Lock()
 		w.store.currentRev = kv.Revision{Main: w.store.currentRev.Main + 1}
-		w.writeTx.UnsafePut(schema.BucketMeta, schema.MetaKeyCurrentRevision, types.EncodeUint64(uint64(w.store.currentRev.Main)))
+		w.writeTx.UnsafePut(schema.BucketMeta, schema.KeyCurrentRevision, types.EncodeUint64(uint64(w.store.currentRev.Main)))
 	}
 
 	if w.store.applyIndex > 0 {
-		w.writeTx.UnsafePut(schema.BucketMeta, schema.MetaKeyRaftApplyIndex, types.EncodeUint64(w.store.applyIndex))
-		w.writeTx.UnsafePut(schema.BucketMeta, schema.MetaKeyRaftTerm, types.EncodeUint64(w.store.raftTerm))
+		w.writeTx.UnsafePut(schema.BucketMeta, schema.KeyRaftApplyIndex, types.EncodeUint64(w.store.applyIndex))
+		w.writeTx.UnsafePut(schema.BucketMeta, schema.KeyRaftTerm, types.EncodeUint64(w.store.raftTerm))
 	}
 
 	info, err := w.writeTx.Commit()

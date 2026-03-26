@@ -42,10 +42,10 @@ func newTestKVService(t *testing.T) *testKVService {
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})
-	kvstore := mvcc.NewKVStore(reg, logger, backend)
+	kvstore := mvcc.NewKvStore(reg, logger, backend)
 	lm := lease.NewManager(reg, logger, kvstore, backend)
 	t.Cleanup(func() { backend.Close() })
-	fsm := fsm.New(logger, kvstore, lm, me.NodeID)
+	fsm := fsm.New(logger, kvstore, lm, nil, me.NodeID)
 
 	isLeader := func() bool { return true }
 	var logIndex atomic.Uint64
@@ -118,7 +118,7 @@ func (ts *testKVService) mustRange(req api.RangeRequest) *api.RangeResponse {
 // mustDelete performs a delete and asserts no error.
 func (ts *testKVService) mustDelete(key string, end string, prevEntries bool) *api.DeleteResponse {
 	ts.t.Helper()
-	cmd := command.DeleteCmd{
+	cmd := command.CmdDelete{
 		Key:         []byte(key),
 		PrevEntries: prevEntries,
 	}
@@ -169,7 +169,7 @@ func Test_KVService_Put_Overwrite(t *testing.T) {
 	require.Equal(t, int64(2), r2.Header.Revision)
 
 	// Verify the value was updated
-	rangeResult := ts.mustRange(command.RangeCmd{Key: []byte("key")})
+	rangeResult := ts.mustRange(command.CmdRange{Key: []byte("key")})
 	require.Len(t, rangeResult.Entries, 1)
 	require.Equal(t, "v2", string(rangeResult.Entries[0].Value))
 }
@@ -222,14 +222,14 @@ func Test_KVService_Put_LargeValue(t *testing.T) {
 		largeVal[i] = byte(i % 256)
 	}
 
-	result, err := ts.Put(ts.ctx, command.PutCmd{
+	result, err := ts.Put(ts.ctx, command.CmdPut{
 		Key:   []byte("bigkey"),
 		Value: largeVal,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	rangeResult := ts.mustRange(command.RangeCmd{Key: []byte("bigkey")})
+	rangeResult := ts.mustRange(command.CmdRange{Key: []byte("bigkey")})
 	require.Len(t, rangeResult.Entries, 1)
 	require.Equal(t, largeVal, rangeResult.Entries[0].Value)
 }
@@ -239,7 +239,7 @@ func Test_KVService_Range_ExactKey(t *testing.T) {
 
 	ts.mustPut("foo", "bar")
 
-	result := ts.mustRange(command.RangeCmd{Key: []byte("foo")})
+	result := ts.mustRange(command.CmdRange{Key: []byte("foo")})
 
 	require.Equal(t, 1, result.Count)
 	require.Len(t, result.Entries, 1)
@@ -252,7 +252,7 @@ func Test_KVService_Range_NonExistent(t *testing.T) {
 
 	ts.mustPut("foo", "bar")
 
-	result := ts.mustRange(command.RangeCmd{Key: []byte("missing")})
+	result := ts.mustRange(command.CmdRange{Key: []byte("missing")})
 
 	require.Equal(t, 0, result.Count)
 	require.Empty(t, result.Entries)
@@ -270,7 +270,7 @@ func Test_KVService_Range_DoesNotPrefixScan(t *testing.T) {
 	ts.mustPut("g", "nope")
 
 	// Range with end=nil should return ONLY the exact key "f"
-	result := ts.mustRange(command.RangeCmd{Key: []byte("f")})
+	result := ts.mustRange(command.CmdRange{Key: []byte("f")})
 
 	require.Equal(t, 1, result.Count, "point query must return exactly 1 key")
 	require.Len(t, result.Entries, 1, "point query must return exactly 1 entry")
@@ -287,7 +287,7 @@ func Test_KVService_Range_ExactKeyAmongSimilar(t *testing.T) {
 	ts.mustPut("app1", "wrong")
 	ts.mustPut("ap", "wrong")
 
-	result := ts.mustRange(command.RangeCmd{Key: []byte("app")})
+	result := ts.mustRange(command.CmdRange{Key: []byte("app")})
 	require.Len(t, result.Entries, 1)
 	require.Equal(t, "app", string(result.Entries[0].Key))
 	require.Equal(t, "correct", string(result.Entries[0].Value))
@@ -303,7 +303,7 @@ func Test_KVService_Range_WithEnd(t *testing.T) {
 	ts.mustPut("e", "5")
 
 	// Range [b, d) should return b, c
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key: []byte("b"),
 		End: []byte("d"),
 	})
@@ -321,7 +321,7 @@ func Test_KVService_Range_WithEnd_Empty(t *testing.T) {
 	ts.mustPut("d", "4")
 
 	// Range [b, d) should return nothing (no keys in that range)
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key: []byte("b"),
 		End: []byte("d"),
 	})
@@ -339,7 +339,7 @@ func Test_KVService_Range_WithLimit(t *testing.T) {
 	ts.mustPut("d", "4")
 	ts.mustPut("e", "5")
 
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key:   []byte("a"),
 		End:   []byte("f"),
 		Limit: 3,
@@ -359,7 +359,7 @@ func Test_KVService_Range_WithLimit_One(t *testing.T) {
 	ts.mustPut("y", "2")
 	ts.mustPut("z", "3")
 
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key:   []byte("x"),
 		End:   []byte("zz"),
 		Limit: 1,
@@ -377,7 +377,7 @@ func Test_KVService_Range_CountOnly(t *testing.T) {
 	ts.mustPut("b", "2")
 	ts.mustPut("c", "3")
 
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key:       []byte("a"),
 		End:       []byte("d"),
 		CountOnly: true,
@@ -390,7 +390,7 @@ func Test_KVService_Range_CountOnly(t *testing.T) {
 func Test_KVService_Range_EmptyStore(t *testing.T) {
 	ts := newTestKVService(t)
 
-	result := ts.mustRange(command.RangeCmd{Key: []byte("anything")})
+	result := ts.mustRange(command.CmdRange{Key: []byte("anything")})
 
 	require.Equal(t, 0, result.Count)
 	require.Empty(t, result.Entries)
@@ -403,7 +403,7 @@ func Test_KVService_Range_AfterOverwrite(t *testing.T) {
 	ts.mustPut("key", "v2")
 	ts.mustPut("key", "v3")
 
-	result := ts.mustRange(command.RangeCmd{Key: []byte("key")})
+	result := ts.mustRange(command.CmdRange{Key: []byte("key")})
 
 	require.Len(t, result.Entries, 1, "should return only the latest version")
 	require.Equal(t, "v3", string(result.Entries[0].Value))
@@ -417,7 +417,7 @@ func Test_KVService_Range_AtRevision(t *testing.T) {
 	ts.mustPut("key", "v3") // rev 3
 
 	// Read at revision 1
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key:      []byte("key"),
 		Revision: 1,
 	})
@@ -425,7 +425,7 @@ func Test_KVService_Range_AtRevision(t *testing.T) {
 	require.Equal(t, "v1", string(result.Entries[0].Value))
 
 	// Read at revision 2
-	result = ts.mustRange(command.RangeCmd{
+	result = ts.mustRange(command.CmdRange{
 		Key:      []byte("key"),
 		Revision: 2,
 	})
@@ -439,7 +439,7 @@ func Test_KVService_Range_AfterDelete(t *testing.T) {
 	ts.mustPut("foo", "bar")
 	ts.mustDelete("foo", "", false)
 
-	result := ts.mustRange(command.RangeCmd{Key: []byte("foo")})
+	result := ts.mustRange(command.CmdRange{Key: []byte("foo")})
 
 	require.Equal(t, 0, result.Count, "deleted key should not appear")
 	require.Empty(t, result.Entries)
@@ -452,7 +452,7 @@ func Test_KVService_Range_DeletedKeyAtOldRevision(t *testing.T) {
 	ts.mustDelete("foo", "", false) // rev 2
 
 	// Should still be visible at rev 1
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key:      []byte("foo"),
 		Revision: 1,
 	})
@@ -470,7 +470,7 @@ func Test_KVService_Range_AllKeysOrdered(t *testing.T) {
 	ts.mustPut("date", "4")
 	ts.mustPut("zorro", "5") // excluded in [a, z)
 
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key: []byte("a"),
 		End: []byte("z"),
 	})
@@ -491,7 +491,7 @@ func Test_KVService_Range_SingleKeyEnd(t *testing.T) {
 	ts.mustPut("c", "3")
 
 	// Range [b, c) should return only b
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key: []byte("b"),
 		End: []byte("c"),
 	})
@@ -507,7 +507,7 @@ func Test_KVService_Range_EntryMetadata(t *testing.T) {
 	ts.mustPut("meta", "v1") // rev 1, createRev=1, modRev=1, version=1
 	ts.mustPut("meta", "v2") // rev 2, createRev=1, modRev=2, version=2
 
-	result := ts.mustRange(command.RangeCmd{Key: []byte("meta")})
+	result := ts.mustRange(command.CmdRange{Key: []byte("meta")})
 
 	require.Len(t, result.Entries, 1)
 	entry := result.Entries[0]
@@ -524,7 +524,7 @@ func Test_KVService_Range_ReturnsHeaderRevision(t *testing.T) {
 	ts.mustPut("a", "1") // rev 1
 	ts.mustPut("b", "2") // rev 2
 
-	result := ts.mustRange(command.RangeCmd{Key: []byte("a")})
+	result := ts.mustRange(command.CmdRange{Key: []byte("a")})
 
 	require.Equal(t, int64(2), result.Header.Revision, "Header revision should be the store's current revision")
 }
@@ -540,7 +540,7 @@ func Test_KVService_RangePrefix_SingleKeyEnd(t *testing.T) {
 
 	require.Equal(t, []byte("g"), kv.PrefixEnd([]byte("f")))
 
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key:    []byte("f"),
 		End:    []byte("gets_discarded_anyways"),
 		Prefix: true,
@@ -564,7 +564,7 @@ func Test_KVService_RangePrefix_LongKeyEnd(t *testing.T) {
 
 	require.Equal(t, []byte("fop"), kv.PrefixEnd([]byte("foo")))
 
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key:    []byte("foo"),
 		Prefix: true,
 	})
@@ -582,7 +582,7 @@ func Test_KVService_RangePrefix_NoMatchingKeys(t *testing.T) {
 	ts.mustPut("b", "2")
 	ts.mustPut("c", "3")
 
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key:    []byte("d"),
 		Prefix: true,
 	})
@@ -600,7 +600,7 @@ func Test_KVService_RangePrefix_All0xFF_Prefix(t *testing.T) {
 	}
 	ts.mustPut("\xff\xff", "bar")
 
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key:    []byte{}, // empty prefix -> PrefixEnd returns nil
 		Prefix: true,
 	})
@@ -641,7 +641,7 @@ func Test_KVService_Delete_Range(t *testing.T) {
 	require.Equal(t, int64(2), result.NumDeleted)
 
 	// Verify remaining keys
-	remaining := ts.mustRange(command.RangeCmd{Key: []byte("a"), End: []byte("z")})
+	remaining := ts.mustRange(command.CmdRange{Key: []byte("a"), End: []byte("z")})
 	require.Len(t, remaining.Entries, 2)
 	require.Equal(t, "a", string(remaining.Entries[0].Key))
 	require.Equal(t, "d", string(remaining.Entries[1].Key))
@@ -676,7 +676,7 @@ func Test_KVService_Delete_ThenRange(t *testing.T) {
 	ts.mustPut("key", "value")
 	ts.mustDelete("key", "", false)
 
-	result := ts.mustRange(command.RangeCmd{Key: []byte("key")})
+	result := ts.mustRange(command.CmdRange{Key: []byte("key")})
 	require.Equal(t, 0, result.Count, "deleted key should not be returned by Range")
 }
 
@@ -689,11 +689,11 @@ func Test_KVService_Delete_DoesNotAffectOtherKeys(t *testing.T) {
 
 	ts.mustDelete("delete_me", "", false)
 
-	r1 := ts.mustRange(command.RangeCmd{Key: []byte("keep1")})
+	r1 := ts.mustRange(command.CmdRange{Key: []byte("keep1")})
 	require.Len(t, r1.Entries, 1)
 	require.Equal(t, "v1", string(r1.Entries[0].Value))
 
-	r2 := ts.mustRange(command.RangeCmd{Key: []byte("keep2")})
+	r2 := ts.mustRange(command.CmdRange{Key: []byte("keep2")})
 	require.Len(t, r2.Entries, 1)
 	require.Equal(t, "v3", string(r2.Entries[0].Value))
 }
@@ -717,7 +717,7 @@ func Test_KVService_PutDeletePut(t *testing.T) {
 	ts.mustDelete("key", "", false) // rev 2
 	ts.mustPut("key", "v2")         // rev 3
 
-	result := ts.mustRange(command.RangeCmd{Key: []byte("key")})
+	result := ts.mustRange(command.CmdRange{Key: []byte("key")})
 	require.Len(t, result.Entries, 1)
 	require.Equal(t, "v2", string(result.Entries[0].Value))
 
@@ -734,7 +734,7 @@ func Test_KVService_VersionTracking(t *testing.T) {
 		ts.mustPut("counter", fmt.Sprintf("v%d", i))
 	}
 
-	result := ts.mustRange(command.RangeCmd{Key: []byte("counter")})
+	result := ts.mustRange(command.CmdRange{Key: []byte("counter")})
 	require.Len(t, result.Entries, 1)
 
 	entry := result.Entries[0]
@@ -751,7 +751,7 @@ func Test_KVService_ManyKeysRangeAll(t *testing.T) {
 		ts.mustPut(k, fmt.Sprintf("val_%d", i))
 	}
 
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key: []byte("a"),
 		//End: []byte("zz"), // TODO: z stops "zeta" from being included, "zz" does include "zeta" (since z > e)
 		End: []byte("{"), // '{' is the next ASCII char after 'z', so it will include all keys starting with alphanumerics
@@ -769,7 +769,7 @@ func Test_KVService_RangeRevisionConsistency(t *testing.T) {
 	ts.mustPut("c", "3") // rev 3
 
 	// At revision 2, only a and b should exist
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key:      []byte("a"),
 		End:      []byte("z"),
 		Revision: 2,
@@ -780,7 +780,7 @@ func Test_KVService_RangeRevisionConsistency(t *testing.T) {
 	require.Equal(t, "b", string(result.Entries[1].Key))
 
 	// At revision 1, only a should exist
-	result = ts.mustRange(command.RangeCmd{
+	result = ts.mustRange(command.CmdRange{
 		Key:      []byte("a"),
 		End:      []byte("z"),
 		Revision: 1,
@@ -799,14 +799,14 @@ func Test_KVService_DeleteThenRangeAtOldRevision(t *testing.T) {
 	ts.mustDelete("b", "", false) // rev 4
 
 	// At current revision, b should be gone
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key: []byte("a"),
 		End: []byte("d"),
 	})
 	require.Equal(t, 2, result.Count)
 
 	// At revision 3, b should still exist
-	result = ts.mustRange(command.RangeCmd{
+	result = ts.mustRange(command.CmdRange{
 		Key:      []byte("a"),
 		End:      []byte("d"),
 		Revision: 3,
@@ -835,18 +835,18 @@ func Test_KVService_Range_PrefixScan_MultiplePatterns(t *testing.T) {
 	}
 
 	// Point query for "a" should return ONLY "a"
-	result := ts.mustRange(command.RangeCmd{Key: []byte("a")})
+	result := ts.mustRange(command.CmdRange{Key: []byte("a")})
 	require.Len(t, result.Entries, 1, "point query for 'a' should return exactly 1")
 	require.Equal(t, "a", string(result.Entries[0].Key))
 	require.Equal(t, "single", string(result.Entries[0].Value))
 
 	// Point query for "aa" should return ONLY "aa"
-	result = ts.mustRange(command.RangeCmd{Key: []byte("aa")})
+	result = ts.mustRange(command.CmdRange{Key: []byte("aa")})
 	require.Len(t, result.Entries, 1, "point query for 'aa' should return exactly 1")
 	require.Equal(t, "aa", string(result.Entries[0].Key))
 
 	// Point query for "/path" should return ONLY "/path"
-	result = ts.mustRange(command.RangeCmd{Key: []byte("/path")})
+	result = ts.mustRange(command.CmdRange{Key: []byte("/path")})
 	require.Len(t, result.Entries, 1, "point query for '/path' should return exactly 1")
 	require.Equal(t, "/path", string(result.Entries[0].Key))
 }
@@ -859,7 +859,7 @@ func Test_KVService_Range_EndBoundaryIsExclusive(t *testing.T) {
 	ts.mustPut("c", "3")
 
 	// Range [a, c) should NOT include c
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key: []byte("a"),
 		End: []byte("c"),
 	})
@@ -877,7 +877,7 @@ func Test_KVService_Range_LimitZeroMeansNoLimit(t *testing.T) {
 		ts.mustPut(fmt.Sprintf("key%02d", i), fmt.Sprintf("val%d", i))
 	}
 
-	result := ts.mustRange(command.RangeCmd{
+	result := ts.mustRange(command.CmdRange{
 		Key:   []byte("key00"),
 		End:   []byte("key99"),
 		Limit: 0,
@@ -892,7 +892,7 @@ func Test_KVService_Range_FutureRevision(t *testing.T) {
 
 	ts.mustPut("key", "value") // rev 1
 
-	_, err := ts.Range(ts.ctx, command.RangeCmd{
+	_, err := ts.Range(ts.ctx, command.CmdRange{
 		Key:      []byte("key"),
 		Revision: 9999,
 	})
@@ -906,7 +906,7 @@ func Test_KVService_HeaderFields(t *testing.T) {
 
 	ts.mustPut("key", "value")
 
-	result := ts.mustRange(command.RangeCmd{Key: []byte("key")})
+	result := ts.mustRange(command.CmdRange{Key: []byte("key")})
 
 	require.NotEmpty(t, result.Header.NodeID, "NodeID should be set")
 	require.Greater(t, result.Header.Revision, int64(0), "Revision should be positive")
@@ -916,7 +916,7 @@ func Test_KVService_Put_HeaderRevisionMatchesRange(t *testing.T) {
 	ts := newTestKVService(t)
 
 	putResult := ts.mustPut("key", "value")
-	rangeResult := ts.mustRange(command.RangeCmd{Key: []byte("key")})
+	rangeResult := ts.mustRange(command.CmdRange{Key: []byte("key")})
 
 	require.Equal(t, putResult.Header.Revision, rangeResult.Header.Revision,
 		"put result revision should match range header revision")
@@ -951,7 +951,7 @@ func Test_KVService_Put_IgnoreValue_UpdatesLeaseOnly(t *testing.T) {
 	require.NotNil(t, result)
 
 	// value should be unchanged
-	rangeResult := ts.mustRange(command.RangeCmd{Key: []byte("foo")})
+	rangeResult := ts.mustRange(command.CmdRange{Key: []byte("foo")})
 	require.Len(t, rangeResult.Entries, 1)
 	entry := rangeResult.Entries[0]
 	require.Equal(t, "bar", string(entry.Value), "value should be preserved")
@@ -983,7 +983,7 @@ func Test_KVService_Put_IgnoreValue_PreservesValueAcrossMultiplePuts(t *testing.
 		require.NotNil(t, result)
 	}
 
-	rangeResult := ts.mustRange(command.RangeCmd{Key: []byte("key")})
+	rangeResult := ts.mustRange(command.CmdRange{Key: []byte("key")})
 	require.Len(t, rangeResult.Entries, 1)
 	entry := rangeResult.Entries[0]
 	require.Equal(t, "original", string(entry.Value), "value should still be original")
@@ -1072,7 +1072,7 @@ func Test_KVService_Put_IgnoreLease_KeyWithNoLease_PreservesNoLease(t *testing.T
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	rangeResult := ts.mustRange(command.RangeCmd{Key: []byte("key")})
+	rangeResult := ts.mustRange(command.CmdRange{Key: []byte("key")})
 	entry := rangeResult.Entries[0]
 	require.Equal(t, "newvalue", string(entry.Value))
 	require.Equal(t, int64(0), entry.LeaseID, "leaseID should still be 0")
@@ -1084,7 +1084,7 @@ func Test_KVService_Put_IgnoreLease_DoesNotDetachExistingLease(t *testing.T) {
 	l, err := ts.lm.Grant(0, 60)
 	require.NoError(t, err)
 
-	_, err = ts.Put(ts.ctx, command.PutCmd{
+	_, err = ts.Put(ts.ctx, command.CmdPut{
 		Key:     []byte("foo"),
 		Value:   []byte("v1"),
 		LeaseID: l.ID,
@@ -1092,7 +1092,7 @@ func Test_KVService_Put_IgnoreLease_DoesNotDetachExistingLease(t *testing.T) {
 	require.NoError(t, err)
 
 	// lease should stay attached
-	_, err = ts.Put(ts.ctx, command.PutCmd{
+	_, err = ts.Put(ts.ctx, command.CmdPut{
 		Key:         []byte("foo"),
 		Value:       []byte("v2"),
 		IgnoreLease: true,
@@ -1198,10 +1198,10 @@ func Test_KVService_Txn_SuccessBranch(t *testing.T) {
 			},
 		},
 		Success: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("updated")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("counter"), Value: []byte("updated")}},
 		},
 		Failure: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("failed")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("counter"), Value: []byte("failed")}},
 		},
 	})
 
@@ -1228,10 +1228,10 @@ func Test_KVService_Txn_FailureBranch(t *testing.T) {
 			},
 		},
 		Success: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("should_not")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("counter"), Value: []byte("should_not")}},
 		},
 		Failure: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("counter"), Value: []byte("failed_path")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("counter"), Value: []byte("failed_path")}},
 		},
 	})
 
@@ -1247,7 +1247,7 @@ func Test_KVService_Txn_NoComparisons_AlwaysSuccess(t *testing.T) {
 
 	result := ts.mustTxn(api.TxnRequest{
 		Success: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("v")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("v")}},
 		},
 	})
 
@@ -1282,7 +1282,7 @@ func Test_KVService_Txn_CompareNonExistentKey_VersionZero(t *testing.T) {
 			},
 		},
 		Failure: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("missing"), Value: []byte("created")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("missing"), Value: []byte("created")}},
 		},
 	})
 
@@ -1305,7 +1305,7 @@ func Test_KVService_Txn_MultipleComparisons_AllPass(t *testing.T) {
 			{Key: []byte("b"), Operator: api.OperatorEqual, TargetField: api.FieldVersion, TargetValue: api.CompareTargetUnion{Version: 1}},
 		},
 		Success: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("result"), Value: []byte("both_matched")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("result"), Value: []byte("both_matched")}},
 		},
 	})
 
@@ -1325,7 +1325,7 @@ func Test_KVService_Txn_MultipleComparisons_OneFails(t *testing.T) {
 		},
 		Success: []command.TxnOp{},
 		Failure: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("result"), Value: []byte("one_failed")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("result"), Value: []byte("one_failed")}},
 		},
 	})
 
@@ -1347,7 +1347,7 @@ func Test_KVService_Txn_CompareValue(t *testing.T) {
 			},
 		},
 		Success: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("matched")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("matched")}},
 		},
 	})
 
@@ -1370,7 +1370,7 @@ func Test_KVService_Txn_CompareValue_Mismatch(t *testing.T) {
 		},
 		Success: []command.TxnOp{},
 		Failure: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("result"), Value: []byte("mismatch")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("result"), Value: []byte("mismatch")}},
 		},
 	})
 
@@ -1393,7 +1393,7 @@ func Test_KVService_Txn_CompareCreateRev(t *testing.T) {
 			},
 		},
 		Success: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("check"), Value: []byte("createRev_ok")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("check"), Value: []byte("createRev_ok")}},
 		},
 	})
 
@@ -1416,7 +1416,7 @@ func Test_KVService_Txn_CompareModRev(t *testing.T) {
 			},
 		},
 		Success: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("check"), Value: []byte("modRev_ok")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("check"), Value: []byte("modRev_ok")}},
 		},
 	})
 
@@ -1433,8 +1433,8 @@ func Test_KVService_Txn_WithDeleteOp(t *testing.T) {
 
 	result := ts.mustTxn(api.TxnRequest{
 		Success: []command.TxnOp{
-			{Type: command.TxnOpDelete, Delete: &command.DeleteCmd{Key: []byte("k1")}},
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("k3"), Value: []byte("v3")}},
+			{Type: command.TxnOpDelete, Delete: &command.CmdDelete{Key: []byte("k1")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("k3"), Value: []byte("v3")}},
 		},
 	})
 
@@ -1453,7 +1453,7 @@ func Test_KVService_Txn_PutWithPrevEntry(t *testing.T) {
 
 	result := ts.mustTxn(api.TxnRequest{
 		Success: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("new"), PrevEntry: true}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("new"), PrevEntry: true}},
 		},
 	})
 
@@ -1474,7 +1474,7 @@ func Test_KVService_Txn_DeleteWithPrevEntries(t *testing.T) {
 
 	result := ts.mustTxn(api.TxnRequest{
 		Success: []command.TxnOp{
-			{Type: command.TxnOpDelete, Delete: &command.DeleteCmd{Key: []byte("x"), End: []byte("z"), PrevEntries: true}},
+			{Type: command.TxnOpDelete, Delete: &command.CmdDelete{Key: []byte("x"), End: []byte("z"), PrevEntries: true}},
 		},
 	})
 
@@ -1498,9 +1498,9 @@ func Test_KVService_Txn_MixedOps(t *testing.T) {
 
 	result := ts.mustTxn(api.TxnRequest{
 		Success: []command.TxnOp{
-			{Type: command.TxnOpDelete, Delete: &command.DeleteCmd{Key: []byte("a")}},
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("updated")}},
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("d"), Value: []byte("new")}},
+			{Type: command.TxnOpDelete, Delete: &command.CmdDelete{Key: []byte("a")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("b"), Value: []byte("updated")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("d"), Value: []byte("new")}},
 		},
 	})
 
@@ -1530,7 +1530,7 @@ func Test_KVService_Txn_WithRangeOp(t *testing.T) {
 
 	result := ts.mustTxn(api.TxnRequest{
 		Success: []command.TxnOp{
-			{Type: command.TxnOpRange, Range: &command.RangeCmd{Key: []byte("a"), End: []byte("d")}},
+			{Type: command.TxnOpRange, Range: &command.CmdRange{Key: []byte("a"), End: []byte("d")}},
 		},
 	})
 
@@ -1548,9 +1548,9 @@ func Test_KVService_Txn_ResultCount(t *testing.T) {
 
 	result := ts.mustTxn(api.TxnRequest{
 		Success: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}},
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}},
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("c"), Value: []byte("3")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("a"), Value: []byte("1")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("b"), Value: []byte("2")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("c"), Value: []byte("3")}},
 		},
 	})
 
@@ -1576,10 +1576,10 @@ func Test_KVService_Txn_IsAtomic_FailureOpsDoNotApplyOnSuccess(t *testing.T) {
 			},
 		},
 		Success: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("result"), Value: []byte("success_branch")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("result"), Value: []byte("success_branch")}},
 		},
 		Failure: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("result"), Value: []byte("failure_branch")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("result"), Value: []byte("failure_branch")}},
 		},
 	})
 
@@ -1595,9 +1595,9 @@ func Test_KVService_Txn_BumpsRevisionOnce(t *testing.T) {
 	// a txn with multiple puts should only bump the revision once
 	result := ts.mustTxn(api.TxnRequest{
 		Success: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}},
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}},
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("c"), Value: []byte("3")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("a"), Value: []byte("1")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("b"), Value: []byte("2")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("c"), Value: []byte("3")}},
 		},
 	})
 
@@ -1621,7 +1621,7 @@ func Test_KVService_Txn_EmptyFailureBranch_NoWrites(t *testing.T) {
 			},
 		},
 		Success: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("k"), Value: []byte("updated")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("updated")}},
 		},
 		Failure: []command.TxnOp{},
 	})
@@ -1811,7 +1811,7 @@ func Test_KVService_Txn_MalformedRequest_SuccessOpEmptyKey(t *testing.T) {
 
 	_, err := ts.Txn(ts.ctx, api.TxnRequest{
 		Success: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte(""), Value: []byte("v")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte(""), Value: []byte("v")}},
 		},
 	})
 	require.Error(t, err)
@@ -1845,10 +1845,10 @@ func Test_KVService_Txn_CompareNonExistentKey_VersionNonZero_Fails(t *testing.T)
 			},
 		},
 		Success: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("missing"), Value: []byte("should_not_appear")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("missing"), Value: []byte("should_not_appear")}},
 		},
 		Failure: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("missing"), Value: []byte("key_did_not_exist")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("missing"), Value: []byte("key_did_not_exist")}},
 		},
 	}
 	require.NoError(t, req.Comparisons[0].Check())

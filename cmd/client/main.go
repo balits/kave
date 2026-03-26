@@ -96,7 +96,7 @@ func main() {
 	case "get":
 		method = "GET"
 		url = url + "/get"
-		payload = command.RangeCmd{
+		payload = command.CmdRange{
 			Key:          []byte(key),
 			End:          []byte(end),
 			Limit:        0,
@@ -108,7 +108,7 @@ func main() {
 	case "put":
 		method = "POST"
 		url = url + "/put"
-		payload = command.PutCmd{
+		payload = command.CmdPut{
 			Key:         []byte(key),
 			Value:       []byte(value),
 			LeaseID:     leaseID,
@@ -119,7 +119,7 @@ func main() {
 	case "del":
 		method = "DELETE"
 		url = url + "/del"
-		payload = command.DeleteCmd{
+		payload = command.CmdDelete{
 			Key:         []byte(key),
 			PrevEntries: prevEntries,
 		}

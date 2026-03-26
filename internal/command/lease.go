@@ -2,22 +2,21 @@ package command
 
 import "github.com/balits/kave/internal/types/api"
 
+type CmdLeaseGrant = api.LeaseGrantRequest
+type ResultLeaseGrant = api.LeaseGrantResponse
 
-type LeaseGrantCmd = api.LeaseGrantRequest
-type LeaseGrantResult = api.LeaseGrantResponse
+type CmdLeaseRevoke = api.LeaseRevokeRequest
+type ResultLeaseRevoke = api.LeaseRevokeResponse
 
-type LeaseRevokeCmd = api.LeaseRevokeRequest
-type LeaseRevokeResult = api.LeaseRevokeResponse
+type CmdLeaseKeepAlive = api.LeaseKeepAliveRequest
+type ResultLeaseKeepAlive = api.LeaseKeepAliveResponse
 
-type LeaseKeepAliveCmd = api.LeaseKeepAliveRequest
-type LeaseKeepAliveResult = api.LeaseKeepAliveResponse
+type CmdLeaseLookup = api.LeaseLookupRequest
+type ResultLeaseLookup = api.LeaseLookupResponse
 
-type LeaseLookupCmd = api.LeaseLookupRequest
-type LeaseLookupResult = api.LeaseLookupResponse
-
-// LeaseCheckpointCmd is non-public command coming from lease.CheckpointScheduler
+// CmdLeaseCheckpoint is non-public command coming from lease.CheckpointScheduler
 // and it refreshed the leases remaining TTLs periodically
-type LeaseCheckpointCmd struct {
+type CmdLeaseCheckpoint struct {
 	Checkpoints []Checkpoint
 }
 
@@ -26,13 +25,13 @@ type Checkpoint struct {
 	RemainingTTL int64
 }
 
-// LeaseExpireCmd is non-public command coming from lease.ExpiryLoop
+// CmdLeaseExpire is non-public command coming from lease.ExpiryLoop
 // and it evicts expired leases and their attached keys from the db
-type LeaseExpireCmd struct {
+type CmdLeaseExpire struct {
 	ExpiredIDs []int64 // kitörlendő lease-ek ID-jai
 }
 
-type LeaseExpireResult struct {
+type ResultLeaseExpire struct {
 	RemovedLeaseCount int
 	RemovedKeyCount   int
 }
