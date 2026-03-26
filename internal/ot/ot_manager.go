@@ -45,6 +45,12 @@ type Options struct {
 	TokenTTL  int64 `json:"token_ttl_sec"`
 }
 
+var DefaultOptions = Options{
+	SlotCount: DefaultSlotCount,
+	SlotSize:  DefaultSlotSize,
+	TokenTTL:  DefaultTokenTTL,
+}
+
 func (o *Options) Check() error {
 	if o.SlotCount < MinSlotCount || o.SlotCount > MaxSlotCount {
 		return fmt.Errorf("invalid slot count (min=%d, max=%d)", MinSlotCount, MaxSlotCount)
@@ -56,6 +62,12 @@ func (o *Options) Check() error {
 		return fmt.Errorf("invalid token ttl (min=%d, max=%d)", MinTokenTTL, MaxTokenTTL)
 	}
 	return nil
+}
+
+type ReadOnlyOT interface {
+	Init() (pointA, token []byte, err error)
+	Transfer(token, pointB []byte) (ciphertexts [][]byte, err error)
+	CheckBlob(blob []byte) error
 }
 
 type OTManager struct {
@@ -71,19 +83,18 @@ func NewOTManager(reg prometheus.Registerer, logger *slog.Logger, backend backen
 		return nil, err
 	}
 
-	l := logger.With("component", "ot_manager")
-	m := metrics.NewOTMetrics(reg)
-
 	return &OTManager{
 		opts:    opts,
 		codec:   nil, // codec needs a cluster key -> two phase init
 		backend: backend,
-		metrics: m,
-		logger:  l,
+		metrics: metrics.NewOTMetrics(reg),
+		logger:  logger.With("component", "ot_manager"),
 	}, nil
 }
 
-// SetTokenCodec initializes the token codec, setting its key to the cluster key stored in the backend
+// TODO: figure out the bootstrap/join sequence
+//
+// InitTokenCodec initializes the token codec, setting its key to the cluster key stored in the backend
 // and its maxTTL to the provided ttl (in seconds).
 //
 // If the key is not found or invalid, an error is returned and the codec remains uninitialized.
@@ -94,11 +105,7 @@ func NewOTManager(reg prometheus.Registerer, logger *slog.Logger, backend backen
 // and is separated from the constructor because the cluster key needs to be generated and stored
 // in a separate step (OTManager.ApplyGenerateClusterKey through the FSM so its replicated across all nodes)
 // before it can be used to initialize the codec.
-func (om *OTManager) SetTokenCodec(maxTokenTTL int64) error {
-	if om.codec != nil {
-		return errors.New("init token codec error: token codec is already set")
-	}
-
+func (om *OTManager) InitTokenCodec() error {
 	rtx := om.backend.ReadTx()
 	rtx.RLock()
 	defer rtx.RUnlock()
@@ -109,7 +116,7 @@ func (om *OTManager) SetTokenCodec(maxTokenTTL int64) error {
 		return errors.New("init token codec error: cluster key is not set")
 	}
 
-	tc, err := newTokenCodec(clusterKey, maxTokenTTL)
+	tc, err := newTokenCodec(clusterKey, om.opts.TokenTTL)
 	if err != nil {
 		return fmt.Errorf("init token codec error: %w", err)
 	}

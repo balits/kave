@@ -41,6 +41,7 @@ type Node struct {
 	// services
 	kvService      service.KVService
 	leaseService   service.LeaseService
+	otService      service.OTService
 	peerService    service.PeerService
 	clusterService service.ClusterService
 
@@ -89,6 +90,7 @@ func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*No
 		cfg.Me.GetHttpAdvertisedAddress(),
 		n.kvService,
 		n.leaseService,
+		n.otService,
 		n.clusterService,
 		n.peerService,
 		reg,
@@ -253,6 +255,7 @@ func (n *Node) initBackgroundRoutines(intervalMinutes time.Duration, opts *compa
 func (n *Node) initServices(cfg *config.Config) error {
 	n.peerService = service.NewPeerService(n.raft, cfg)
 	n.leaseService = service.NewLeaseService(n.logger, n.proposeFunc)
+	n.otService = service.NewOTService(n.logger, n.kvstore, n.otManager, n.peerService, n.proposeFunc)
 	n.kvService = service.NewKVService(n.logger, n.kvstore, n.peerService, n.proposeFunc)
 	n.clusterService = service.NewClusterService(n.raft, cfg, n.logger)
 	return nil

@@ -13,13 +13,6 @@ import (
 	"github.com/balits/kave/internal/util"
 )
 
-type ReadOnlyStore interface {
-	mvcc.SmartRevisionGetter
-	NewReader() mvcc.Reader
-	RaftMeta() (logIndex, logTerm uint64)
-	Ping() error
-}
-
 type KVService interface {
 	Range(ctx context.Context, req api.RangeRequest) (*api.RangeResponse, error)
 	Put(ctx context.Context, req api.PutRequest) (*api.PutResponse, error)
@@ -30,18 +23,18 @@ type KVService interface {
 }
 
 type kvSvc struct {
-	store       ReadOnlyStore
-	proposeFunc util.ProposeFunc
-	peerSvc     PeerService
-	logger      *slog.Logger
+	store   mvcc.ReadOnlyStore
+	propose util.ProposeFunc
+	peerSvc PeerService
+	logger  *slog.Logger
 }
 
-func NewKVService(logger *slog.Logger, store ReadOnlyStore, peerSvc PeerService, proposeFunc util.ProposeFunc) KVService {
+func NewKVService(logger *slog.Logger, store mvcc.ReadOnlyStore, peerSvc PeerService, proposeFunc util.ProposeFunc) KVService {
 	return &kvSvc{
-		store:       store,
-		proposeFunc: proposeFunc,
-		peerSvc:     peerSvc,
-		logger:      logger.With("component", "kv_service"),
+		store:   store,
+		propose: proposeFunc,
+		peerSvc: peerSvc,
+		logger:  logger.With("component", "kv_service"),
 	}
 }
 
@@ -86,7 +79,7 @@ func (s *kvSvc) Range(ctx context.Context, req api.RangeRequest) (*api.RangeResp
 	raftIndex, raftTerm := s.store.RaftMeta()
 	currRev, _ := s.store.Revisions()
 
-	res.Header = command.ResultHeader{
+	res.Header = api.ResponseHeader{
 		Revision:  currRev.Main,
 		RaftTerm:  raftTerm,
 		RaftIndex: raftIndex,
@@ -115,7 +108,7 @@ func (s *kvSvc) Put(ctx context.Context, req api.PutRequest) (*api.PutResponse, 
 		Put:  &req,
 	}
 
-	result, err := s.proposeFunc(ctx, cmd)
+	result, err := s.propose(ctx, cmd)
 	if err != nil {
 		return nil, fmt.Errorf("put failed: %v", err)
 	}
@@ -149,7 +142,7 @@ func (s *kvSvc) Delete(ctx context.Context, req api.DeleteRequest) (*api.DeleteR
 		Delete: &req,
 	}
 
-	result, err := s.proposeFunc(ctx, cmd)
+	result, err := s.propose(ctx, cmd)
 	if err != nil {
 		return nil, fmt.Errorf("delete failed: %v", err)
 	}
@@ -182,7 +175,7 @@ func (s *kvSvc) Txn(ctx context.Context, req api.TxnRequest) (*api.TxnResponse, 
 		Txn:  &req,
 	}
 
-	result, err := s.proposeFunc(ctx, cmd)
+	result, err := s.propose(ctx, cmd)
 	if err != nil {
 		return nil, fmt.Errorf("txn failed: %v", err)
 	}
