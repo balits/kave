@@ -9,8 +9,8 @@ import (
 )
 
 type WriteTx interface {
-	sync.Locker
 	ReadTx
+	sync.Locker
 
 	// NOTE: caller needs to hold the lock
 	UnsafePut(bucket storage.Bucket, key, value []byte) error
@@ -18,7 +18,16 @@ type WriteTx interface {
 	// NOTE: caller needs to hold the lock
 	UnsafeDelete(bucket storage.Bucket, key []byte) error
 
+	// Commits applies the previous changes to the database,
+	// returning the information about the committed batch.
+	// If an error happened during Commit, the caller should
+	// [Abort] the transaction.
 	Commit() (storage.CommitInfo, error)
+
+	// Abort discards all previous changes made in the transaction.
+	//
+	// NOTE: this does not release the backend mutex.
+	// the caller should call Unlock after Abort manually.
 	Abort()
 }
 

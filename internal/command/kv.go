@@ -4,26 +4,26 @@ import (
 	"github.com/balits/kave/internal/types/api"
 )
 
-// A RangeCmd alparancs a kulcsok egy tartományát olvassa, ahol a tartomány [Key, End) formában van megadva,
+// A CmdRange alparancs a kulcsok egy tartományát olvassa, ahol a tartomány [Key, End) formában van megadva,
 // és ha End nil akkor csak a Key-t olvassuk
-type RangeCmd = api.RangeRequest
+type CmdRange = api.RangeRequest
 
-// A RangeResult egy Range művelet eredménye
-type RangeResult = api.RangeResponseNoHeader
+// A ResultRange egy Range művelet eredménye
+type ResultRange = api.RangeResponseNoHeader
 
-// A PutCmd alparancs a PUT művelethez szükséges adatokat tartalmazza
-type PutCmd = api.PutRequest
+// A CmdPut alparancs a PUT művelethez szükséges adatokat tartalmazza
+type CmdPut = api.PutRequest
 
-type PutResult = api.PutResponseNoHeader
+type ResultPut = api.PutResponseNoHeader
 
-// A DeleteCmd alparancs a DELETE művelethez szükséges adatokat tartalmazza
-type DeleteCmd = api.DeleteRequest
+// A CmdDelete alparancs a DELETE művelethez szükséges adatokat tartalmazza
+type CmdDelete = api.DeleteRequest
 
-type DeleteResult = api.DeleteResponseNoHeader
+type ResultDelete = api.DeleteResponseNoHeader
 
-type TxnCmd = api.TxnRequest
+type CmdTxn = api.TxnRequest
 
-type TxnResult = api.TxnResultNoHeader
+type ResultTxn = api.TxnResultNoHeader
 
 type TxnOpType = api.TxnOpType
 

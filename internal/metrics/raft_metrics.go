@@ -100,16 +100,14 @@ func NewRaftMetrics(reg prometheus.Registerer, r *raft.Raft, applyLagThresholt u
 			Subsystem: "raft",
 			Name:      "election_duration_seconds",
 			Help:      "Time taken to elect a leader.",
-			// or custom: []float64{.005, .01, .025, .05, .1, .25, .5, 1}
-			Buckets: prometheus.DefBuckets,
+			// or custom buckets: []float64{.005, .01, .025, .05, .1, .25, .5, 1}
 		}),
 		ApplyDurationSec: factory.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "kave",
 			Subsystem: "raft",
 			Name:      "apply_duration_seconds",
 			Help:      "Time taken to apply a command to the state machine.",
-			// or custom: []float64{.001, .005, .01, .05, .1, .5, 1}
-			Buckets: prometheus.DefBuckets,
+			// or custom buckets: []float64{.001, .005, .01, .05, .1, .5, 1}
 		}),
 	}
 }

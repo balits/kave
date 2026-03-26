@@ -2,11 +2,18 @@
     "log_level": "debug",
     "checkpoint_interval_minutes": 5,
     "peers":"node1:7000:8000",
-
-    "storage_kind": "boltdb",
-    "storage_data_dir": "data",
-
-	"compaction_threshold": 5,
-	"compaction_interval_minutes": 2,
-	"compaction_max_rev_gap": 10
+    "storage": {
+        "kind": "boltdb",
+        "data_dir": "data"
+    },
+    "compaction": {
+        "threshold": 5,
+        "interval_minutes": 2,
+        "max_rev_gap": 10
+    },
+    "ot": {
+        "slot_count": 32,
+        "slot_size": 64,
+        "token_ttl": 30
+    }
 }

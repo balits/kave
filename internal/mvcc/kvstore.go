@@ -23,7 +23,7 @@ type SmartRevisionGetter interface {
 
 const MAX_COMPACTION_BATCH_SIZE int = 100
 
-type KVStore struct {
+type KvStore struct {
 	rwlock           sync.RWMutex    // mutex for the whole store, not for backend transactions, used for raft meta and compaction
 	backend          backend.Backend // storage backend
 	kvIndex          kv.Index        // key chache
@@ -37,8 +37,8 @@ type KVStore struct {
 	metrics *metrics.KVMetrics
 }
 
-func NewKVStore(reg prometheus.Registerer, logger *slog.Logger, b backend.Backend) *KVStore {
-	s := &KVStore{
+func NewKvStore(reg prometheus.Registerer, logger *slog.Logger, b backend.Backend) *KvStore {
+	s := &KvStore{
 		backend: b,
 		kvIndex: kv.NewTreeIndex(logger),
 		logger:  logger.With("component", "kvstore"),
@@ -48,7 +48,7 @@ func NewKVStore(reg prometheus.Registerer, logger *slog.Logger, b backend.Backen
 	return s
 }
 
-func (s *KVStore) Revisions() (currentRev kv.Revision, compacted int64) {
+func (s *KvStore) Revisions() (currentRev kv.Revision, compacted int64) {
 	s.revMu.RLock()
 	defer s.revMu.RUnlock()
 	return s.currentRev, s.compactedMainRev
@@ -61,7 +61,7 @@ func (s *KVStore) Revisions() (currentRev kv.Revision, compacted int64) {
 // Locks get releaseed in Writer.End()
 //
 // Locking the store rwlock blocks concurrent writes and restores
-func (s *KVStore) NewWriter() Writer {
+func (s *KvStore) NewWriter() Writer {
 	// locks gets released in writer.End()
 	s.rwlock.RLock()
 	w := newWriter(s, s.backend.WriteTx(), s.currentRev)
@@ -69,24 +69,24 @@ func (s *KVStore) NewWriter() Writer {
 	return w
 }
 
-func (s *KVStore) NewReader() Reader {
+func (s *KvStore) NewReader() Reader {
 	return &reader{store: s, metrics: s.metrics}
 }
 
-func (s *KVStore) UpdateRaftMeta(logIndex, term uint64) {
+func (s *KvStore) UpdateRaftMeta(logIndex, term uint64) {
 	s.rwlock.Lock()
 	defer s.rwlock.Unlock()
 	s.applyIndex = logIndex
 	s.raftTerm = term
 }
 
-func (s *KVStore) RaftMeta() (logIndex, term uint64) {
+func (s *KvStore) RaftMeta() (logIndex, term uint64) {
 	s.rwlock.RLock()
 	defer s.rwlock.RUnlock()
 	return s.applyIndex, s.raftTerm
 }
 
-func (s *KVStore) Restore(r io.Reader) error {
+func (s *KvStore) Restore(r io.Reader) error {
 	if err := s.backend.Close(); err != nil {
 		s.logger.Error("restore error: failed to close backend", "error", err)
 	}
@@ -121,11 +121,11 @@ func (s *KVStore) Restore(r io.Reader) error {
 		return nil
 	})
 
-	raftTermBytes, err := rtx.UnsafeGet(schema.BucketMeta, schema.MetaKeyRaftTerm)
+	raftTermBytes, err := rtx.UnsafeGet(schema.BucketMeta, schema.KeyRaftTerm)
 	if err != nil {
 		s.logger.Error("restore error: failed to get raft term", "error", err)
 	}
-	raftIndexBytes, err := rtx.UnsafeGet(schema.BucketMeta, schema.MetaKeyRaftApplyIndex)
+	raftIndexBytes, err := rtx.UnsafeGet(schema.BucketMeta, schema.KeyRaftApplyIndex)
 	if err != nil {
 		s.logger.Error("restore error: failed to get raft index", "error", err)
 	}
@@ -151,7 +151,7 @@ func (s *KVStore) Restore(r io.Reader) error {
 	return nil
 }
 
-func (s *KVStore) Snapshot() Snapshot {
+func (s *KvStore) Snapshot() Snapshot {
 	return Snapshot{s}
 }
 
@@ -160,7 +160,7 @@ func (s *KVStore) Snapshot() Snapshot {
 // Compaction happens in two phases, the last happends concurrently
 // 1) Persist schedule compaction revision -> crash safe
 // 2) Execute comapction + Update finished compaction revision
-func (s *KVStore) Compact(rev int64) (<-chan struct{}, error) {
+func (s *KvStore) Compact(rev int64) (<-chan struct{}, error) {
 	s.revMu.Lock()
 	defer s.revMu.Unlock() // lock rev for the whole compaction, so that no other gorutine could schedule a compaction
 	if rev < 0 {
@@ -176,7 +176,7 @@ func (s *KVStore) Compact(rev int64) (<-chan struct{}, error) {
 		wtx := s.backend.WriteTx()
 		wtx.Lock()
 		revBytes := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: rev}, kv.NewRevBytes())
-		wtx.UnsafePut(schema.BucketMeta, schema.MetaKeyCompactScheduled, revBytes)
+		wtx.UnsafePut(schema.BucketMeta, schema.KeyCompactScheduled, revBytes)
 		wtx.Commit()
 		wtx.Unlock()
 	}
@@ -193,7 +193,7 @@ func (s *KVStore) Compact(rev int64) (<-chan struct{}, error) {
 	return c, nil
 }
 
-func (s *KVStore) doCompact(rev int64) {
+func (s *KvStore) doCompact(rev int64) {
 	s.logger.Info("compaction started", "revision", rev)
 	// 1) collect values we still should retain
 	retain, err := s.kvIndex.Compact(rev)
@@ -251,7 +251,7 @@ func (s *KVStore) doCompact(rev int64) {
 		if done {
 			// persist meta
 			revBytes := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: rev}, kv.NewRevBytes())
-			wtx.UnsafePut(schema.BucketMeta, schema.MetaKeyCompactFinished, revBytes)
+			wtx.UnsafePut(schema.BucketMeta, schema.KeyCompactFinished, revBytes)
 		}
 
 		if _, err := wtx.Commit(); err != nil {
@@ -281,7 +281,7 @@ func (s *KVStore) doCompact(rev int64) {
 	s.logger.Info("finished compaction", "revision", rev, "deleted_key_count", numDeleted)
 }
 
-func (s *KVStore) Ping() error {
+func (s *KvStore) Ping() error {
 	return s.backend.Ping()
 }
 

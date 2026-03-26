@@ -19,7 +19,7 @@ type Reader interface {
 }
 
 type reader struct {
-	store   *KVStore
+	store   *KvStore
 	metrics *metrics.KVMetrics
 }
 

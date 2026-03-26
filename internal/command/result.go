@@ -7,17 +7,23 @@ type Result struct {
 	Header ResultHeader `json:"header"`
 	Error  error        `json:"error,omitempty"`
 
-	Put            *PutResult            `json:"put,omitempty"`
-	Delete         *DeleteResult         `json:"delete,omitempty"`
-	Txn            *TxnResult            `json:"txn,omitempty"`
-	Range          *RangeResult          `json:"range,omitempty"`
-	LeaseGrant     *LeaseGrantResult     `json:"lease_grant,omitempty"`
-	LeaseRevoke    *LeaseRevokeResult    `json:"lease_revoke,omitempty"`
-	LeaseKeepAlive *LeaseKeepAliveResult `json:"lease_keep_alive,omitempty"`
-	LeaseLookup    *LeaseLookupResult    `json:"lease_lookup,omitempty"`
+	// =====  public, client facing results =====
 
-	LeaseExpire *LeaseExpireResult
-	Compact     *CompactResult
+	Put            *ResultPut            `json:"put,omitempty"`
+	Delete         *ResultDelete         `json:"delete,omitempty"`
+	Txn            *ResultTxn            `json:"txn,omitempty"`
+	Range          *ResultRange          `json:"range,omitempty"`
+	LeaseGrant     *ResultLeaseGrant     `json:"lease_grant,omitempty"`
+	LeaseRevoke    *ResultLeaseRevoke    `json:"lease_revoke,omitempty"`
+	LeaseKeepAlive *ResultLeaseKeepAlive `json:"lease_keep_alive,omitempty"`
+	LeaseLookup    *ResultLeaseLookup    `json:"lease_lookup,omitempty"`
+
+	// =====  private, internal results =====
+
+	LeaseExpire          *ResultLeaseExpire
+	Compact              *ResultCompact
+	OtWriteAll           *ResultOTWriteAll
+	OtGenerateClusterKey *ResultOTGenerateClusterKey
 }
 
 // A ResultHeader minden eredmény közös metaadatait tartalmazza

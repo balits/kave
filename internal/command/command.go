@@ -14,34 +14,38 @@ type Command struct {
 
 	// =====  public, client facing commands =====
 
-	Put            *PutCmd            `json:"put,omitempty"`
-	Delete         *DeleteCmd         `json:"delete,omitempty"`
-	Txn            *TxnCmd            `json:"txn,omitempty"`
-	LeaseGrant     *LeaseGrantCmd     `json:"lease_grant,omitempty"`
-	LeaseRevoke    *LeaseRevokeCmd    `json:"lease_revoke,omitempty"`
-	LeaseKeepAlive *LeaseKeepAliveCmd `json:"lease_keep_alive,omitempty"`
-	LeaseLookup    *LeaseLookupCmd    `json:"lease_lookup,omitempty"`
+	Put            *CmdPut            `json:"put,omitempty"`
+	Delete         *CmdDelete         `json:"delete,omitempty"`
+	Txn            *CmdTxn            `json:"txn,omitempty"`
+	LeaseGrant     *CmdLeaseGrant     `json:"lease_grant,omitempty"`
+	LeaseRevoke    *CmdLeaseRevoke    `json:"lease_revoke,omitempty"`
+	LeaseKeepAlive *CmdLeaseKeepAlive `json:"lease_keep_alive,omitempty"`
+	LeaseLookup    *CmdLeaseLookup    `json:"lease_lookup,omitempty"`
 
 	// =====  private, internal commands =====
 
-	LeaseCheckpoint *LeaseCheckpointCmd
-	LeaseExpired    *LeaseExpireCmd
-	Compact         *CompactCmd
+	LeaseCheckpoint      *CmdLeaseCheckpoint
+	LeaseExpired         *CmdLeaseExpire
+	Compact              *CompactCmd
+	OTWriteAll           *CmdOTWriteAll
+	OTGenerateClusterKey *CmdOTGenerateClusterKey
 }
 
 type CmdKind string
 
 const (
-	KindPut             CmdKind = "KV_PUT"
-	KindDelete          CmdKind = "KV_DEL"
-	KindTxn             CmdKind = "KV_TXN"
-	KindLeaseGrant      CmdKind = "LEASE_GRANT"
-	KindLeaseRevoke     CmdKind = "LEASE_REVOKE"
-	KindLeaseKeepAlive  CmdKind = "LEASE_KEEP_ALIVE"
-	KindLeaseLookup     CmdKind = "LEASE_LOOKUP"
-	KindLeaseCheckpoint CmdKind = "LEASE_CHECKPOINT"
-	KindLeaseExpire     CmdKind = "LEASE_EXPIRE"
-	KindCompact         CmdKind = "COMPACT"
+	KindPut                  CmdKind = "KV_PUT"
+	KindDelete               CmdKind = "KV_DEL"
+	KindTxn                  CmdKind = "KV_TXN"
+	KindLeaseGrant           CmdKind = "LEASE_GRANT"
+	KindLeaseRevoke          CmdKind = "LEASE_REVOKE"
+	KindLeaseKeepAlive       CmdKind = "LEASE_KEEP_ALIVE"
+	KindLeaseLookup          CmdKind = "LEASE_LOOKUP"
+	KindLeaseCheckpoint      CmdKind = "LEASE_CHECKPOINT"
+	KindLeaseExpire          CmdKind = "LEASE_EXPIRE"
+	KindCompact              CmdKind = "INTERNAL_COMPACT"
+	KindOTWriteAll           CmdKind = "OT_WRITE_ALL"
+	KindOTGenerateClusterKey CmdKind = "OT_GENERATE_CLUSTER_KEY"
 )
 
 func Encode(cmd Command) ([]byte, error) {

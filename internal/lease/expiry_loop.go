@@ -109,7 +109,7 @@ func (ex *ExpiryLoop) tick() {
 
 	cmd := command.Command{
 		Kind: command.KindLeaseExpire,
-		LeaseExpired: &command.LeaseExpireCmd{
+		LeaseExpired: &command.CmdLeaseExpire{
 			ExpiredIDs: ids,
 		},
 	}

@@ -1,6 +1,8 @@
 package storage
 
-import "errors"
+import (
+	"errors"
+)
 
 type RawKV struct {
 	Key   []byte
@@ -54,6 +56,20 @@ type StorageOptions struct {
 	// Induláskor létrehozott bucket-ek listája.
 	// Ha egy bucket nincs benne ebben a listában, később már nem lehet létrehozni
 	InitialBuckets []Bucket
+}
+
+func (o *StorageOptions) Check() error {
+	if o.Dir == "" {
+		return errors.New("data dir is required")
+	}
+
+	switch o.Kind {
+	case StorageKindBoltdb, StorageKindInMemory:
+		// ok
+	default:
+		return errors.New("unrecognised storage kind")
+	}
+	return nil
 }
 
 type CommitInfo struct {

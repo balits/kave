@@ -336,8 +336,8 @@ func Test_WriterEndPersistsRaftMeta(t *testing.T) {
 
 	rtx := s.backend.ReadTx()
 	rtx.RLock()
-	indexBytes, _ := rtx.UnsafeGet(schema.BucketMeta, schema.MetaKeyRaftApplyIndex)
-	termBytes, _ := rtx.UnsafeGet(schema.BucketMeta, schema.MetaKeyRaftTerm)
+	indexBytes, _ := rtx.UnsafeGet(schema.BucketMeta, schema.KeyRaftApplyIndex)
+	termBytes, _ := rtx.UnsafeGet(schema.BucketMeta, schema.KeyRaftTerm)
 	rtx.RUnlock()
 
 	idx, _ := types.DecodeUint64(indexBytes)
@@ -361,7 +361,7 @@ func Test_WriterEndNoRaftMetaWhenZero(t *testing.T) {
 
 	rtx := s.backend.ReadTx()
 	rtx.RLock()
-	indexBytes, _ := rtx.UnsafeGet(schema.BucketMeta, schema.MetaKeyRaftApplyIndex)
+	indexBytes, _ := rtx.UnsafeGet(schema.BucketMeta, schema.KeyRaftApplyIndex)
 	rtx.RUnlock()
 
 	if indexBytes != nil {

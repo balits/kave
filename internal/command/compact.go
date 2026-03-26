@@ -4,7 +4,7 @@ type CompactCmd struct {
 	TargetRev int64
 }
 
-type CompactResult struct {
+type ResultCompact struct {
 	DoneC <-chan struct{}
 	Error error
 }

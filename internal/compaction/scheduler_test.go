@@ -32,10 +32,10 @@ func newTestScheduler(t *testing.T, threshold int64, ticker util.Ticker, isLeade
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})
-	store := mvcc.NewKVStore(reg, logger, backend)
+	store := mvcc.NewKvStore(reg, logger, backend)
 	t.Cleanup(func() { backend.Close() })
 
-	fsm := fsm.New(logger, store, nil, "testnode")
+	fsm := fsm.New(logger, store, nil, nil, "testnode")
 	var logIndex atomic.Uint64
 	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {
 		bs, err := command.Encode(cmd)
@@ -78,7 +78,7 @@ func newTestScheduler(t *testing.T, threshold int64, ticker util.Ticker, isLeade
 func mustPut(t *testing.T, propose util.ProposeFunc, key, value string) {
 	cmd := command.Command{
 		Kind: command.KindPut,
-		Put: &command.PutCmd{
+		Put: &command.CmdPut{
 			Key:   []byte(key),
 			Value: []byte(value),
 		},
@@ -353,7 +353,7 @@ func Test_CompactionScheduler_OldRevisionBecomesUnreadable(t *testing.T) {
 	cs.tick(false)                      // compacts to rev 2
 
 	// rev 1 must be rejected
-	r := cs.store.(*mvcc.KVStore).NewReader()
+	r := cs.store.(*mvcc.KvStore).NewReader()
 	_, _, _, err := r.Range([]byte("key"), nil, 1, 0)
 	require.ErrorIs(t, err, kv.ErrCompacted)
 
@@ -383,7 +383,7 @@ func Test_CompactionScheduler_SupersededRevisionGone_LatestRetained(t *testing.T
 
 	var err error
 
-	r := cs.store.(*mvcc.KVStore).NewReader()
+	r := cs.store.(*mvcc.KvStore).NewReader()
 
 	_, _, _, err = r.Range([]byte("a"), nil, 1, 0)
 	require.ErrorIs(t, err, kv.ErrCompacted, "1 is below compaction rev")

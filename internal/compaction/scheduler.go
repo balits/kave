@@ -30,7 +30,7 @@ var DefaultOptions = CompactionOptions{
 	MaxRevGap:   DefaultMaxRevGap,
 }
 
-func (co *CompactionOptions) Validate() error {
+func (co *CompactionOptions) Check() error {
 	if co.Threshold <= 0 {
 		return errors.New("compactor threshold must be positive")
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/balits/kave/internal/lease"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
+	"github.com/balits/kave/internal/ot"
 	"github.com/balits/kave/internal/service"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
@@ -30,8 +31,9 @@ type Node struct {
 	proposeFunc  util.ProposeFunc
 	isLeaderFunc util.IsLeaderFunc
 	backend      backend.Backend
-	kvstore      *mvcc.KVStore
-	leaseMgr     *lease.LeaseManager
+	kvstore      *mvcc.KvStore
+	leaseManager *lease.LeaseManager
+	otManager    *ot.OTManager
 	fsm          *fsm.Fsm
 	raft         *raft.Raft
 	raftDeps     *config.RaftDependencies // stored bcs raft.HasExistingState() upon Bootstrap requires it
@@ -59,7 +61,7 @@ func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*No
 		logger:    logger.With("node_id", cfg.Me.NodeID),
 	}
 
-	if err := n.initStorage(reg, cfg.StorageOpts); err != nil {
+	if err := n.initStorage(reg, cfg.StorageOpts, cfg.OtOpts); err != nil {
 		return nil, fmt.Errorf("failed to setup storage: %v", err)
 	}
 
@@ -202,15 +204,20 @@ func (n *Node) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (n *Node) initStorage(reg prometheus.Registerer, opts storage.StorageOptions) error {
-	n.backend = backend.New(reg, opts)
-	n.kvstore = mvcc.NewKVStore(reg, n.logger, n.backend)
+func (n *Node) initStorage(reg prometheus.Registerer, storageOpts storage.StorageOptions, otOpts ot.Options) error {
+	n.backend = backend.New(reg, storageOpts)
+	n.kvstore = mvcc.NewKvStore(reg, n.logger, n.backend)
+	om, err := ot.NewOTManager(reg, n.logger, n.backend, otOpts)
+	if err != nil {
+		return err
+	}
+	n.otManager = om
 	return nil
 }
 
 func (n *Node) initRaft(reg prometheus.Registerer, cfg *config.Config) error {
-	n.leaseMgr = lease.NewManager(reg, n.logger, n.kvstore, n.backend)
-	n.fsm = fsm.New(n.logger, n.kvstore, n.leaseMgr, cfg.Me.NodeID)
+	n.leaseManager = lease.NewManager(reg, n.logger, n.kvstore, n.backend)
+	n.fsm = fsm.New(n.logger, n.kvstore, n.leaseManager, n.otManager, cfg.Me.NodeID)
 
 	hclogger := logutil.NewHcLogAdapter(n.logger, cfg.LogLevel)
 	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, hclogger, cfg.LogLevel)
@@ -237,8 +244,8 @@ func (n *Node) initRaft(reg prometheus.Registerer, cfg *config.Config) error {
 
 // registering the raft observer happens here, so that our background routines have the most up to date info
 func (n *Node) initBackgroundRoutines(intervalMinutes time.Duration, opts *compaction.CompactionOptions) error {
-	n.checkpointScheduler = lease.NewCheckpointScheduler(n.logger, n.leaseMgr, intervalMinutes*time.Minute, n.proposeFunc, n.isLeaderFunc)
-	n.expiryLoop = lease.NewExpiryLoop(n.logger, n.leaseMgr, n.proposeFunc, n.isLeaderFunc)
+	n.checkpointScheduler = lease.NewCheckpointScheduler(n.logger, n.leaseManager, intervalMinutes*time.Minute, n.proposeFunc, n.isLeaderFunc)
+	n.expiryLoop = lease.NewExpiryLoop(n.logger, n.leaseManager, n.proposeFunc, n.isLeaderFunc)
 	n.compactionScheduler = compaction.NewScheduler(n.logger, n.kvstore, n.proposeFunc, n.isLeaderFunc, opts)
 	return nil
 }

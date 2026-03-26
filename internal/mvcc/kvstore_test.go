@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestKVStore(t *testing.T) *KVStore {
+func newTestKVStore(t *testing.T) *KvStore {
 	reg := metrics.InitTestPrometheus()
 	// b := backend.NewBackend(reg, storage.StorageOptions{
 	// 	Kind:           storage.StorageKindInmemory,
@@ -27,7 +27,7 @@ func newTestKVStore(t *testing.T) *KVStore {
 		InitialBuckets: schema.AllBuckets,
 	})
 	t.Cleanup(func() { b.Close() })
-	return NewKVStore(reg, slog.Default(), b)
+	return NewKvStore(reg, slog.Default(), b)
 }
 
 func Test_KVStoreRevisionInitial(t *testing.T) {
@@ -212,11 +212,11 @@ func Test_KVStoreMultipleWritersSameKey(t *testing.T) {
 func Test_KVStoreRestoreInmem(t *testing.T) {
 	reg1 := prometheus.NewRegistry()
 	reg2 := prometheus.NewRegistry()
-	s := NewKVStore(reg1, slog.Default(), backend.New(reg2, storage.StorageOptions{
+	s := NewKvStore(reg1, slog.Default(), backend.New(reg2, storage.StorageOptions{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	}))
-	s2 := NewKVStore(reg2, slog.Default(), backend.New(reg1, storage.StorageOptions{
+	s2 := NewKvStore(reg2, slog.Default(), backend.New(reg1, storage.StorageOptions{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	}))
@@ -254,7 +254,7 @@ func Test_KVStoreRestoreBoltdb(t *testing.T) {
 	opts2 := storage.StorageOptions{Kind: storage.StorageKindBoltdb, Dir: dir2, InitialBuckets: schema.AllBuckets}
 
 	b1 := backend.New(prometheus.NewRegistry(), opts1)
-	s1 := NewKVStore(prometheus.NewRegistry(), slog.Default(), b1)
+	s1 := NewKvStore(prometheus.NewRegistry(), slog.Default(), b1)
 
 	s1.UpdateRaftMeta(10, 3)
 	w := s1.NewWriter()
@@ -267,7 +267,7 @@ func Test_KVStoreRestoreBoltdb(t *testing.T) {
 	require.NoError(t, snap.Persist(sink))
 
 	b2 := backend.New(prometheus.NewRegistry(), opts2)
-	s2 := NewKVStore(prometheus.NewRegistry(), slog.Default(), b2)
+	s2 := NewKvStore(prometheus.NewRegistry(), slog.Default(), b2)
 
 	require.NoError(t, s2.Restore(&buf))
 

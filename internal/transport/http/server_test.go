@@ -35,7 +35,7 @@ type testServer struct {
 	srv        *httptest.Server
 	httpServer *HttpServer
 
-	store   *mvcc.KVStore
+	store   *mvcc.KvStore
 	lm      *lease.LeaseManager
 	peerSvc *mockPeerSvc
 }
@@ -86,10 +86,10 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})
-	kvstore := mvcc.NewKVStore(reg, logger, backend)
+	kvstore := mvcc.NewKvStore(reg, logger, backend)
 	lm := lease.NewManager(reg, logger, kvstore, backend)
 	t.Cleanup(func() { backend.Close() })
-	fsm := fsm.New(logger, kvstore, lm, me.NodeID)
+	fsm := fsm.New(logger, kvstore, lm, nil, me.NodeID)
 
 	var logIndex atomic.Uint64
 	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {
@@ -511,11 +511,11 @@ func Test_KvTxn_SuccessBranch(t *testing.T) {
 		}},
 		Success: []command.TxnOp{{
 			Type: command.TxnOpPut,
-			Put:  &command.PutCmd{Key: []byte("counter"), Value: []byte("v2")},
+			Put:  &command.CmdPut{Key: []byte("counter"), Value: []byte("v2")},
 		}},
 		Failure: []command.TxnOp{{
 			Type: command.TxnOpPut,
-			Put:  &command.PutCmd{Key: []byte("counter"), Value: []byte("wrong")},
+			Put:  &command.CmdPut{Key: []byte("counter"), Value: []byte("wrong")},
 		}},
 	})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -545,11 +545,11 @@ func Test_KvTxn_FailureBranch(t *testing.T) {
 		}},
 		Success: []command.TxnOp{{
 			Type: command.TxnOpPut,
-			Put:  &command.PutCmd{Key: []byte("counter"), Value: []byte("wrong")},
+			Put:  &command.CmdPut{Key: []byte("counter"), Value: []byte("wrong")},
 		}},
 		Failure: []command.TxnOp{{
 			Type: command.TxnOpPut,
-			Put:  &command.PutCmd{Key: []byte("counter"), Value: []byte("failure_path")},
+			Put:  &command.CmdPut{Key: []byte("counter"), Value: []byte("failure_path")},
 		}},
 	})
 	var res api.TxnResponse
@@ -568,9 +568,9 @@ func Test_KvTxn_BumpsRevisionOnce(t *testing.T) {
 
 	resp := ts.do(http.MethodPost, transport.UriKv+"/txn", api.TxnRequest{
 		Success: []command.TxnOp{
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("a"), Value: []byte("1")}},
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("b"), Value: []byte("2")}},
-			{Type: command.TxnOpPut, Put: &command.PutCmd{Key: []byte("c"), Value: []byte("3")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("a"), Value: []byte("1")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("b"), Value: []byte("2")}},
+			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("c"), Value: []byte("3")}},
 		},
 	})
 	var res api.TxnResponse
