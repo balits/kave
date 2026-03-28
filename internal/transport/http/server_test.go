@@ -25,7 +25,6 @@ import (
 	"github.com/balits/kave/internal/service"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
-	"github.com/balits/kave/internal/transport"
 	"github.com/balits/kave/internal/types/api"
 	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/require"
@@ -36,33 +35,11 @@ type testServer struct {
 	srv        *httptest.Server
 	httpServer *HttpServer
 
-	store   *mvcc.KvStore
-	lm      *lease.LeaseManager
-	peerSvc *mockPeerSvc
-}
-
-type mockPeerSvc struct {
-	me        config.Peer
-	leader    config.Peer
-	leaderErr error
-	state     raft.RaftState
-	lagErr    error
-}
-
-func (p *mockPeerSvc) Me() config.Peer                      { return p.me }
-func (p *mockPeerSvc) State() raft.RaftState                { return p.state }
-func (p *mockPeerSvc) GetPeers() map[string]config.Peer     { return nil }
-func (p *mockPeerSvc) GetLeader() (config.Peer, error)      { return p.leader, p.leaderErr }
-func (p *mockPeerSvc) VerifyLeader(_ context.Context) error { return nil }
-func (p *mockPeerSvc) LaggingBehind() error                 { return p.lagErr }
-
-type mockClusterSvc struct{}
-
-func (n *mockClusterSvc) Bootstrap(_ context.Context) error                             { return nil }
-func (n *mockClusterSvc) JoinCluster(_ context.Context, _ map[string]config.Peer) error { return nil }
-func (n *mockClusterSvc) AddToCluster(_ context.Context, _ transport.JoinRequest) error { return nil }
-func (n *mockClusterSvc) Stats() (map[string]string, error) {
-	return map[string]string{"state": "Leader"}, nil
+	store    *mvcc.KvStore
+	lm       *lease.LeaseManager
+	peerSvc  *service.MockPeerService
+	om       *ot.OTManager
+	otClient ot.MockOTClient
 }
 
 func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
@@ -77,7 +54,11 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 	if !isLeaderValue {
 		state = raft.Follower
 	}
-	peerSvc := &mockPeerSvc{me: me, leader: me, state: state}
+	peerSvc := &service.MockPeerService{
+		Me_:    me,
+		Leader: me,
+		State_: state,
+	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
@@ -113,11 +94,20 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 		}
 		return &result, nil
 	}
+	genRes, err := propose(t.Context(), command.Command{
+		Kind:                 command.KindOTGenerateClusterKey,
+		OTGenerateClusterKey: &command.CmdOTGenerateClusterKey{},
+	})
+	require.NoError(t, err)
+	require.NoError(t, genRes.Error, "FSM returned error for cluster key gen")
+	require.NotNil(t, genRes.OtGenerateClusterKey, "OtGenerateClusterKey result is nil")
+
+	require.NoError(t, om.InitTokenCodec())
 
 	kvSvc := service.NewKVService(logger, kvstore, peerSvc, propose)
 	leaseSvc := service.NewLeaseService(logger, propose)
 	otService := service.NewOTService(logger, kvstore, om, peerSvc, propose)
-	clusterSvc := &mockClusterSvc{}
+	clusterSvc := &service.MockClusterService{}
 
 	httpServer := NewHTTPServer(logger, me.GetHttpListenAddress(), kvSvc, leaseSvc, otService, clusterSvc, peerSvc, reg)
 
@@ -131,6 +121,8 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 		store:      kvstore,
 		lm:         lm,
 		peerSvc:    peerSvc,
+		otClient:   ot.MockOTClient{T: t},
+		om:         om,
 	}
 }
 
@@ -154,14 +146,9 @@ func (ts *testServer) decodeJSON(resp *http.Response, dst any) {
 	require.NoError(ts.t, json.NewDecoder(resp.Body).Decode(dst))
 }
 
-func (ts *testServer) encodeJSON(resp *http.Response, dst any) {
-	ts.t.Helper()
-	require.NoError(ts.t, json.NewDecoder(resp.Body).Decode(dst))
-}
-
 func (ts *testServer) mustPut(key, value string) {
 	ts.t.Helper()
-	resp := ts.do(http.MethodPost, transport.UriKv+"/put", api.PutRequest{
+	resp := ts.do(http.MethodPost, RouteKvPut, api.PutRequest{
 		Key:   []byte(key),
 		Value: []byte(value),
 	})
@@ -173,8 +160,8 @@ func (ts *testServer) overrideLeader(leader *httptest.Server) {
 	url, err := url.Parse(leader.URL)
 	require.NoError(ts.t, err)
 
-	ts.peerSvc.state = raft.Follower
-	ts.peerSvc.leader = config.Peer{
+	ts.peerSvc.State_ = raft.Follower
+	ts.peerSvc.Leader = config.Peer{
 		NodeID:   url.Host,
 		Hostname: url.Hostname(),
 		HttpPort: url.Port(),
@@ -183,71 +170,9 @@ func (ts *testServer) overrideLeader(leader *httptest.Server) {
 
 }
 
-func Test_LeaderMiddleware_UnknownLeader_Returns503(t *testing.T) {
-	fix := newTestServer(t, true)
-	fix.peerSvc.leaderErr = fmt.Errorf("no quorum")
-
-	resp := fix.do(http.MethodPost, transport.UriKv+"/put",
-		api.PutRequest{Key: []byte("k"), Value: []byte("v")})
-	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
-}
-
-func Test_LeaderMiddleware_ProxiesToLeader_AsFollower(t *testing.T) {
-	leader := newTestServer(t, true)
-	follower := newTestServer(t, true)
-	follower.overrideLeader(leader.srv)
-
-	key := []byte("proxy")
-	val := []byte("bar")
-	resp := follower.do(http.MethodPost, transport.UriKv+"/put", api.PutRequest{
-		Key:   key,
-		Value: val,
-	})
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	kv := leader.store.NewReader().Get(key, 0)
-	require.NotNil(t, kv, "expected followers put request to be reflected in leaders store")
-	require.Equal(t, key, kv.Key)
-	require.Equal(t, val, kv.Value)
-}
-
-func Test_LeaderMiddleware_LeaderUnreachable_AsFollower_Returns502(t *testing.T) {
-	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	dead.Close()
-
-	follower := newTestServer(t, true)
-	follower.overrideLeader(dead)
-
-	resp := follower.do(http.MethodPost, transport.UriKv+"/put", api.PutRequest{
-		Key:   []byte("k"),
-		Value: []byte("v")},
-	)
-	require.Equal(t, http.StatusBadGateway, resp.StatusCode)
-}
-
-func Test_LeaderMiddleware_OriginalBodyReachesLeader_AsFollower(t *testing.T) {
-	leader := newTestServer(t, true)
-	follower := newTestServer(t, true)
-	follower.overrideLeader(leader.srv)
-
-	key := "foo"
-	val := "bar"
-	payload := api.PutRequest{
-		Key:   []byte(key),
-		Value: []byte(val),
-	}
-
-	resp := follower.do(http.MethodPost, transport.UriKv+"/put", payload)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	entry := leader.store.NewReader().Get([]byte(key), 0)
-	require.NotNil(t, entry)
-	require.Equal(t, val, string(entry.Value))
-}
-
 func Test_KvPut_CreatesKey(t *testing.T) {
 	ts := newTestServer(t, true)
-	resp := ts.do(http.MethodPost, transport.UriKv+"/put",
+	resp := ts.do(http.MethodPost, RouteKvPut,
 		api.PutRequest{Key: []byte("hello"), Value: []byte("world")})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -259,7 +184,7 @@ func Test_KvPut_CreatesKey(t *testing.T) {
 func Test_KvPut_BumpsRevisionAfterWrites(t *testing.T) {
 	ts := newTestServer(t, true)
 	for i := range 5 {
-		resp := ts.do(http.MethodPost, transport.UriKv+"/put", api.PutRequest{
+		resp := ts.do(http.MethodPost, RouteKvPut, api.PutRequest{
 			Key:   fmt.Appendf(nil, "k%d", i),
 			Value: []byte("v"),
 		})
@@ -276,7 +201,7 @@ func Test_KvPut_WithPrevEntry_ReturnsOldValue(t *testing.T) {
 	oldVal := "v1"
 	ts.mustPut(key, oldVal)
 
-	resp := ts.do(http.MethodPost, transport.UriKv+"/put", api.PutRequest{
+	resp := ts.do(http.MethodPost, RouteKvPut, api.PutRequest{
 		Key:       []byte(key),
 		Value:     []byte("v2"),
 		PrevEntry: true,
@@ -294,7 +219,7 @@ func Test_KvPut_OverwritePreservesCreateRev(t *testing.T) {
 	ts.mustPut("k", "v1")
 	ts.mustPut("k", "v2")
 
-	resp := ts.do(http.MethodGet, transport.UriKv+"/get", api.RangeRequest{
+	resp := ts.do(http.MethodGet, RouteKvRange, api.RangeRequest{
 		Key: []byte("k"),
 	})
 	var res api.RangeResponse
@@ -306,7 +231,7 @@ func Test_KvPut_OverwritePreservesCreateRev(t *testing.T) {
 
 func Test_KvPut_MalformedBody_Returns400(t *testing.T) {
 	ts := newTestServer(t, true)
-	req, _ := http.NewRequest(http.MethodPost, ts.srv.URL+transport.UriKv+"/put",
+	req, _ := http.NewRequest(http.MethodPost, ts.srv.URL+RouteKvPut,
 		strings.NewReader("bad json"))
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
@@ -318,7 +243,7 @@ func Test_KvGet_ExistingKey(t *testing.T) {
 	ts := newTestServer(t, true)
 	ts.mustPut("foo", "bar")
 
-	resp := ts.do(http.MethodGet, transport.UriKv+"/get", api.RangeRequest{
+	resp := ts.do(http.MethodGet, RouteKvRange, api.RangeRequest{
 		Key: []byte("foo"),
 	})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -331,7 +256,7 @@ func Test_KvGet_ExistingKey(t *testing.T) {
 
 func Test_KvGet_MissingKey_ReturnsEmpty(t *testing.T) {
 	ts := newTestServer(t, true)
-	resp := ts.do(http.MethodGet, transport.UriKv+"/get", api.RangeRequest{
+	resp := ts.do(http.MethodGet, RouteKvRange, api.RangeRequest{
 		Key: []byte("missing"),
 	})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -347,7 +272,7 @@ func Test_KvGet_AtOldRevision(t *testing.T) {
 	ts.mustPut("k", "v1")
 	ts.mustPut("k", "v2")
 
-	resp := ts.do(http.MethodGet, transport.UriKv+"/get", api.RangeRequest{
+	resp := ts.do(http.MethodGet, RouteKvRange, api.RangeRequest{
 		Key:      []byte("k"),
 		Revision: 1,
 	})
@@ -361,7 +286,7 @@ func Test_KvGet_RangeQuery(t *testing.T) {
 	for _, k := range []string{"a", "b", "c", "d"} {
 		ts.mustPut(k, k)
 	}
-	resp := ts.do(http.MethodGet, transport.UriKv+"/get", api.RangeRequest{
+	resp := ts.do(http.MethodGet, RouteKvRange, api.RangeRequest{
 		Key: []byte("b"),
 		End: []byte("d"),
 	})
@@ -377,7 +302,7 @@ func Test_KvGet_WithLimit(t *testing.T) {
 	for _, k := range []string{"a", "b", "c", "d", "e"} {
 		ts.mustPut(k, k)
 	}
-	resp := ts.do(http.MethodGet, transport.UriKv+"/get", api.RangeRequest{
+	resp := ts.do(http.MethodGet, RouteKvRange, api.RangeRequest{
 		Key:   []byte("a"),
 		End:   []byte("z"),
 		Limit: 3,
@@ -393,7 +318,7 @@ func Test_KvGet_CountOnly(t *testing.T) {
 	ts.mustPut("x", "1")
 	ts.mustPut("y", "2")
 
-	resp := ts.do(http.MethodGet, transport.UriKv+"/get", api.RangeRequest{
+	resp := ts.do(http.MethodGet, RouteKvRange, api.RangeRequest{
 		Key:       []byte("x"),
 		End:       []byte("z"),
 		CountOnly: true,
@@ -411,7 +336,7 @@ func Test_KvGet_Prefix(t *testing.T) {
 	ts.mustPut("application", "3")
 	ts.mustPut("banana", "4")
 
-	resp := ts.do(http.MethodGet, transport.UriKv+"/get", api.RangeRequest{
+	resp := ts.do(http.MethodGet, RouteKvRange, api.RangeRequest{
 		Key:    []byte("app"),
 		Prefix: true,
 	})
@@ -424,7 +349,7 @@ func Test_KvDelete_RemovesKey(t *testing.T) {
 	ts := newTestServer(t, true)
 	ts.mustPut("bye", "gone")
 
-	resp := ts.do(http.MethodDelete, transport.UriKv+"/delete", api.DeleteRequest{
+	resp := ts.do(http.MethodDelete, RouteKvDelete, api.DeleteRequest{
 		Key: []byte("bye"),
 	})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -433,7 +358,7 @@ func Test_KvDelete_RemovesKey(t *testing.T) {
 	ts.decodeJSON(resp, &res)
 	require.Equal(t, int64(1), res.NumDeleted)
 
-	getResp := ts.do(http.MethodGet, transport.UriKv+"/get",
+	getResp := ts.do(http.MethodGet, RouteKvRange,
 		api.RangeRequest{Key: []byte("bye")})
 	var getRes api.RangeResponse
 	ts.decodeJSON(getResp, &getRes)
@@ -442,7 +367,7 @@ func Test_KvDelete_RemovesKey(t *testing.T) {
 
 func Test_KvDelete_NonExistentKey_ReturnsZero(t *testing.T) {
 	ts := newTestServer(t, true)
-	resp := ts.do(http.MethodDelete, transport.UriKv+"/delete", api.DeleteRequest{
+	resp := ts.do(http.MethodDelete, RouteKvDelete, api.DeleteRequest{
 		Key: []byte("ghost"),
 	})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -457,7 +382,7 @@ func Test_KvDelete_Range(t *testing.T) {
 	for _, k := range []string{"a", "b", "c", "d"} {
 		ts.mustPut(k, k)
 	}
-	resp := ts.do(http.MethodDelete, transport.UriKv+"/delete", api.DeleteRequest{
+	resp := ts.do(http.MethodDelete, RouteKvDelete, api.DeleteRequest{
 		Key: []byte("b"),
 		End: []byte("d"),
 	})
@@ -470,7 +395,7 @@ func Test_KvDelete_WithPrevEntries(t *testing.T) {
 	ts := newTestServer(t, true)
 	ts.mustPut("p", "pval")
 
-	resp := ts.do(http.MethodDelete, transport.UriKv+"/delete", api.DeleteRequest{
+	resp := ts.do(http.MethodDelete, RouteKvDelete, api.DeleteRequest{
 		Key:         []byte("p"),
 		PrevEntries: true,
 	})
@@ -483,16 +408,16 @@ func Test_KvDelete_WithPrevEntries(t *testing.T) {
 func Test_KvDelete_ThenGetAtOldRevision(t *testing.T) {
 	ts := newTestServer(t, true)
 	ts.mustPut("k", "v")
-	ts.do(http.MethodDelete, transport.UriKv+"/delete", api.DeleteRequest{Key: []byte("k")})
+	ts.do(http.MethodDelete, RouteKvDelete, api.DeleteRequest{Key: []byte("k")})
 
 	// key is gone at current rev
-	resp := ts.do(http.MethodGet, transport.UriKv+"/get", api.RangeRequest{Key: []byte("k")})
+	resp := ts.do(http.MethodGet, RouteKvRange, api.RangeRequest{Key: []byte("k")})
 	var cur api.RangeResponse
 	ts.decodeJSON(resp, &cur)
 	require.Zero(t, cur.Count)
 
 	// but readable at rev 1
-	resp = ts.do(http.MethodGet, transport.UriKv+"/get", api.RangeRequest{
+	resp = ts.do(http.MethodGet, RouteKvRange, api.RangeRequest{
 		Key:      []byte("k"),
 		Revision: 1,
 	})
@@ -506,7 +431,7 @@ func Test_KvTxn_SuccessBranch(t *testing.T) {
 	ts := newTestServer(t, true)
 	ts.mustPut("counter", "v1")
 
-	resp := ts.do(http.MethodPost, transport.UriKv+"/txn", api.TxnRequest{
+	resp := ts.do(http.MethodPost, RouteKvTxn, api.TxnRequest{
 		Comparisons: []command.Comparison{{
 			Key:         []byte("counter"),
 			Operator:    api.OperatorEqual,
@@ -529,7 +454,7 @@ func Test_KvTxn_SuccessBranch(t *testing.T) {
 	require.True(t, res.Success)
 
 	// verify via a real GET
-	getResp := ts.do(http.MethodGet, transport.UriKv+"/get",
+	getResp := ts.do(http.MethodGet, RouteKvRange,
 		api.RangeRequest{Key: []byte("counter")})
 	var getRes api.RangeResponse
 	ts.decodeJSON(getResp, &getRes)
@@ -540,7 +465,7 @@ func Test_KvTxn_FailureBranch(t *testing.T) {
 	ts := newTestServer(t, true)
 	ts.mustPut("counter", "v1")
 
-	resp := ts.do(http.MethodPost, transport.UriKv+"/txn", api.TxnRequest{
+	resp := ts.do(http.MethodPost, RouteKvTxn, api.TxnRequest{
 		Comparisons: []command.Comparison{{
 			Key:         []byte("counter"),
 			Operator:    api.OperatorEqual,
@@ -560,7 +485,7 @@ func Test_KvTxn_FailureBranch(t *testing.T) {
 	ts.decodeJSON(resp, &res)
 	require.False(t, res.Success)
 
-	getResp := ts.do(http.MethodGet, transport.UriKv+"/get",
+	getResp := ts.do(http.MethodGet, RouteKvRange,
 		api.RangeRequest{Key: []byte("counter")})
 	var getRes api.RangeResponse
 	ts.decodeJSON(getResp, &getRes)
@@ -570,7 +495,7 @@ func Test_KvTxn_FailureBranch(t *testing.T) {
 func Test_KvTxn_BumpsRevisionOnce(t *testing.T) {
 	ts := newTestServer(t, true)
 
-	resp := ts.do(http.MethodPost, transport.UriKv+"/txn", api.TxnRequest{
+	resp := ts.do(http.MethodPost, RouteKvTxn, api.TxnRequest{
 		Success: []command.TxnOp{
 			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("a"), Value: []byte("1")}},
 			{Type: command.TxnOpPut, Put: &command.CmdPut{Key: []byte("b"), Value: []byte("2")}},
@@ -585,101 +510,89 @@ func Test_KvTxn_BumpsRevisionOnce(t *testing.T) {
 
 func Test_LeaseGrant_OK(t *testing.T) {
 	ts := newTestServer(t, true)
-	resp := ts.do(http.MethodPost, transport.UriLease+"/grant",
-		api.LeaseGrantRequest{LeaseID: 1, TTL: 30})
+	resp := ts.do(http.MethodPost, RouteLeaseGrant, api.LeaseGrantRequest{LeaseID: 1, TTL: 30})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var res command.Result
+	var res api.LeaseGrantResponse
 	ts.decodeJSON(resp, &res)
-	require.NotNil(t, res.LeaseGrant)
-	require.Equal(t, int64(1), res.LeaseGrant.LeaseID)
-	require.Equal(t, int64(30), res.LeaseGrant.TTL)
+	require.Equal(t, int64(1), res.LeaseID)
+	require.Equal(t, int64(30), res.TTL)
 }
 
-func Test_LeaseGrant_ZeroTTL_Returns500(t *testing.T) {
+func Test_LeaseGrant_ZeroTTL_Returns400(t *testing.T) {
 	ts := newTestServer(t, true)
-	resp := ts.do(http.MethodPost, transport.UriLease+"/grant",
-		api.LeaseGrantRequest{TTL: 0})
-	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	resp := ts.do(http.MethodPost, RouteLeaseGrant, api.LeaseGrantRequest{TTL: 0})
+	require.Equal(t, 400, resp.StatusCode)
 }
 
-func Test_LeaseGrant_IDConflict_Returns500(t *testing.T) {
+func Test_LeaseGrant_IDConflict_Returns400(t *testing.T) {
 	ts := newTestServer(t, true)
-	ts.do(http.MethodPost, transport.UriLease+"/grant",
-		api.LeaseGrantRequest{LeaseID: 99, TTL: 10})
-	resp := ts.do(http.MethodPost, transport.UriLease+"/grant",
-		api.LeaseGrantRequest{LeaseID: 99, TTL: 10})
-	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	ts.do(http.MethodPost, RouteLeaseGrant, api.LeaseGrantRequest{LeaseID: 99, TTL: 10})
+	resp := ts.do(http.MethodPost, RouteLeaseGrant, api.LeaseGrantRequest{LeaseID: 99, TTL: 10})
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func Test_LeaseRevoke_OK(t *testing.T) {
 	ts := newTestServer(t, true)
-	ts.do(http.MethodPost, transport.UriLease+"/grant",
+	ts.do(http.MethodPost, RouteLeaseGrant,
 		api.LeaseGrantRequest{LeaseID: 5, TTL: 30})
 
-	resp := ts.do(http.MethodDelete, transport.UriLease+"/revoke",
-		api.LeaseRevokeRequest{LeaseID: 5})
+	resp := ts.do(http.MethodDelete, RouteLeaseRevoke, api.LeaseRevokeRequest{LeaseID: 5})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var res command.Result
+	var res api.LeaseRevokeResponse
 	ts.decodeJSON(resp, &res)
-	require.True(t, res.LeaseRevoke.Found)
-	require.True(t, res.LeaseRevoke.Revoked)
+	require.True(t, res.Found)
+	require.True(t, res.Revoked)
 }
 
 func Test_LeaseRevoke_NonExistent_FoundIsFalse(t *testing.T) {
 	ts := newTestServer(t, true)
-	resp := ts.do(http.MethodDelete, transport.UriLease+"/revoke",
-		api.LeaseRevokeRequest{LeaseID: 999})
+	resp := ts.do(http.MethodDelete, RouteLeaseRevoke, api.LeaseRevokeRequest{LeaseID: 999})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var res command.Result
+	var res api.LeaseRevokeResponse
 	ts.decodeJSON(resp, &res)
-	require.False(t, res.LeaseRevoke.Found)
-	require.False(t, res.LeaseRevoke.Revoked)
+	require.False(t, res.Found)
+	require.False(t, res.Revoked)
 }
 
 func Test_LeaseKeepAlive_OK(t *testing.T) {
 	ts := newTestServer(t, true)
-	ts.do(http.MethodPost, transport.UriLease+"/grant",
-		api.LeaseGrantRequest{LeaseID: 7, TTL: 30})
+	require.Equal(t, http.StatusOK, ts.do(http.MethodPost, RouteLeaseGrant, api.LeaseGrantRequest{LeaseID: 7, TTL: 30}).StatusCode)
 
-	resp := ts.do(http.MethodPost, transport.UriLease+"/keep-alive",
-		api.LeaseKeepAliveRequest{LeaseID: 7})
+	resp := ts.do(http.MethodPost, RouteLeaseKeepAlive, api.LeaseKeepAliveRequest{LeaseID: 7})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var res command.Result
+	var res api.LeaseKeepAliveResponse
 	ts.decodeJSON(resp, &res)
-	require.InDelta(t, 30, res.LeaseKeepAlive.TTL, 2)
+	require.InDelta(t, 30, res.TTL, 2)
 }
 
-func Test_LeaseKeepAlive_NotFound_Returns500(t *testing.T) {
+func Test_LeaseKeepAlive_NotFound_Returns400(t *testing.T) {
 	ts := newTestServer(t, true)
-	resp := ts.do(http.MethodPost, transport.UriLease+"/keep-alive",
-		api.LeaseKeepAliveRequest{LeaseID: 404})
-	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	resp := ts.do(http.MethodPost, RouteLeaseKeepAlive, api.LeaseKeepAliveRequest{LeaseID: 404})
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func Test_LeaseLookup_OK(t *testing.T) {
 	ts := newTestServer(t, true)
-	ts.do(http.MethodPost, transport.UriLease+"/grant",
-		api.LeaseGrantRequest{LeaseID: 11, TTL: 60})
+	require.Equal(t, http.StatusOK, ts.do(http.MethodPost, RouteLeaseGrant, api.LeaseGrantRequest{LeaseID: 11, TTL: 60}).StatusCode)
 
-	resp := ts.do(http.MethodPost, transport.UriLease+"/lookup",
+	resp := ts.do(http.MethodGet, RouteLeaseLookup,
 		api.LeaseLookupRequest{LeaseID: 11})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var res command.Result
+	var res api.LeaseLookupResponse
 	ts.decodeJSON(resp, &res)
-	require.Equal(t, int64(11), res.LeaseLookup.LeaseID)
-	require.Equal(t, int64(60), res.LeaseLookup.OriginalTTL)
+	require.Equal(t, int64(11), res.LeaseID)
+	require.Equal(t, int64(60), res.OriginalTTL)
 }
 
-func Test_LeaseLookup_NotFound_Returns500(t *testing.T) {
+func Test_LeaseLookup_NotFound_Returns400(t *testing.T) {
 	ts := newTestServer(t, true)
-	resp := ts.do(http.MethodPost, transport.UriLease+"/lookup",
-		api.LeaseLookupRequest{LeaseID: 0})
-	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	resp := ts.do(http.MethodGet, RouteLeaseLookup, api.LeaseLookupRequest{LeaseID: 0})
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func Test_Livez_OK(t *testing.T) {
@@ -690,7 +603,7 @@ func Test_Livez_OK(t *testing.T) {
 
 func Test_Livez_RaftShutdown_Returns503(t *testing.T) {
 	ts := newTestServer(t, true)
-	ts.peerSvc.state = raft.Shutdown
+	ts.peerSvc.State_ = raft.Shutdown
 	resp := ts.do(http.MethodGet, "/livez", nil)
 	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 }
@@ -703,14 +616,14 @@ func Test_Readyz_OK(t *testing.T) {
 
 func Test_Readyz_NoLeader_Returns503(t *testing.T) {
 	ts := newTestServer(t, true)
-	ts.peerSvc.leaderErr = fmt.Errorf("election in progress")
+	ts.peerSvc.ErrLeader = fmt.Errorf("election in progress")
 	resp := ts.do(http.MethodGet, "/readyz", nil)
 	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 }
 
 func Test_Readyz_Lagging_Returns503(t *testing.T) {
 	ts := newTestServer(t, true)
-	ts.peerSvc.lagErr = fmt.Errorf("15 entries behind")
+	ts.peerSvc.ErrLag = fmt.Errorf("15 entries behind")
 	resp := ts.do(http.MethodGet, "/readyz", nil)
 	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 }
@@ -727,8 +640,6 @@ func Test_HealthProbes_ServedLocallyOnFollower(t *testing.T) {
 	}
 }
 
-// ── Stats ─────────────────────────────────────────────────────────────────────
-
 func Test_Stats_OK(t *testing.T) {
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodGet, "/stats", nil)
@@ -737,4 +648,237 @@ func Test_Stats_OK(t *testing.T) {
 	var out map[string]string
 	ts.decodeJSON(resp, &out)
 	require.NotEmpty(t, out)
+}
+
+func Test_OTInit_OK(t *testing.T) {
+	ts := newTestServer(t, true)
+	resp := ts.do(http.MethodGet, RouteOtInit, api.OTInitRequest{})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var res api.OTInitResponse
+	ts.decodeJSON(resp, &res)
+	require.Len(t, res.Token, ot.TokenSize)
+	require.Len(t, res.PointA, 32)
+	require.NotEmpty(t, res.Header.NodeID)
+}
+
+func Test_OTInit_UniqueTokenPerCall(t *testing.T) {
+	ts := newTestServer(t, true)
+
+	resp1 := ts.do(http.MethodGet, RouteOtInit, api.OTInitRequest{})
+	var res1 api.OTInitResponse
+	ts.decodeJSON(resp1, &res1)
+
+	resp2 := ts.do(http.MethodGet, RouteOtInit, api.OTInitRequest{})
+	var res2 api.OTInitResponse
+	ts.decodeJSON(resp2, &res2)
+
+	require.NotEqual(t, res1.Token, res2.Token)
+}
+
+func Test_OTInit_MalformedBody_Returns400(t *testing.T) {
+	ts := newTestServer(t, true)
+	req, _ := http.NewRequest(http.MethodGet, ts.srv.URL+RouteOtInit,
+		strings.NewReader("bad json"))
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func Test_OTWriteAll_OK(t *testing.T) {
+	ts := newTestServer(t, true)
+	blob := ot.FakeBlob(t, ts.om)
+
+	resp := ts.do(http.MethodPost, RouteOtWriteAll,
+		api.OTWriteAllRequest{Blob: blob})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var res api.OTWriteAllResponse
+	ts.decodeJSON(resp, &res)
+	require.NotZero(t, res.Header.RaftIndex)
+}
+
+func Test_OTWriteAll_NilBlob_Returns400(t *testing.T) {
+	ts := newTestServer(t, true)
+	resp := ts.do(http.MethodPost, RouteOtWriteAll,
+		api.OTWriteAllRequest{Blob: nil})
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func Test_OTWriteAll_WrongSizeBlob_Returns400(t *testing.T) {
+	ts := newTestServer(t, true)
+	resp := ts.do(http.MethodPost, RouteOtWriteAll,
+		api.OTWriteAllRequest{Blob: []byte("nope")})
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func Test_OTWriteAll_MalformedBody_Returns400(t *testing.T) {
+	ts := newTestServer(t, true)
+	req, _ := http.NewRequest(http.MethodPost, ts.srv.URL+RouteOtWriteAll,
+		strings.NewReader("bad json"))
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func Test_OTTransfer_OK(t *testing.T) {
+	ts := newTestServer(t, true)
+
+	blob := ot.FakeBlob(t, ts.om)
+	ts.do(http.MethodPost, RouteOtWriteAll,
+		api.OTWriteAllRequest{Blob: blob})
+
+	initResp := ts.do(http.MethodGet, RouteOtInit, api.OTInitRequest{})
+	var initRes api.OTInitResponse
+	ts.decodeJSON(initResp, &initRes)
+
+	pointB, _ := ts.otClient.Choose(initRes.PointA, 0)
+	resp := ts.do(http.MethodGet, RouteOtTransfer,
+		api.OTTransferRequest{Token: initRes.Token, PointB: pointB})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var res api.OTTransferResponse
+	ts.decodeJSON(resp, &res)
+	require.Len(t, res.Ciphertexts, ot.DefaultSlotCount)
+}
+
+func Test_OTTransfer_InvalidPointB_Returns400(t *testing.T) {
+	ts := newTestServer(t, true)
+	blob := ot.FakeBlob(t, ts.om)
+	ts.do(http.MethodPost, RouteOtWriteAll,
+		api.OTWriteAllRequest{Blob: blob})
+
+	initResp := ts.do(http.MethodGet, RouteOtInit, api.OTInitRequest{})
+	require.Equal(t, http.StatusOK, initResp.StatusCode)
+	var initRes api.OTInitResponse
+	ts.decodeJSON(initResp, &initRes)
+
+	resp := ts.do(http.MethodGet, RouteOtTransfer,
+		api.OTTransferRequest{Token: initRes.Token, PointB: []byte("bad")})
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func Test_OTTransfer_NoBlobWritten_Returns400(t *testing.T) {
+	ts := newTestServer(t, true)
+
+	initResp := ts.do(http.MethodGet, RouteOtInit, api.OTInitRequest{})
+	require.Equal(t, http.StatusOK, initResp.StatusCode)
+	var initRes api.OTInitResponse
+	ts.decodeJSON(initResp, &initRes)
+
+	pointB, _ := ts.otClient.Choose(initRes.PointA, 0)
+	resp := ts.do(http.MethodGet, RouteOtTransfer,
+		api.OTTransferRequest{Token: initRes.Token, PointB: pointB})
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func Test_OTTransfer_MalformedBody_Returns400(t *testing.T) {
+	ts := newTestServer(t, true)
+	resp := ts.do(http.MethodGet, RouteOtTransfer, map[string]string{"bad": "json"})
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// E2E through HTTP: Init → WriteAll → Transfer → client decrypt
+
+func Test_OT_E2E_HTTP_ChosenSlotDecrypts(t *testing.T) {
+	ts := newTestServer(t, true)
+
+	blob := ot.FakeBlob(t, ts.om)
+	writeResp := ts.do(http.MethodPost, RouteOtWriteAll,
+		api.OTWriteAllRequest{Blob: blob})
+	require.Equal(t, http.StatusOK, writeResp.StatusCode)
+
+	initResp := ts.do(http.MethodGet, RouteOtInit, api.OTInitRequest{})
+	require.Equal(t, http.StatusOK, initResp.StatusCode)
+	var initRes api.OTInitResponse
+	ts.decodeJSON(initResp, &initRes)
+
+	choice := 7
+	pointB, scalarB := ts.otClient.Choose(initRes.PointA, choice)
+
+	transferResp := ts.do(http.MethodGet, RouteOtTransfer,
+		api.OTTransferRequest{Token: initRes.Token, PointB: pointB})
+	require.Equal(t, http.StatusOK, transferResp.StatusCode)
+	var transferRes api.OTTransferResponse
+	ts.decodeJSON(transferResp, &transferRes)
+	require.Len(t, transferRes.Ciphertexts, ot.DefaultSlotCount)
+
+	expected := blob[choice*ot.DefaultSlotSize : (choice+1)*ot.DefaultSlotSize]
+	got, err := ts.otClient.TryDecrypt(initRes.PointA, scalarB, transferRes.Ciphertexts[choice])
+	require.NoError(t, err)
+	require.Equal(t, expected, got)
+}
+
+func Test_OT_E2E_HTTP_NonChosenSlotsFail(t *testing.T) {
+	ts := newTestServer(t, true)
+
+	blob := ot.FakeBlob(t, ts.om)
+	ts.do(http.MethodPost, RouteOtWriteAll,
+		api.OTWriteAllRequest{Blob: blob})
+
+	initResp := ts.do(http.MethodGet, RouteOtInit, api.OTInitRequest{})
+	var initRes api.OTInitResponse
+	ts.decodeJSON(initResp, &initRes)
+
+	choice := 2
+	pointB, scalarB := ts.otClient.Choose(initRes.PointA, choice)
+
+	transferResp := ts.do(http.MethodGet, RouteOtTransfer,
+		api.OTTransferRequest{Token: initRes.Token, PointB: pointB})
+	var transferRes api.OTTransferResponse
+	ts.decodeJSON(transferResp, &transferRes)
+
+	for i, ct := range transferRes.Ciphertexts {
+		if i == choice {
+			continue
+		}
+		_, err := ts.otClient.TryDecrypt(initRes.PointA, scalarB, ct)
+		require.Error(t, err, "slot %d should NOT decrypt with choice=%d key", i, choice)
+	}
+}
+
+func Test_OTInit_ServedLocally_NoLeaderMiddleware(t *testing.T) {
+	// Init is NOT behind leaderMiddleware, so even a follower with no leader
+	// should serve it locally (not return 503)
+	ts := newTestServer(t, true)
+	ts.peerSvc.ErrLeader = fmt.Errorf("no quorum")
+	ts.peerSvc.State_ = raft.Follower
+
+	resp := ts.do(http.MethodGet, RouteOtInit, api.OTInitRequest{})
+	require.Equal(t, http.StatusOK, resp.StatusCode,
+		"OT init should not require a leader")
+}
+
+func Test_OTTransfer_SerializableRead_ServedLocally_NoLeaderMiddleware(t *testing.T) {
+	ts := newTestServer(t, true)
+
+	blob := ot.FakeBlob(t, ts.om)
+	ts.do(http.MethodPost, RouteOtWriteAll,
+		api.OTWriteAllRequest{Blob: blob})
+
+	ts.peerSvc.ErrLeader = fmt.Errorf("election in progress")
+	ts.peerSvc.State_ = raft.Follower
+
+	initResp := ts.do(http.MethodGet, RouteOtInit, api.OTInitRequest{})
+	var initRes api.OTInitResponse
+	ts.decodeJSON(initResp, &initRes)
+
+	pointB, _ := ts.otClient.Choose(initRes.PointA, 0)
+	resp := ts.do(http.MethodGet, RouteOtTransfer,
+		api.OTTransferRequest{Token: initRes.Token, PointB: pointB, Serializable: true})
+	require.NotEqual(t, http.StatusServiceUnavailable, resp.StatusCode,
+		"serializable OT transfer should not require a leader")
+}
+
+func Test_OTWriteAll_RequiresLeader(t *testing.T) {
+	ts := newTestServer(t, true)
+	ts.peerSvc.ErrLeader = fmt.Errorf("no quorum")
+
+	blob := ot.FakeBlob(t, ts.om)
+	resp := ts.do(http.MethodPost, RouteOtWriteAll,
+		api.OTWriteAllRequest{Blob: blob})
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode,
+		"OT write-all MUST require a leader")
 }

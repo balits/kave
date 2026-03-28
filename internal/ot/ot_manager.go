@@ -14,7 +14,7 @@ import (
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage/backend"
-	cgroup "github.com/cloudflare/circl/group"
+	"github.com/cloudflare/circl/group"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -35,8 +35,9 @@ var (
 	ErrClusterKeyGen     = errors.New("failed to generate cluter key")
 	ErrBlobUninitialized = errors.New("blob is uninitialized (nil or all zeroes)")
 	ErrBlobSizeCorrupted = errors.New("blob size is malformed, expected SlotCount * SlotSize")
-	// package wide group used for eliptic curve math
-	defaultGroup = cgroup.Ristretto255
+
+	// Default package wide group used for eliptic curve math
+	Group = group.Ristretto255
 )
 
 type Options struct {
@@ -133,8 +134,8 @@ func (om *OTManager) Init() (pointA, token []byte, err error) {
 	om.metrics.InitCount.Inc()
 	defer func() { om.metrics.InitDurationSec.Observe(time.Since(start).Seconds()) }()
 
-	a := defaultGroup.RandomScalar(rand.Reader)
-	A := defaultGroup.NewElement().MulGen(a)
+	a := Group.RandomScalar(rand.Reader)
+	A := Group.NewElement().MulGen(a)
 
 	aBytes, err := a.MarshalBinary()
 	if err != nil {
@@ -176,7 +177,7 @@ func (om *OTManager) Transfer(token, pointB []byte) (ciphertexts [][]byte, err e
 	om.metrics.TransferCount.Inc()
 	defer func() { om.metrics.TransferDurationSec.Observe(time.Since(start).Seconds()) }()
 
-	B := defaultGroup.NewElement()
+	B := Group.NewElement()
 	if err := B.UnmarshalBinary(pointB); err != nil {
 		om.metrics.TransferErrorsTotal.Inc()
 		return nil, fmt.Errorf("ot error: %w", err)
@@ -192,12 +193,12 @@ func (om *OTManager) Transfer(token, pointB []byte) (ciphertexts [][]byte, err e
 		return nil, fmt.Errorf("ot error: %w", err)
 	}
 
-	a := defaultGroup.NewScalar()
+	a := Group.NewScalar()
 	if err := a.UnmarshalBinary(aBytes); err != nil {
 		om.metrics.TransferErrorsTotal.Inc()
 		return nil, fmt.Errorf("ot error: %w", err)
 	}
-	A := defaultGroup.NewElement().MulGen(a)
+	A := Group.NewElement().MulGen(a)
 
 	rtx := om.backend.ReadTx()
 	rtx.RLock()
@@ -216,14 +217,14 @@ func (om *OTManager) Transfer(token, pointB []byte) (ciphertexts [][]byte, err e
 	}
 
 	hasher := sha256.New()
-	aB := defaultGroup.NewElement().Mul(B, a)
-	T := defaultGroup.NewElement().Mul(A, a)
+	aB := Group.NewElement().Mul(B, a)
+	T := Group.NewElement().Mul(A, a)
 
 	ciphertexts = make([][]byte, 0, om.opts.SlotCount)
 
 	for e, slot := range slots {
-		eScalar := defaultGroup.NewScalar().SetUint64(uint64(e))
-		eT := defaultGroup.NewElement().Mul(T, eScalar)
+		eScalar := Group.NewScalar().SetUint64(uint64(e))
+		eT := Group.NewElement().Mul(T, eScalar)
 		eKeyPoint := sub(aB, eT)
 		eKeyPointBytes, err := eKeyPoint.MarshalBinary()
 		if err != nil {
@@ -351,9 +352,9 @@ func (om *OTManager) encryptSlot(slot, key []byte) ([]byte, error) {
 	return aead.Seal(nonce, nonce, slot, nil), nil
 }
 
-func sub(a, b cgroup.Element) cgroup.Element {
-	negB := defaultGroup.NewElement().Neg(b)
-	return defaultGroup.NewElement().Add(a, negB)
+func sub(a, b group.Element) group.Element {
+	negB := Group.NewElement().Neg(b)
+	return Group.NewElement().Add(a, negB)
 }
 
 func (om *OTManager) CheckBlob(blob []byte) error {

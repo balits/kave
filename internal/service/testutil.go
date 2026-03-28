@@ -2,62 +2,37 @@ package service
 
 import (
 	"context"
-	"errors"
 
 	"github.com/balits/kave/internal/config"
-	"github.com/balits/kave/internal/util"
+	"github.com/balits/kave/internal/transport"
 	"github.com/hashicorp/raft"
 )
 
-type mockPeerService struct {
-	me       config.Peer
-	isLeader util.IsLeaderFunc
+type MockPeerService struct {
+	Me_             config.Peer
+	Leader          config.Peer
+	ErrLeader       error
+	ErrVerifyLeader error
+	State_          raft.RaftState
+	ErrLag          error
 }
 
-func (p *mockPeerService) Me() config.Peer { return p.me }
-func (p *mockPeerService) State() raft.RaftState {
-	if p.isLeader() {
-		return raft.Leader
-	} else {
-		return raft.Follower
-	}
-}
+func (p *MockPeerService) Me() config.Peer                      { return p.Me_ }
+func (p *MockPeerService) State() raft.RaftState                { return p.State_ }
+func (p *MockPeerService) GetPeers() map[string]config.Peer     { return nil }
+func (p *MockPeerService) GetLeader() (config.Peer, error)      { return p.Leader, p.ErrLeader }
+func (p *MockPeerService) VerifyLeader(_ context.Context) error { return p.ErrVerifyLeader }
+func (p *MockPeerService) LaggingBehind() error                 { return p.ErrLag }
 
-func (p *mockPeerService) GetPeers() map[string]config.Peer { return make(map[string]config.Peer) }
+type MockClusterService struct{}
 
-func (p *mockPeerService) GetLeader() (config.Peer, error) {
-	if p.isLeader() {
-		return p.me, nil
-	} else {
-		return config.Peer{}, nil
-	}
-}
-
-func (p *mockPeerService) VerifyLeader(ctx context.Context) error {
-	if p.isLeader() {
-		return nil
-	} else {
-		return errors.New("not leader")
-	}
-}
-
-func (p *mockPeerService) LaggingBehind() error {
+func (n *MockClusterService) Bootstrap(_ context.Context) error { return nil }
+func (n *MockClusterService) JoinCluster(_ context.Context, _ map[string]config.Peer) error {
 	return nil
 }
-
-type mockApplyFuture struct {
-	result any
-	index  uint64
-}
-
-func (f *mockApplyFuture) Error() error {
+func (n *MockClusterService) AddToCluster(_ context.Context, _ transport.JoinRequest) error {
 	return nil
 }
-
-func (f *mockApplyFuture) Index() uint64 {
-	return f.index
-}
-
-func (f *mockApplyFuture) Response() any {
-	return f.result
+func (n *MockClusterService) Stats() (map[string]string, error) {
+	return map[string]string{"state": "Leader"}, nil
 }

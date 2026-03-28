@@ -1,0 +1,344 @@
+package service
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/balits/kave/internal/command"
+	"github.com/balits/kave/internal/config"
+	"github.com/balits/kave/internal/fsm"
+	"github.com/balits/kave/internal/lease"
+	"github.com/balits/kave/internal/metrics"
+	"github.com/balits/kave/internal/mvcc"
+	"github.com/balits/kave/internal/ot"
+	"github.com/balits/kave/internal/schema"
+	"github.com/balits/kave/internal/storage"
+	"github.com/balits/kave/internal/storage/backend"
+	"github.com/balits/kave/internal/types/api"
+	"github.com/hashicorp/raft"
+	"github.com/stretchr/testify/require"
+)
+
+type testOTService struct {
+	OTService
+	t   *testing.T
+	ctx context.Context
+	om  *ot.OTManager
+}
+
+func newTestOTService(t *testing.T) (*testOTService, ot.MockOTClient) {
+	t.Helper()
+	logger := slog.Default()
+	reg := metrics.InitTestPrometheus()
+	be := backend.New(reg, storage.StorageOptions{
+		Kind:           storage.StorageKindInMemory,
+		InitialBuckets: schema.AllBuckets,
+	})
+	kvstore := mvcc.NewKvStore(reg, logger, be)
+	lm := lease.NewManager(reg, logger, kvstore, be)
+	t.Cleanup(func() { be.Close() })
+
+	om, err := ot.NewOTManager(reg, logger, be, ot.DefaultOptions)
+	require.NoError(t, err)
+
+	f := fsm.New(logger, kvstore, lm, om, "test-ot")
+
+	var logIndex atomic.Uint64
+	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {
+		bs, err := command.Encode(cmd)
+		if err != nil {
+			return nil, err
+		}
+		idx := logIndex.Add(1)
+		res := f.Apply(&raft.Log{
+			Index: idx,
+			Data:  bs,
+			Term:  1,
+			Type:  raft.LogCommand,
+		})
+		result, ok := res.(command.Result)
+		if !ok {
+			return nil, fmt.Errorf("unexpected result type from FSM")
+		}
+		return &result, nil
+	}
+
+	genRes, err := propose(context.Background(), command.Command{
+		Kind:                 command.KindOTGenerateClusterKey,
+		OTGenerateClusterKey: &command.CmdOTGenerateClusterKey{},
+	})
+	require.NoError(t, err)
+	require.NoError(t, genRes.Error, "FSM should not return an error for cluster key generation")
+	require.NotNil(t, genRes.OtGenerateClusterKey)
+	require.Len(t, genRes.OtGenerateClusterKey.Key, ot.ClusterKeySize)
+
+	require.NoError(t, om.InitTokenCodec())
+
+	peerSvc := &MockPeerService{
+		Me_:    testPeer(),
+		Leader: testPeer(),
+		State_: raft.Leader,
+	}
+	svc := NewOTService(logger, kvstore, om, peerSvc, propose)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	t.Cleanup(cancel)
+
+	return &testOTService{
+		OTService: svc,
+		t:         t,
+		ctx:       ctx,
+		om:        om,
+	}, ot.MockOTClient{T: t}
+}
+
+func testPeer() config.Peer {
+	return config.Peer{
+		NodeID:   "test-ot",
+		Hostname: "0.0.0.0",
+		HttpPort: "8000",
+		RaftPort: "7000",
+	}
+}
+
+func makeTestBlob(slotCount, slotSize int) []byte {
+	blob := make([]byte, slotCount*slotSize)
+	for i := range slotCount {
+		offset := i * slotSize
+		blob[offset] = byte(i)
+		for j := 1; j < slotSize; j++ {
+			blob[offset+j] = byte(i + 1 + j)
+		}
+	}
+	return blob
+}
+
+func (ts *testOTService) mustInit() *api.OTInitResponse {
+	ts.t.Helper()
+	res, err := ts.Init(ts.ctx, api.OTInitRequest{})
+	require.NoError(ts.t, err)
+	require.NotNil(ts.t, res)
+	return res
+}
+
+func (ts *testOTService) mustWriteAll(blob []byte) *api.OTWriteAllResponse {
+	ts.t.Helper()
+	res, err := ts.WriteAll(ts.ctx, api.OTWriteAllRequest{Blob: blob})
+	require.NoError(ts.t, err, "WriteAll failed")
+	require.NotNil(ts.t, res)
+	return res
+}
+
+// func Choose(t *testing.T, pointABytes []byte, choice int) (pointBBytes []byte, b group.Scalar) {
+// 	t.Helper()
+// 	A := ot.Group.NewElement()
+// 	require.NoError(t, A.UnmarshalBinary(pointABytes))
+
+// 	b = ot.Group.RandomScalar(rand.Reader)
+// 	cScalar := ot.Group.NewScalar().SetUint64(uint64(choice))
+// 	cA := ot.Group.NewElement().Mul(A, cScalar)
+// 	bG := ot.Group.NewElement().MulGen(b)
+// 	B := ot.Group.NewElement().Add(bG, cA)
+
+// 	pointBBytes, err := B.MarshalBinary()
+// 	require.NoError(t, err)
+// 	return
+// }
+
+// func TryDecrypt(t *testing.T, pointABytes []byte, b group.Scalar, ct []byte) ([]byte, error) {
+// 	t.Helper()
+// 	A := ot.Group.NewElement()
+// 	if err := A.UnmarshalBinary(pointABytes); err != nil {
+// 		return nil, err
+// 	}
+
+// 	key := ot.Group.NewElement().Mul(A, b)
+// 	keyBytes, err := key.MarshalBinary()
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	h := sha256.New()
+// 	h.Write(keyBytes)
+// 	hk := h.Sum(nil)
+
+// 	block, err := aes.NewCipher(hk)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	aead, err := cipher.NewGCM(block)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	ns := aead.NonceSize()
+// 	if len(ct) < ns {
+// 		return nil, fmt.Errorf("ciphertext too short")
+// 	}
+// 	return aead.Open(nil, ct[:ns], ct[ns:], nil)
+// }
+
+func Test_OTService_Init_ReturnsPointAAndToken(t *testing.T) {
+	ts, _ := newTestOTService(t)
+	res := ts.mustInit()
+
+	require.Len(t, res.Token, ot.TokenSize)
+	require.Len(t, res.PointA, 32, "Ristretto255 point is 32 bytes")
+	require.NotEmpty(t, res.Header.NodeID)
+}
+
+func Test_OTService_Init_UniquePerCall(t *testing.T) {
+	ts, _ := newTestOTService(t)
+	r1 := ts.mustInit()
+	r2 := ts.mustInit()
+	require.NotEqual(t, r1.Token, r2.Token)
+}
+
+func Test_OTService_WriteAll_OK(t *testing.T) {
+	ts, _ := newTestOTService(t)
+	blob := makeTestBlob(ot.DefaultSlotCount, ot.DefaultSlotSize)
+	res := ts.mustWriteAll(blob)
+	require.NotNil(t, res)
+	require.NotZero(t, res.Header.RaftIndex)
+}
+
+func Test_OTService_WriteAll_RejectsNilBlob(t *testing.T) {
+	ts, _ := newTestOTService(t)
+	_, err := ts.WriteAll(ts.ctx, api.OTWriteAllRequest{Blob: nil})
+	require.Error(t, err)
+}
+
+func Test_OTService_WriteAll_RejectsWrongSizeBlob(t *testing.T) {
+	ts, _ := newTestOTService(t)
+	_, err := ts.WriteAll(ts.ctx, api.OTWriteAllRequest{Blob: []byte("too small")})
+	require.Error(t, err)
+}
+
+func Test_OTService_Transfer_ReturnsNSlotCiphertexts(t *testing.T) {
+	ts, c := newTestOTService(t)
+	blob := makeTestBlob(ot.DefaultSlotCount, ot.DefaultSlotSize)
+	ts.mustWriteAll(blob)
+
+	initRes := ts.mustInit()
+	choice := 0
+	pointB, _ := c.Choose(initRes.PointA, choice)
+
+	transferRes, err := ts.Transfer(ts.ctx, api.OTTransferRequest{
+		Token:  initRes.Token,
+		PointB: pointB,
+	})
+	require.NoError(t, err)
+	require.Len(t, transferRes.Ciphertexts, ot.DefaultSlotCount)
+}
+
+func Test_OTService_Transfer_NoBlobWritten_Fails(t *testing.T) {
+	ts, c := newTestOTService(t)
+	initRes := ts.mustInit()
+
+	pointB, _ := c.Choose(initRes.PointA, 0)
+	_, err := ts.Transfer(ts.ctx, api.OTTransferRequest{
+		Token:  initRes.Token,
+		PointB: pointB,
+	})
+	require.Error(t, err)
+}
+
+func Test_OTService_Transfer_InvalidPointB_Fails(t *testing.T) {
+	ts, _ := newTestOTService(t)
+	blob := makeTestBlob(ot.DefaultSlotCount, ot.DefaultSlotSize)
+	ts.mustWriteAll(blob)
+
+	initRes := ts.mustInit()
+	_, err := ts.Transfer(ts.ctx, api.OTTransferRequest{
+		Token:  initRes.Token,
+		PointB: []byte("bad"),
+	})
+	require.Error(t, err)
+}
+
+func Test_OTService_Transfer_TamperedToken_Fails(t *testing.T) {
+	ts, c := newTestOTService(t)
+	blob := makeTestBlob(ot.DefaultSlotCount, ot.DefaultSlotSize)
+	ts.mustWriteAll(blob)
+
+	initRes := ts.mustInit()
+	pointB, _ := c.Choose(initRes.PointA, 0)
+
+	tampered := make([]byte, len(initRes.Token))
+	copy(tampered, initRes.Token)
+	tampered[14] ^= 0xFF
+
+	_, err := ts.Transfer(ts.ctx, api.OTTransferRequest{
+		Token:  tampered,
+		PointB: pointB,
+	})
+	require.Error(t, err)
+}
+
+// E2E: Init → WriteAll → Transfer → client.decrypt
+
+func Test_OTService_E2E_ChosenSlotDecrypts(t *testing.T) {
+	ts, c := newTestOTService(t)
+	blob := makeTestBlob(ot.DefaultSlotCount, ot.DefaultSlotSize)
+	ts.mustWriteAll(blob)
+
+	initRes := ts.mustInit()
+	choice := 5
+	pointB, b := c.Choose(initRes.PointA, choice)
+
+	transferRes, err := ts.Transfer(ts.ctx, api.OTTransferRequest{
+		Token:  initRes.Token,
+		PointB: pointB,
+	})
+	require.NoError(t, err)
+	require.Len(t, transferRes.Ciphertexts, ot.DefaultSlotCount)
+
+	expected := blob[choice*ot.DefaultSlotSize : (choice+1)*ot.DefaultSlotSize]
+	got, err := c.TryDecrypt(initRes.PointA, b, transferRes.Ciphertexts[choice])
+	require.NoError(t, err)
+	require.Equal(t, expected, got)
+}
+
+func Test_OTService_E2E_NonChosenSlotsFail(t *testing.T) {
+	ts, c := newTestOTService(t)
+	blob := makeTestBlob(ot.DefaultSlotCount, ot.DefaultSlotSize)
+	ts.mustWriteAll(blob)
+
+	initRes := ts.mustInit()
+	choice := 3
+	pointB, b := c.Choose(initRes.PointA, choice)
+
+	transferRes, err := ts.Transfer(ts.ctx, api.OTTransferRequest{
+		Token:  initRes.Token,
+		PointB: pointB,
+	})
+	require.NoError(t, err)
+
+	for i, ct := range transferRes.Ciphertexts {
+		if i == choice {
+			continue
+		}
+		_, err := c.TryDecrypt(initRes.PointA, b, ct)
+		require.Error(t, err, "slot %d should NOT decrypt with choice=%d key", i, choice)
+	}
+}
+
+func Test_OTService_Init_HeaderContainsNodeID(t *testing.T) {
+	ts, _ := newTestOTService(t)
+	res := ts.mustInit()
+	require.Equal(t, "test-ot", res.Header.NodeID)
+}
+
+func Test_OTService_WriteAll_HeaderHasRaftMeta(t *testing.T) {
+	ts, _ := newTestOTService(t)
+	blob := makeTestBlob(ot.DefaultSlotCount, ot.DefaultSlotSize)
+	res := ts.mustWriteAll(blob)
+
+	require.NotZero(t, res.Header.RaftIndex)
+	require.NotZero(t, res.Header.RaftTerm)
+	require.Equal(t, "test-ot", res.Header.NodeID)
+}

@@ -1,11 +1,11 @@
 package transport
 
 const (
-	UriApiVersion = "/v1"
-	UriKv         = UriApiVersion + "/kv"
-	UriLease      = UriApiVersion + "/lease"
-	UriCluster    = UriApiVersion + "/cluster"
-	UriOT         = UriApiVersion + "/ot"
+	ApiVersion   = "/v1"
+	RouteKv      = ApiVersion + "/kv"
+	RouteLease   = ApiVersion + "/lease"
+	RouteCluster = ApiVersion + "/cluster"
+	RouteOt      = ApiVersion + "/ot"
 )
 
 type JoinRequest struct {

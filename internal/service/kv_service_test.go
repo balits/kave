@@ -47,7 +47,6 @@ func newTestKVService(t *testing.T) *testKVService {
 	t.Cleanup(func() { backend.Close() })
 	fsm := fsm.New(logger, kvstore, lm, nil, me.NodeID)
 
-	isLeader := func() bool { return true }
 	var logIndex atomic.Uint64
 	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {
 		bs, err := command.Encode(cmd)
@@ -68,7 +67,11 @@ func newTestKVService(t *testing.T) *testKVService {
 		return &result, nil
 	}
 
-	peersvc := &mockPeerService{me: me, isLeader: isLeader}
+	peersvc := &MockPeerService{
+		Me_:    testPeer(),
+		Leader: testPeer(),
+		State_: raft.Leader,
+	}
 	svc := NewKVService(logger, kvstore, peersvc, propose)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	t.Cleanup(cancel)
