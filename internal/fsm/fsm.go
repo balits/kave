@@ -222,13 +222,13 @@ func (f *Fsm) applyOT(cmd command.Command) (res command.Result) {
 	case command.KindOTGenerateClusterKey:
 		var sub *command.ResultOTGenerateClusterKey
 		sub, err = f.om.ApplyGenerateClusterKey()
-		if err != nil {
+		if err == nil {
 			res.OtGenerateClusterKey = sub
 		}
 	case command.KindOTWriteAll:
 		var sub *command.ResultOTWriteAll
 		sub, err = f.om.ApplyWriteAll(*cmd.OTWriteAll)
-		if err != nil {
+		if err == nil {
 			res.OtWriteAll = sub
 		}
 	}

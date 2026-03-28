@@ -20,7 +20,7 @@ func newTestStore() *InmemStore {
 	}).(*InmemStore)
 }
 
-func TestGetMissingKey(t *testing.T) {
+func Test_Get_MissingKey(t *testing.T) {
 	s := newTestStore()
 	val, err := s.Get(testBucket, []byte("nope"))
 	if err != nil {
@@ -31,7 +31,7 @@ func TestGetMissingKey(t *testing.T) {
 	}
 }
 
-func TestGetWrongBucket(t *testing.T) {
+func Test_Get_WrongBucket(t *testing.T) {
 	s := newTestStore()
 	_, err := s.Get("nonexistent", []byte("key"))
 	if err == nil {
@@ -39,7 +39,7 @@ func TestGetWrongBucket(t *testing.T) {
 	}
 }
 
-func TestGetAfterPut(t *testing.T) {
+func Test_Get_AfterPut(t *testing.T) {
 	s := newTestStore()
 	s.Put(testBucket, []byte("k"), []byte("v"))
 
@@ -52,7 +52,7 @@ func TestGetAfterPut(t *testing.T) {
 	}
 }
 
-func TestPutWrongBucket(t *testing.T) {
+func Test_Put_WrongBucket(t *testing.T) {
 	s := newTestStore()
 	_, err := s.Put("nonexistent", []byte("k"), []byte("v"))
 	if err == nil {
@@ -60,7 +60,7 @@ func TestPutWrongBucket(t *testing.T) {
 	}
 }
 
-func TestPutOverwrite(t *testing.T) {
+func Test_Put_Overwrite(t *testing.T) {
 	s := newTestStore()
 	s.Put(testBucket, []byte("k"), []byte("v1"))
 	s.Put(testBucket, []byte("k"), []byte("v2"))
@@ -71,7 +71,7 @@ func TestPutOverwrite(t *testing.T) {
 	}
 }
 
-func TestPutMultipleBuckets(t *testing.T) {
+func Test_Put_MultipleBuckets(t *testing.T) {
 	s := newTestStore()
 	s.Put(testBucket, []byte("dk"), []byte("dv"))
 	s.Put(metaBucket, []byte("mk"), []byte("mv"))
@@ -86,7 +86,7 @@ func TestPutMultipleBuckets(t *testing.T) {
 	}
 }
 
-func TestDeleteExisting(t *testing.T) {
+func Test_DeleteExisting(t *testing.T) {
 	s := newTestStore()
 	s.Put(testBucket, []byte("k"), []byte("v"))
 
@@ -104,7 +104,7 @@ func TestDeleteExisting(t *testing.T) {
 	}
 }
 
-func TestDeleteMissing(t *testing.T) {
+func Test_DeleteMissing(t *testing.T) {
 	s := newTestStore()
 	val, err := s.Delete(testBucket, []byte("nope"))
 	if err != nil {
@@ -115,7 +115,7 @@ func TestDeleteMissing(t *testing.T) {
 	}
 }
 
-func TestDeleteWrongBucket(t *testing.T) {
+func Test_DeleteWrongBucket(t *testing.T) {
 	s := newTestStore()
 	_, err := s.Delete("nonexistent", []byte("k"))
 	if err == nil {
@@ -123,7 +123,7 @@ func TestDeleteWrongBucket(t *testing.T) {
 	}
 }
 
-func TestScanAll(t *testing.T) {
+func Test_Scan_All(t *testing.T) {
 	s := newTestStore()
 	s.Put(testBucket, []byte("a"), []byte("1"))
 	s.Put(testBucket, []byte("b"), []byte("2"))
@@ -142,7 +142,7 @@ func TestScanAll(t *testing.T) {
 	}
 }
 
-func TestScanEarlyStop(t *testing.T) {
+func Test_Scan_EarlyStop(t *testing.T) {
 	s := newTestStore()
 	s.Put(testBucket, []byte("a"), []byte("1"))
 	s.Put(testBucket, []byte("b"), []byte("2"))
@@ -158,7 +158,7 @@ func TestScanEarlyStop(t *testing.T) {
 	}
 }
 
-func TestScanWrongBucket(t *testing.T) {
+func Test_Scan_WrongBucket(t *testing.T) {
 	s := newTestStore()
 	err := s.Scan("nonexistent", func(k, v []byte) bool { return true })
 	if err == nil {
@@ -166,7 +166,7 @@ func TestScanWrongBucket(t *testing.T) {
 	}
 }
 
-func TestScanOrder(t *testing.T) {
+func Test_Scan_Order(t *testing.T) {
 	s := newTestStore()
 	s.Put(testBucket, []byte("c"), []byte("3"))
 	s.Put(testBucket, []byte("a"), []byte("1"))
@@ -182,7 +182,7 @@ func TestScanOrder(t *testing.T) {
 	}
 }
 
-func TestPrefixScan(t *testing.T) {
+func Test_PrefixScan(t *testing.T) {
 	s := newTestStore()
 	s.Put(testBucket, []byte("foo/1"), []byte("a"))
 	s.Put(testBucket, []byte("foo/2"), []byte("b"))
@@ -201,7 +201,7 @@ func TestPrefixScan(t *testing.T) {
 	}
 }
 
-func TestPrefixScanNoMatch(t *testing.T) {
+func Test_PrefixScanNoMatch(t *testing.T) {
 	s := newTestStore()
 	s.Put(testBucket, []byte("abc"), []byte("1"))
 
@@ -215,7 +215,7 @@ func TestPrefixScanNoMatch(t *testing.T) {
 	}
 }
 
-func TestPrefixScanWrongBucket(t *testing.T) {
+func Test_PrefixScanWrongBucket(t *testing.T) {
 	s := newTestStore()
 	err := s.PrefixScan("nonexistent", []byte("x"), func(k, v []byte) bool { return true })
 	if err == nil {
@@ -223,7 +223,7 @@ func TestPrefixScanWrongBucket(t *testing.T) {
 	}
 }
 
-func TestWriteToReadFromRoundTrip(t *testing.T) {
+func Test_WriteToReadFromRoundTrip(t *testing.T) {
 	s := newTestStore()
 	s.Put(testBucket, []byte("k1"), []byte("v1"))
 	s.Put(testBucket, []byte("k2"), []byte("v2"))
@@ -256,7 +256,7 @@ func TestWriteToReadFromRoundTrip(t *testing.T) {
 	}
 }
 
-func TestReadFromOverwrites(t *testing.T) {
+func Test_ReadFromOverwrites(t *testing.T) {
 	s1 := newTestStore()
 	s1.Put(testBucket, []byte("src"), []byte("from_source"))
 
@@ -413,7 +413,7 @@ func Test_Defragment_EmptyStore(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestDefragment_MultipleBuckets(t *testing.T) {
+func Test_Defragment_MultipleBuckets(t *testing.T) {
 	s := newTestStore()
 
 	s.Put(testBucket, []byte("dk"), []byte("dv"))
@@ -430,7 +430,7 @@ func TestDefragment_MultipleBuckets(t *testing.T) {
 	require.Equal(t, []byte("mv"), mv, "meta bucket value lost after defrag")
 }
 
-func TestDefragment_AfterManyDeletes(t *testing.T) {
+func Test_Defragment_AfterManyDeletes(t *testing.T) {
 	s := newTestStore()
 
 	for i := range 1000 {
@@ -457,7 +457,7 @@ func TestDefragment_AfterManyDeletes(t *testing.T) {
 	}
 }
 
-func TestDefragment_IdempotentMultipleTimes(t *testing.T) {
+func Test_Defragment_IdempotentMultipleTimes(t *testing.T) {
 	s := newTestStore()
 
 	s.Put(testBucket, []byte("k"), []byte("v"))
@@ -471,7 +471,7 @@ func TestDefragment_IdempotentMultipleTimes(t *testing.T) {
 	require.Equal(t, []byte("v"), val)
 }
 
-func TestDefragment_ScanStillWorksAfter(t *testing.T) {
+func Test_Defragment_ScanStillWorksAfter(t *testing.T) {
 	s := newTestStore()
 
 	for i := range 10 {
@@ -489,7 +489,7 @@ func TestDefragment_ScanStillWorksAfter(t *testing.T) {
 	require.Equal(t, 10, count, "scan should return all keys after defrag")
 }
 
-func TestDefragment_ReducesFileSize(t *testing.T) {
+func Test_Defragment_ReducesFileSize(t *testing.T) {
 	s := newTestStore()
 
 	// write and delete enough data that boltdb's file should have

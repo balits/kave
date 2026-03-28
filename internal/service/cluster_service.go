@@ -90,7 +90,7 @@ func (s *clusterService) AddToCluster(ctx context.Context, req transport.JoinReq
 func (s *clusterService) JoinCluster(ctx context.Context, peers map[string]config.Peer) error {
 	var urls []string
 	for _, p := range peers {
-		urls = append(urls, p.HttpURL()+transport.UriCluster+"/join")
+		urls = append(urls, p.HttpURL()+transport.RouteCluster+"/join")
 	}
 	s.logger.Info("Attempting to join cluster", "peers", urls)
 

@@ -162,12 +162,36 @@ Hello world
             - [ ] tls on raft inter node communication
         - [x] handle http redirects from follower to leader
             - single host reverse proxy?
-        - [x] http tests
+        - [ ] http tests
+            - [ ] middleware
+                - [x] readMiddleware
+                    - switch request.Serializable 
+                        - case True: serve reads localy
+                        - case False: proxy to leader + VerfiyLeader() (later use ReadIndex optimization discussed in the raft paper)
+                - [x] writeModeMiddleware
+                    - proxy to leader
+            - [x] kv
+            - [x] lease
+            - [x] ot
+            - [x] health/debug
+        - [x] response code
+            - [x] only propose err should return 500 (503 to be exact)
+            - [x] rest are 400
     - [ ] BatchingFSM
     - [ ] kv index
         - [ ] LICENSE from etcd: http://www.apache.org/licenses/LICENSE-2.0
         - [ ] batch kvindex updates, rollback on commit failure
     - [ ] OT
+        - [x] type TokenCodec
+            - [x] impl
+            - [x] test
+        - [x] type OTManager
+            - [x] impl
+            - [x] test
+        - [x] type OTService
+            - [x] impl
+            - [ ] test
+    - [ ] refactor LeaseService return types
     - [ ] cluster integration tests
     - [ ] live workload + web ui for stats, metrics and manual commands
 

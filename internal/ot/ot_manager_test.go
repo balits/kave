@@ -1,11 +1,6 @@
 package ot
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"crypto/sha256"
-	"fmt"
 	"log/slog"
 	"testing"
 
@@ -14,7 +9,6 @@ import (
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
-	"github.com/cloudflare/circl/group"
 	"github.com/stretchr/testify/require"
 )
 
@@ -50,23 +44,9 @@ func newTestOTManager(t *testing.T, opts *Options) *OTManager {
 	return om
 }
 
-func newBlob(t *testing.T, om *OTManager) []byte {
-	t.Helper()
-	blob := make([]byte, om.opts.SlotCount*om.opts.SlotSize)
-	for i := range om.opts.SlotCount {
-		offset := i * om.opts.SlotSize
-
-		blob[offset] = byte(i)
-		for j := range om.opts.SlotSize {
-			blob[offset+j] = byte(i + j)
-		}
-	}
-	return blob
-}
-
 func mustWriteBlob(t *testing.T, om *OTManager) []byte {
 	t.Helper()
-	blob := newBlob(t, om)
+	blob := FakeBlob(t, om)
 	_, err := om.ApplyWriteAll(command.CmdOTWriteAll{Blob: blob})
 	require.NoError(t, err)
 	return blob
@@ -119,7 +99,7 @@ func Test_OTManager_Init(t *testing.T) {
 	require.NotNil(t, pointA)
 	require.NotNil(t, token)
 	require.Len(t, token, TokenSize, "token length = %d, want %d", len(token), TokenSize)
-	require.Len(t, pointA, int(defaultGroup.Params().ScalarLength), "pointA length = %d, want %d", len(pointA), 32)
+	require.Len(t, pointA, int(Group.Params().ScalarLength), "pointA length = %d, want %d", len(pointA), 32)
 
 }
 
@@ -130,11 +110,6 @@ func Test_OTManager_Init_UniquePerCall(t *testing.T) {
 	_, tok2, err := om.Init()
 	require.NoError(t, err)
 	require.NotEqual(t, tok1, tok2)
-}
-
-func Test_OTManager_SetTokenCodec_DoubleInitFails(t *testing.T) {
-	om := newTestOTManager(t, nil)
-	require.Error(t, om.InitTokenCodec())
 }
 
 func Test_OTManager_CheckBlob_Nil(t *testing.T) {
@@ -155,13 +130,13 @@ func Test_OTManager_CheckBlob_WrongSize(t *testing.T) {
 
 func Test_OTManager_CheckBlob_Valid(t *testing.T) {
 	om := newTestOTManager(t, nil)
-	blob := newBlob(t, om)
+	blob := FakeBlob(t, om)
 	require.NoError(t, om.CheckBlob(blob))
 }
 
 func Test_OTManager_ApplyWriteAll(t *testing.T) {
 	om := newTestOTManager(t, nil)
-	blob := newBlob(t, om)
+	blob := FakeBlob(t, om)
 	_, err := om.ApplyWriteAll(command.CmdOTWriteAll{Blob: blob})
 	require.NoError(t, err)
 }
@@ -178,7 +153,7 @@ func Test_OTManager_ApplyWriteAll_RejectsInvalidBlob(t *testing.T) {
 
 func Test_OTManager_BlobToSlots_AllSlotsPresent(t *testing.T) {
 	om := newTestOTManager(t, nil)
-	blob := newBlob(t, om)
+	blob := FakeBlob(t, om)
 
 	slots, err := om.blobToSlots(blob)
 	require.NoError(t, err)
@@ -193,34 +168,34 @@ func Test_OTManager_BlobToSlots_AllSlotsPresent(t *testing.T) {
 func Test_OTManager_E2E_ChosenSlotDecrypts(t *testing.T) {
 	om := newTestOTManager(t, nil)
 	blob := mustWriteBlob(t, om)
-	cl := &client{t: t}
+	cl := &MockOTClient{T: t}
 
 	pointA, token, err := om.Init()
 	require.NoError(t, err)
 
 	// 1 idx -> 2. elem
 	choiceIdx := 1
-	pointB, scalarB := cl.choose(pointA, choiceIdx)
+	pointB, scalarB := cl.Choose(pointA, choiceIdx)
 
 	ciphertexts, err := om.Transfer(token, pointB)
 	require.NoError(t, err)
 	require.Len(t, ciphertexts, om.opts.SlotCount)
 
 	expected := blob[choiceIdx*om.opts.SlotSize : (choiceIdx+1)*om.opts.SlotSize]
-	plaintext := cl.decrypt(pointA, scalarB, ciphertexts, choiceIdx)
+	plaintext := cl.Decrypt(pointA, scalarB, ciphertexts, choiceIdx)
 	require.Equal(t, expected, plaintext)
 }
 
 func Test_OTManager_EndToEnd_NonChosenSlotsFail(t *testing.T) {
 	om := newTestOTManager(t, nil)
 	mustWriteBlob(t, om)
-	cl := &client{t: t}
+	cl := &MockOTClient{T: t}
 
 	pointA, token, err := om.Init()
 	require.NoError(t, err)
 
 	choice := 0
-	pointB, scalarB := cl.choose(pointA, choice)
+	pointB, scalarB := cl.Choose(pointA, choice)
 
 	ciphertexts, err := om.Transfer(token, pointB)
 	require.NoError(t, err)
@@ -229,7 +204,7 @@ func Test_OTManager_EndToEnd_NonChosenSlotsFail(t *testing.T) {
 		if i == choice {
 			continue
 		}
-		_, err := cl.trydecrypt(pointA, scalarB, ct)
+		_, err := cl.TryDecrypt(pointA, scalarB, ct)
 		require.Error(t, err, "slot %d should NOT decrypt with choice=%d's key", i, choice)
 	}
 }
@@ -237,18 +212,18 @@ func Test_OTManager_EndToEnd_NonChosenSlotsFail(t *testing.T) {
 func Test_OTManager_EndToEnd_AllChoicesWork(t *testing.T) {
 	om := newTestOTManager(t, nil)
 	blob := mustWriteBlob(t, om)
-	cl := &client{t: t}
+	cl := &MockOTClient{T: t}
 
 	for choice := range om.opts.SlotCount {
 		pointA, token, err := om.Init()
 		require.NoError(t, err)
 
-		pointB, scalarB := cl.choose(pointA, choice)
+		pointB, scalarB := cl.Choose(pointA, choice)
 		ciphertexts, err := om.Transfer(token, pointB)
 		require.NoError(t, err)
 
 		expected := blob[choice*om.opts.SlotSize : (choice+1)*om.opts.SlotSize]
-		got := cl.decrypt(pointA, scalarB, ciphertexts, choice)
+		got := cl.Decrypt(pointA, scalarB, ciphertexts, choice)
 		require.Equal(t, expected, got, "choice=%d", choice)
 	}
 }
@@ -256,7 +231,7 @@ func Test_OTManager_EndToEnd_AllChoicesWork(t *testing.T) {
 func Test_OTManager_EndToEnd_FirstAndLastSlot(t *testing.T) {
 	om := newTestOTManager(t, nil)
 	blob := mustWriteBlob(t, om)
-	cl := &client{t: t}
+	cl := &MockOTClient{T: t}
 
 	for choice := range om.opts.SlotCount {
 		if choice == 0 || choice == om.opts.SlotCount-1 {
@@ -265,98 +240,12 @@ func Test_OTManager_EndToEnd_FirstAndLastSlot(t *testing.T) {
 		pointA, token, err := om.Init()
 		require.NoError(t, err)
 
-		pointB, scalarB := cl.choose(pointA, choice)
+		pointB, scalarB := cl.Choose(pointA, choice)
 		ciphertexts, err := om.Transfer(token, pointB)
 		require.NoError(t, err)
 
 		expected := blob[choice*om.opts.SlotSize : (choice+1)*om.opts.SlotSize]
-		got := cl.decrypt(pointA, scalarB, ciphertexts, choice)
+		got := cl.Decrypt(pointA, scalarB, ciphertexts, choice)
 		require.Equal(t, expected, got, "choice=%d", choice)
 	}
-}
-
-// client performs the receivers role in 1-out-of-N OT.
-type client struct {
-	t *testing.T
-}
-
-// Protocol (receiver side):
-// Given server's point A and desired choice index c:
-//
-//	b       = random scalar
-//	B       = b*G + c*A       // blinded choice point
-func (c *client) choose(pointABytes []byte, choice int) (pointBBytes []byte, scalarB group.Scalar) {
-	c.t.Helper()
-
-	A := defaultGroup.NewElement()
-	err := A.UnmarshalBinary(pointABytes)
-	require.NoError(c.t, err)
-
-	cScalar := defaultGroup.NewScalar().SetUint64(uint64(choice))
-	cA := defaultGroup.NewElement().Mul(A, cScalar)
-
-	scalarB = defaultGroup.RandomScalar(rand.Reader)
-	bG := defaultGroup.NewElement().MulGen(scalarB)
-
-	B := defaultGroup.NewElement().Add(bG, cA)
-	pointBBytes, err = B.MarshalBinary()
-	require.NoError(c.t, err)
-	return
-}
-
-// After receiving ciphertexts from Transfer:
-//
-//	key     = b*A              // only matches slot c's encryption key
-//	hash    = sha256(key)
-//	plain   = GCM_Open(hash, ciphertexts[c])
-func (c *client) trydecrypt(pointABytes []byte, b group.Scalar, ct []byte) ([]byte, error) {
-	c.t.Helper()
-
-	A := defaultGroup.NewElement()
-	err := A.UnmarshalBinary(pointABytes)
-	if err != nil {
-		return nil, err
-	}
-
-	key := defaultGroup.NewElement().Mul(A, b)
-	keyBytes, err := key.MarshalBinary()
-	if err != nil {
-		return nil, err
-	}
-
-	hasher := sha256.New()
-	hasher.Write(keyBytes)
-	hashedKey := hasher.Sum(nil)
-
-	require.Len(c.t, hashedKey, 32, "hashed key size mismatch")
-	if len(hashedKey) != 32 {
-		return nil, err
-	}
-
-	block, err := aes.NewCipher(hashedKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create cipher blocka: %w", err)
-	}
-
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create GCM: %w", err)
-	}
-
-	nonce := ct[:aead.NonceSize()]
-	ciphertext := ct[aead.NonceSize():]
-
-	plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return nil, fmt.Errorf("decrypt failed: %v", err)
-	}
-
-	return plaintext, nil
-}
-
-func (c *client) decrypt(pointABytes []byte, b group.Scalar, ciphertexts [][]byte, choice int) []byte {
-	c.t.Helper()
-	plaintext, err := c.trydecrypt(pointABytes, b, ciphertexts[choice])
-	require.NoError(c.t, err)
-	return plaintext
 }

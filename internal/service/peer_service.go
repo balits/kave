@@ -69,12 +69,12 @@ func (p *peerService) GetPeers() map[string]config.Peer {
 func (p *peerService) GetLeader() (config.Peer, error) {
 	leaderAddr, leaderID := p.r.LeaderWithID()
 	if string(leaderID) == "" || string(leaderAddr) == "" {
-		return config.Peer{}, fmt.Errorf("%w: %v", ErrLeaderNotFound, "empty leaderID")
+		return config.Peer{}, fmt.Errorf("%w: %s", ErrLeaderNotFound, "empty leaderID")
 	}
 
 	leader, ok := p.peers[string(leaderID)]
 	if !ok {
-		return config.Peer{}, fmt.Errorf("%w: %v", ErrLeaderNotFound, "leader not in peer map")
+		return config.Peer{}, fmt.Errorf("%w: %s", ErrLeaderNotFound, "leader not in peer map")
 	}
 	return leader, nil
 }

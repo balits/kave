@@ -51,7 +51,7 @@ func (s *kvSvc) Range(ctx context.Context, req api.RangeRequest) (*api.RangeResp
 		)
 
 	if err := req.Check(); err != nil {
-		return nil, fmt.Errorf("range failer: malformed request: %w", err)
+		return nil, fmt.Errorf("range failed: malformed request: %w", err)
 	}
 
 	if !req.Serializable {
