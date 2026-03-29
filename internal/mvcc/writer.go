@@ -27,9 +27,26 @@ type Writer interface {
 	// The caller should call End() to commit the transaction and update the store's current revision.
 	DeleteKey(key []byte) error
 
+	// StartRev returns the writers start revision,
+	// and it gets updated when the writer commits a transaction.
+
+	// Put writes a key-value pair with the given lease ID.
+	// The caller should call End() to commit the transaction and update the store's current revision.
+	Put(key, value []byte, leaseID int64) error
+
+	// Delete deletes a [key, end) range if end is provided, or a single key if end is nil.
+	// The caller should call End() to commit the transaction and update the store's current revision.
+	DeleteRange(key, end []byte) error
+
+	// DeleteKey deletes a single key. It's a convenience method that calls DeleteRange with end = nil.
+	// The caller should call End() to commit the transaction and update the store's current revision.
+	DeleteKey(key []byte) error
+
+	// End commits the transaction and releases locks, returning any errors that mightve happened.
 	// End commits the transaction and releases locks, returning any errors that mightve happened.
 	// It updates the store's current revision and raft metadata, so it should be called after all changes are made.
 	// It should be called if the caller decides to commit the transaction.
+	End() error
 	End() error
 
 	// Abort discards all changes and releases locks. It should be called if the caller decides not to commit the transaction.
@@ -44,6 +61,12 @@ type Writer interface {
 	//
 	// NOTE: its only safe to rely on the expected end revision after calling w.End() without it producing an error
 	UnsafeExpectedChanges() (unsafeEndRev int64, unsafeChanges []*kv.Entry)
+
+	// UnsafeExpectedChanges returns all the changes made up until this point in time,
+	// and the expected end revision which would be the new global revision after succesfull call to w.End()
+	//
+	// NOTE: its only safe to rely on the expected end revision after calling w.End() without it producing an error
+	UnsafeExpectedChanges() (unsafeEndRev int64, unsageChanges []types.KvEntry)
 }
 
 type writer struct {
@@ -77,6 +100,13 @@ func (w *writer) StartRevision() kv.Revision { return w.startRev }
 func (w *writer) UnsafeExpectedChanges() (int64, []*kv.Entry) {
 	return w.startRev.Main + 1, w.changes
 }
+func (w *writer) StartRev() kv.Revision { return w.startRev }
+
+func (w *writer) UnsafeExpectedChanges() (int64, []types.KvEntry) {
+	return w.startRev.Main + 1, w.changes
+}
+
+// delegates
 
 func (w *writer) Get(key []byte, rev int64) *kv.Entry {
 	entries, _, _, err := w.Range(key, nil, rev, 1)
@@ -90,6 +120,7 @@ func (w *writer) Get(key []byte, rev int64) *kv.Entry {
 }
 
 func (w *writer) Range(key, end []byte, targetRev int64, limit int64) (entries []*kv.Entry, count int, currentRev int64, err error) {
+func (w *writer) Range(key, end []byte, targetRev int64, limit int64) (entries []types.KvEntry, count int, currentRev int64, err error) {
 	start := time.Now()
 	w.store.metrics.ReadsTotal.Inc()
 	defer func() { w.store.metrics.ReadDurationSec.Observe(time.Since(start).Seconds()) }()
@@ -103,14 +134,31 @@ func (w *writer) Range(key, end []byte, targetRev int64, limit int64) (entries [
 func (w *writer) RevisionRange(startRev, endRev int64, limit int64) (entries []*kv.Entry, err error) {
 	currRev, compactedRev := w.store.Revisions()
 	return doRevisionRange(w.store.logger, w.writeTx, startRev, endRev, currRev.Main, compactedRev, limit)
+	currRev, compactedRev := w.store.Revisions()
+	entries, count, err = doRange(w.store.logger, w.store.kvIndex, w.writeTx, currRev.Main, compactedRev, targetRev, key, end, limit)
+	if err != nil {
+		return nil, 0, currRev.Main, err
+	}
+
+	return entries, count, currRev.Main, nil
 }
 
+// As this is an 'internal', non public facing API, we dont need to track metrics here
+// its only used for the watch implementation, for which we will track different group of metrics
+func (w *writer) RevisionRange(startRev, endRev int64, limit int64) (entries []types.KvEntry, err error) {
+	currRev, compactedRev := w.store.Revisions()
+	return doRevisionRange(w.store.logger, w.writeTx, startRev, endRev, currRev.Main, compactedRev, limit)
+}
+
+func (w *writer) Put(key []byte, value []byte, leaseID int64) error {
 func (w *writer) Put(key []byte, value []byte, leaseID int64) error {
 	if err := w.put(key, value, leaseID); err != nil {
 		w.store.logger.Error("mvcc.Writer.Put() failed", "error", err)
 		w.store.metrics.PutErrorsTotal.Inc()
 		return fmt.Errorf("mvcc.Writer.Put() failed: %w", err)
+		return fmt.Errorf("mvcc.Writer.Put() failed: %w", err)
 	}
+	return nil
 	return nil
 }
 
@@ -155,14 +203,19 @@ func (w *writer) put(key, value []byte, leaseID int64) error {
 
 func (w *writer) DeleteRange(key []byte, end []byte) error {
 	err := w.deleteRange(key, end)
+func (w *writer) DeleteRange(key []byte, end []byte) error {
+	err := w.deleteRange(key, end)
 	if err != nil {
 		w.store.logger.Error("mvcc.Writer.DeleteRange() failed", "error", err)
 		w.store.metrics.DeleteErrorsTotal.Inc()
 		return fmt.Errorf("mvcc.Writer.DeleteRange() failed: %w", err)
+		return fmt.Errorf("mvcc.Writer.DeleteRange() failed: %w", err)
 	}
+	return nil
 	return nil
 }
 
+func (w *writer) deleteRange(key []byte, end []byte) error {
 func (w *writer) deleteRange(key []byte, end []byte) error {
 	startRev := w.startRev.Main
 	if len(w.changes) > 0 {
@@ -175,22 +228,29 @@ func (w *writer) deleteRange(key []byte, end []byte) error {
 		// we can distinguish these cases by checking if the startRev is less than the compacted rev
 		// for now, leave it as a no-op
 		return nil
+		return nil
 		//return 0, errors.New("mvcc.Writer.DeleteRange() failed: error during index.Range(): no revisions returned")
 	}
 
 	for _, k := range keys {
 		if err := w.deleteKey(k); err != nil {
 			return fmt.Errorf("error during mvcc.Writer.DeleteRange(): error during mvcc.Writer.deleteKey(): %v", err)
+			return fmt.Errorf("error during mvcc.Writer.DeleteRange(): error during mvcc.Writer.deleteKey(): %v", err)
 		}
 	}
 	return nil
+	return nil
 }
 
+func (w *writer) DeleteKey(key []byte) error {
 func (w *writer) DeleteKey(key []byte) error {
 	return w.DeleteRange(key, nil)
 }
 
 func (w *writer) deleteKey(key []byte) error {
+	nextRev := w.startRev.Main + 1
+	bk := kv.NewKvBucketKey(nextRev, int64(len(w.changes)), true)
+	// TODO: kv.EncodeRevisionAsBucketKey ??
 	nextRev := w.startRev.Main + 1
 	bk := kv.NewKvBucketKey(nextRev, int64(len(w.changes)), true)
 	// TODO: kv.EncodeRevisionAsBucketKey ??
@@ -205,11 +265,20 @@ func (w *writer) deleteKey(key []byte) error {
 		ModRev: nextRev,
 	}
 	tombstoneEntryBytes, err := kv.EncodeKvEntry(tombstoneEntry)
+	// tombstone entry has a key but no value (api layer does not allow nil values)
+	// modRev is bumped, so watchers dont see a sudden modRev == 0 after watching from lets say revs 5->8,
+	// and then a put happens at rev 9, watchers couldve seen see 5,6,7,8,0 instead of 5,6,7,8,9(tombstone, since value == nil)
+	tombstoneEntry := types.KvEntry{
+		Key:    key,
+		ModRev: nextRev,
+	}
+	tombstoneEntryBytes, err := types.EncodeKvEntry(tombstoneEntry)
 	if err != nil {
 		return fmt.Errorf("writer.deleteKey(): %v", err)
 	}
 
 	// update history
+	err = w.writeTx.UnsafePut(schema.BucketKV, bkBytes, tombstoneEntryBytes)
 	err = w.writeTx.UnsafePut(schema.BucketKV, bkBytes, tombstoneEntryBytes)
 	if err != nil {
 		return fmt.Errorf("writer.deleteKey(): failed to put tombstone entry: %v", err)
@@ -222,6 +291,7 @@ func (w *writer) deleteKey(key []byte) error {
 	}
 
 	w.changes = append(w.changes, tombstoneEntry)
+	w.changes = append(w.changes, tombstoneEntry)
 	return nil
 }
 
@@ -231,6 +301,12 @@ func (w *writer) Abort() {
 	w.writeTx.Unlock()       // release db lock
 	w.store.rwlock.RUnlock() // release store lock
 }
+
+func (w *writer) End() error {
+	defer func() {
+		w.writeTx.Unlock()       // release db lock
+		w.store.rwlock.RUnlock() // release store lock
+	}()
 
 func (w *writer) End() error {
 	defer func() {
@@ -261,6 +337,9 @@ func (w *writer) End() error {
 		msg := "failed to commit write tx"
 		w.store.logger.Error(msg, "error", err)
 		return fmt.Errorf("%s: %w", msg, err)
+		msg := "failed to commit write tx"
+		w.store.logger.Error(msg, "error", err)
+		return fmt.Errorf("%s: %w", msg, err)
 	} else {
 		w.store.metrics.CommitedWritesTotal.Add(1)
 		w.store.metrics.TxnDurationSec.Observe(time.Since(w.startTime).Seconds())
@@ -272,6 +351,8 @@ func (w *writer) End() error {
 	if len(w.changes) != 0 {
 		w.store.revMu.Unlock()
 	}
+
+	return nil
 
 	return nil
 }

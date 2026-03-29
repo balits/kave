@@ -101,6 +101,16 @@ func (f *Fsm) Apply(log *raft.Log) interface{} {
 	res.Header.RaftTerm = log.Term
 	res.Header.RaftIndex = log.Index
 	res.Header.NodeID = f.me.NodeID
+	// one more RLock :/
+	// but raft ensures Applies are called sequentially so no sudden rev bump is expected
+	finalRev, _ := f.store.Revisions()
+
+	res.Header = command.ResultHeader{
+		RaftTerm:  log.Term,
+		RaftIndex: log.Index,
+		NodeID:    f.me.NodeID,
+		Revision:  finalRev.Main,
+	}
 
 	if res.Error == nil {
 		for _, o := range f.writeObservers {

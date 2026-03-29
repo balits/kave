@@ -17,6 +17,10 @@ var (
 	errRevisionLimitReached = errors.New("revision range: limit reached")
 )
 
+var (
+	errRevisionLimitReached = errors.New("revision range: limit reached")
+)
+
 type Reader interface {
 	SmartRevisionGetter
 
