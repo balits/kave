@@ -30,9 +30,10 @@ type Index interface {
 	// If end is nil, returns only the exact key match.
 	Range(key, end []byte, targetRev int64) ([][]byte, []Revision)
 
-	// Revisions returns up to `limit` revisions for keys in [key, end) at targetRev.
-	// The second return value is the total count (ignoring limit).
-	Revisions(key, end []byte, targetRev int64, limit int) ([]Revision, int)
+	// Revisions returns limited number of revisions from [key, end) at the given rev.
+	// The returned slice is sorted in the order of key. There is no limit if limit <= 0.
+	// The second return parameter isn't capped by the limit and reflects the total number of revisions.
+	Revisions(key, end []byte, targetRev int64, limit int) (revs []Revision, total int)
 
 	// CountRevisions counts how many keys in [key, end) are live at targetRev.
 	CountRevisions(key, end []byte, targetRev int64) int
@@ -164,15 +165,15 @@ func (ti *treeIndex) Revisions(key, end []byte, targetRev int64, limit int) (rev
 	}
 
 	ti.unsafeVisit(key, end, func(ki *keyIndex) bool {
-		if _, modRev, _, err := ki.get(targetRev); err == nil {
+		if _, mod, _, err := ki.get(targetRev); err == nil {
 			if limit <= 0 || len(revs) < limit {
-				revs = append(revs, modRev)
+				revs = append(revs, mod)
 			}
 			total++
 		}
 		return true
 	})
-	return revs, total
+	return
 }
 
 // CountRevisions returns the number of revisions

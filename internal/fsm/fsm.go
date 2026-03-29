@@ -92,10 +92,16 @@ func (f *Fsm) Apply(log *raft.Log) interface{} {
 		panic(fmt.Sprintf("Unsupported command kind: %v", cmd.Kind))
 	}
 
-	// res.Header = &Header{...} would override previous headers revision set by appyling commands
-	res.Header.RaftTerm = log.Term
-	res.Header.RaftIndex = log.Index
-	res.Header.NodeID = f.myID
+	// one more RLock :/
+	// but raft ensures Applies are called sequentially so no sudden rev bump is expected
+	finalRev, _ := f.store.Revisions()
+
+	res.Header = command.ResultHeader{
+		RaftTerm:  log.Term,
+		RaftIndex: log.Index,
+		NodeID:    f.myID,
+		Revision:  finalRev.Main,
+	}
 
 	if res.Error == nil {
 		for _, o := range f.writeObservers {
@@ -117,7 +123,7 @@ func (f *Fsm) applyKv(cmd command.Command) command.Result {
 	if err != nil {
 		return command.Result{Error: err}
 	}
-	return res
+	return *res
 }
 
 // TODO: should we create more meaningful return type for lease commands?

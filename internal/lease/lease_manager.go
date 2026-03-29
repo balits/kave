@@ -77,7 +77,7 @@ func (lm *LeaseManager) Grant(requestedID, ttl int64) (*Lease, error) {
 		id = requestedID
 	} else {
 		// leaseIDConflict esetén az unsafeSaveToLeaseMap fogja visszadobni a hibát
-		id = nextID()
+		id = util.NextNonNullID()
 	}
 
 	lease := newLease(id, ttl, lm.clock)
@@ -310,7 +310,7 @@ func (lm *LeaseManager) ApplyExpired(cmd command.CmdLeaseExpire) (*command.Resul
 
 	w := lm.store.NewWriter()
 	for _, key := range attachedKeys {
-		_, _, err := w.DeleteKey(key)
+		err := w.DeleteKey(key)
 		if err != nil {
 			w.Abort()
 			lm.logger.Error("apply expired: failed to remove key from store",
@@ -614,7 +614,7 @@ func (lm *LeaseManager) unsafeRegrant(requestedID, remainingTTLsec int64) (*Leas
 		id = requestedID
 	} else {
 		// leaseIDConflict esetén az unsafeSaveToLeaseMap fogja visszadobni a hibát
-		id = nextID()
+		id = util.NextNonNullID()
 	}
 
 	lease := newLease(id, remainingTTLsec, lm.clock)

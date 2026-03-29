@@ -12,6 +12,10 @@ type KvEntry struct {
 	LeaseID   int64  `json:"lease_id,omitempty"`
 }
 
+func (e KvEntry) Tombstone() bool {
+	return len(e.Key) != 0 && len(e.Value) == 0
+}
+
 // for debugging
 func (e KvEntry) String() string {
 	return fmt.Sprintf(

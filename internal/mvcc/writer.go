@@ -13,24 +13,35 @@ import (
 type Writer interface {
 	// writer should implement normal read operations too, since we have the exclusive writelock
 	Reader
-	// returns the writers start revision
-	Revision() kv.Revision
 
-	Put(key, value []byte, leaseID int64) (rev kv.Revision, err error)
-	DeleteRange(key, end []byte) (count int64, rev kv.Revision, err error)
-	DeleteKey(key []byte) (count int64, rev kv.Revision, err error)
+	// StartRev returns the writers start revision,
+	// and it gets updated when the writer commits a transaction.
 
-	// TODO: support rev.sub++ for txp ops
-	// TxnMode() bool
+	// Put writes a key-value pair with the given lease ID.
+	// The caller should call End() to commit the transaction and update the store's current revision.
+	Put(key, value []byte, leaseID int64) error
 
-	// End commits the transaction and releases locks.
+	// Delete deletes a [key, end) range if end is provided, or a single key if end is nil.
+	// The caller should call End() to commit the transaction and update the store's current revision.
+	DeleteRange(key, end []byte) error
+
+	// DeleteKey deletes a single key. It's a convenience method that calls DeleteRange with end = nil.
+	// The caller should call End() to commit the transaction and update the store's current revision.
+	DeleteKey(key []byte) error
+
+	// End commits the transaction and releases locks, returning any errors that mightve happened.
 	// It updates the store's current revision and raft metadata, so it should be called after all changes are made.
 	// It should be called if the caller decides to commit the transaction.
-	End()
+	End() error
 
 	// Abort discards all changes and releases locks. It should be called if the caller decides not to commit the transaction.
 	Abort()
-	Changes() []types.KvEntry
+
+	// UnsafeExpectedChanges returns all the changes made up until this point in time,
+	// and the expected end revision which would be the new global revision after succesfull call to w.End()
+	//
+	// NOTE: its only safe to rely on the expected end revision after calling w.End() without it producing an error
+	UnsafeExpectedChanges() (unsafeEndRev int64, unsageChanges []types.KvEntry)
 }
 
 type writer struct {
@@ -56,8 +67,11 @@ func newWriter(
 	}
 }
 
-func (w *writer) Revision() kv.Revision    { return w.startRev }
-func (w *writer) Changes() []types.KvEntry { return w.changes }
+func (w *writer) StartRev() kv.Revision { return w.startRev }
+
+func (w *writer) UnsafeExpectedChanges() (int64, []types.KvEntry) {
+	return w.startRev.Main + 1, w.changes
+}
 
 // delegates
 
@@ -72,63 +86,34 @@ func (w *writer) Get(key []byte, rev int64) *types.KvEntry {
 	return &entries[0]
 }
 
-func (w *writer) Range(key, end []byte, rev int64, limit int64) (entries []types.KvEntry, count int, currentRev int64, err error) {
+func (w *writer) Range(key, end []byte, targetRev int64, limit int64) (entries []types.KvEntry, count int, currentRev int64, err error) {
 	start := time.Now()
-	w.store.revMu.RLock()
-	curRevMain := w.store.currentRev.Main
-	compactRev := w.store.compactedMainRev
-	w.store.revMu.RUnlock()
-
 	w.store.metrics.ReadsTotal.Inc()
 	defer func() { w.store.metrics.ReadDurationSec.Observe(time.Since(start).Seconds()) }()
 
-	if rev > curRevMain {
-		return nil, 0, curRevMain, fmt.Errorf("future revision requested")
-	}
-	if rev <= 0 {
-		rev = curRevMain
-	}
-	if rev < compactRev {
-		return nil, 0, 0, kv.ErrCompacted
+	currRev, compactedRev := w.store.Revisions()
+	entries, count, err = doRange(w.store.logger, w.store.kvIndex, w.writeTx, currRev.Main, compactedRev, targetRev, key, end, limit)
+	if err != nil {
+		return nil, 0, currRev.Main, err
 	}
 
-	revpairs, total := w.store.kvIndex.Revisions(key, end, rev, int(limit))
-	if len(revpairs) == 0 {
-		return nil, total, curRevMain, nil
-	}
-
-	lim := int(limit)
-	if lim <= 0 || lim > len(revpairs) {
-		lim = len(revpairs)
-	}
-
-	entries = make([]types.KvEntry, 0, lim)
-	revBytes := kv.NewRevBytes()
-	for _, rp := range revpairs[:lim] {
-		revBytes = kv.EncodeRevisionAsBucketKey(rp, revBytes)
-		entryBytes, err := w.writeTx.UnsafeGet(schema.BucketKV, revBytes)
-		if err != nil || entryBytes == nil {
-			w.store.logger.Error("range: revision not found in backend", "main", rp.Main, "sub", rp.Sub)
-			continue
-		}
-		entry, err := types.DecodeKvEntry(entryBytes)
-		if err != nil {
-			w.store.logger.Error("range: failed to unmarshal entry", "err", err)
-			continue
-		}
-		entries = append(entries, entry)
-	}
-
-	return entries, total, curRevMain, nil
+	return entries, count, currRev.Main, nil
 }
 
-func (w *writer) Put(key []byte, value []byte, leaseID int64) (kv.Revision, error) {
+// As this is an 'internal', non public facing API, we dont need to track metrics here
+// its only used for the watch implementation, for which we will track different group of metrics
+func (w *writer) RevisionRange(startRev, endRev int64, limit int64) (entries []types.KvEntry, err error) {
+	currRev, compactedRev := w.store.Revisions()
+	return doRevisionRange(w.store.logger, w.writeTx, startRev, endRev, currRev.Main, compactedRev, limit)
+}
+
+func (w *writer) Put(key []byte, value []byte, leaseID int64) error {
 	if err := w.put(key, value, leaseID); err != nil {
 		w.store.logger.Error("mvcc.Writer.Put() failed", "error", err)
 		w.store.metrics.PutErrorsTotal.Inc()
-		return kv.Revision{}, err
+		return fmt.Errorf("mvcc.Writer.Put() failed: %w", err)
 	}
-	return kv.Revision{Main: w.startRev.Main + 1}, nil
+	return nil
 }
 
 func (w *writer) put(key, value []byte, leaseID int64) error {
@@ -170,20 +155,17 @@ func (w *writer) put(key, value []byte, leaseID int64) error {
 	return nil
 }
 
-func (w *writer) DeleteRange(key []byte, end []byte) (count int64, rev kv.Revision, err error) {
-	count, err = w.deleteRange(key, end)
+func (w *writer) DeleteRange(key []byte, end []byte) error {
+	err := w.deleteRange(key, end)
 	if err != nil {
 		w.store.logger.Error("mvcc.Writer.DeleteRange() failed", "error", err)
 		w.store.metrics.DeleteErrorsTotal.Inc()
-		return 0, kv.Revision{}, err
+		return fmt.Errorf("mvcc.Writer.DeleteRange() failed: %w", err)
 	}
-	if count != 0 || len(w.changes) > 0 {
-		return count, kv.Revision{Main: w.startRev.Main + 1}, nil
-	}
-	return 0, w.startRev, nil
+	return nil
 }
 
-func (w *writer) deleteRange(key []byte, end []byte) (count int64, err error) {
+func (w *writer) deleteRange(key []byte, end []byte) error {
 	startRev := w.startRev.Main
 	if len(w.changes) > 0 {
 		startRev++
@@ -194,39 +176,43 @@ func (w *writer) deleteRange(key []byte, end []byte) (count int64, err error) {
 		// this can mean either that there are no keys in the range, or that the range is compacted
 		// we can distinguish these cases by checking if the startRev is less than the compacted rev
 		// for now, leave it as a no-op
-		return 0, nil
+		return nil
 		//return 0, errors.New("mvcc.Writer.DeleteRange() failed: error during index.Range(): no revisions returned")
 	}
 
-	count = int64(len(keys))
-	if count == 0 {
-		return 0, nil
-	}
 	for _, k := range keys {
 		if err := w.deleteKey(k); err != nil {
-			return 0, fmt.Errorf("mvcc.Writer.DeleteRange() failed: error during deleteKey(): %v", err)
+			return fmt.Errorf("error during mvcc.Writer.DeleteRange(): error during mvcc.Writer.deleteKey(): %v", err)
 		}
 	}
-	return
+	return nil
 }
 
-func (w *writer) DeleteKey(key []byte) (count int64, rev kv.Revision, err error) {
+func (w *writer) DeleteKey(key []byte) error {
 	return w.DeleteRange(key, nil)
 }
 
 func (w *writer) deleteKey(key []byte) error {
-	bk := kv.NewKvBucketKey(w.startRev.Main+1, int64(len(w.changes)), true)
+	nextRev := w.startRev.Main + 1
+	bk := kv.NewKvBucketKey(nextRev, int64(len(w.changes)), true)
+	// TODO: kv.EncodeRevisionAsBucketKey ??
 	bkBytes := kv.NewRevBytes()
 	bkBytes = kv.EncodeKvBucketKey(bk, bkBytes)
 
-	entry := types.KvEntry{Key: key}
-	entryBytes, err := types.EncodeKvEntry(entry)
+	// tombstone entry has a key but no value (api layer does not allow nil values)
+	// modRev is bumped, so watchers dont see a sudden modRev == 0 after watching from lets say revs 5->8,
+	// and then a put happens at rev 9, watchers couldve seen see 5,6,7,8,0 instead of 5,6,7,8,9(tombstone, since value == nil)
+	tombstoneEntry := types.KvEntry{
+		Key:    key,
+		ModRev: nextRev,
+	}
+	tombstoneEntryBytes, err := types.EncodeKvEntry(tombstoneEntry)
 	if err != nil {
 		return fmt.Errorf("writer.deleteKey(): failed to encode entry: %v", err)
 	}
 
 	// update history
-	err = w.writeTx.UnsafePut(schema.BucketKV, bkBytes, entryBytes)
+	err = w.writeTx.UnsafePut(schema.BucketKV, bkBytes, tombstoneEntryBytes)
 	if err != nil {
 		return fmt.Errorf("writer.deleteKey(): failed to put tombstone entry: %v", err)
 	}
@@ -237,7 +223,7 @@ func (w *writer) deleteKey(key []byte) error {
 		return fmt.Errorf("failed to tombstone key: %s, error: %v", string(key), err)
 	}
 
-	w.changes = append(w.changes, entry)
+	w.changes = append(w.changes, tombstoneEntry)
 	return nil
 }
 
@@ -248,7 +234,12 @@ func (w *writer) Abort() {
 	w.store.rwlock.RUnlock() // release store lock
 }
 
-func (w *writer) End() {
+func (w *writer) End() error {
+	defer func() {
+		w.writeTx.Unlock()       // release db lock
+		w.store.rwlock.RUnlock() // release store lock
+	}()
+
 	if len(w.changes) != 0 {
 		w.store.revMu.Lock()
 		w.store.currentRev = kv.Revision{Main: w.store.currentRev.Main + 1}
@@ -262,7 +253,9 @@ func (w *writer) End() {
 
 	info, err := w.writeTx.Commit()
 	if err != nil {
-		w.store.logger.Error("failed to commit write tx", "error", err)
+		msg := "failed to commit write tx"
+		w.store.logger.Error(msg, "error", err)
+		return fmt.Errorf("%s: %w", msg, err)
 	} else {
 		w.store.metrics.TxnsTotal.Add(1) // TODO: count failed txns?
 		w.store.metrics.TxnDurationSec.Observe(time.Since(w.startTime).Seconds())
@@ -270,10 +263,10 @@ func (w *writer) End() {
 		w.store.metrics.DeletesTotal.Add(float64(info.DeletedKeys))
 		w.store.metrics.KeyCount.Add(float64(info.NewKeys - info.DeletedKeys))
 	}
-	w.writeTx.Unlock() // release db lock
 
 	if len(w.changes) != 0 {
 		w.store.revMu.Unlock()
 	}
-	w.store.rwlock.RUnlock() // release store lock
+
+	return nil
 }

@@ -9,28 +9,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ==================== Writer.Put ====================
-
-func Test_WriterPutSingleKey(t *testing.T) {
+func Test_Writer_PutSingleKey(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	rev, err := w.Put([]byte("foo"), []byte("bar"), 0)
+	err := w.Put([]byte("foo"), []byte("bar"), 0)
 	require.NoError(t, err, "unexpected error from Put()")
 	w.End()
 
-	if rev.Main != 1 {
-		t.Errorf("rev.Main = %d, want 1", rev.Main)
-	}
-
-	currRev, _ := s.Revisions()
-	if currRev.Main != 1 {
-		t.Errorf("store revision = %d, want 1", currRev.Main)
-	}
+	rev, changes := w.UnsafeExpectedChanges()
+	require.Equal(t, int64(1), rev, "revision = %d, want 1", rev)
+	require.Len(t, changes, 1, "changes = %d, want 1", len(changes))
 }
 
-func Test_WriterPutMultipleKeys(t *testing.T) {
+func Test_Writer_PutMultipleKeys(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -40,18 +33,12 @@ func Test_WriterPutMultipleKeys(t *testing.T) {
 	w.Put([]byte("c"), []byte("3"), 0)
 	w.End()
 
-	currRev, _ := s.Revisions()
-	if currRev.Main != 1 {
-		t.Errorf("revision = %d, want 1 (single writer = single main rev)", currRev.Main)
-	}
-
-	changes := w.Changes()
-	if len(changes) != 3 {
-		t.Fatalf("changes = %d, want 3", len(changes))
-	}
+	rev, changes := w.UnsafeExpectedChanges()
+	require.Equal(t, rev, int64(1), "revision = %d, want 1 (single writer = single main rev)", rev)
+	require.Len(t, changes, 3, "changes = %d, want 3", len(changes))
 }
 
-func Test_WriterPutSameKeyTwice(t *testing.T) {
+func Test_Writer_PutSameKeyTwice(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -63,13 +50,11 @@ func Test_WriterPutSameKeyTwice(t *testing.T) {
 	w.Put([]byte("k"), []byte("v2"), 0)
 	w.End()
 
-	rev, _ := s.Revisions()
-	if rev.Main != 2 {
-		t.Errorf("revision = %d, want 2", rev.Main)
-	}
+	rev, _ := w.UnsafeExpectedChanges()
+	require.Equal(t, rev, int64(2), "revision = %d, want 2", rev)
 }
 
-func Test_WriterPutPreservesCreateRev(t *testing.T) {
+func Test_Writer_PutPreservesCreateRev(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -81,19 +66,13 @@ func Test_WriterPutPreservesCreateRev(t *testing.T) {
 	w.Put([]byte("k"), []byte("v2"), 0)
 	w.End()
 
-	changes := w.Changes()
-	if len(changes) != 1 {
-		t.Fatalf("changes = %d, want 1", len(changes))
-	}
-	if changes[0].CreateRev != 1 {
-		t.Errorf("CreateRev = %d, want 1 (should be preserved from first put)", changes[0].CreateRev)
-	}
-	if changes[0].Version != 2 {
-		t.Errorf("Version = %d, want 2", changes[0].Version)
-	}
+	_, changes := w.UnsafeExpectedChanges()
+	require.Len(t, changes, 1, "changes = %d, want 1", len(changes))
+	require.Equal(t, int64(1), changes[0].CreateRev, "CreateRev = %d, want 1 (should be preserved from first put)", changes[0].CreateRev)
+	require.Equal(t, int64(2), changes[0].Version, "Version = %d, want 2", changes[0].Version)
 }
 
-func Test_WriterPutEntryFields(t *testing.T) {
+func Test_Writer_PutEntryFields(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -101,31 +80,17 @@ func Test_WriterPutEntryFields(t *testing.T) {
 	w.Put([]byte("mykey"), []byte("myval"), 0)
 	w.End()
 
-	changes := w.Changes()
-	if len(changes) != 1 {
-		t.Fatalf("changes = %d, want 1", len(changes))
-	}
+	_, changes := w.UnsafeExpectedChanges()
+	require.Len(t, changes, 1, "changes = %d, want 1", len(changes))
 	e := changes[0]
-	if !bytes.Equal(e.Key, []byte("mykey")) {
-		t.Errorf("Key = %q, want %q", e.Key, "mykey")
-	}
-	if !bytes.Equal(e.Value, []byte("myval")) {
-		t.Errorf("Value = %q, want %q", e.Value, "myval")
-	}
-	if e.CreateRev != 1 {
-		t.Errorf("CreateRev = %d, want 1", e.CreateRev)
-	}
-	if e.ModRev != 1 {
-		t.Errorf("ModRev = %d, want 1", e.ModRev)
-	}
-	if e.Version != 1 {
-		t.Errorf("Version = %d, want 1", e.Version)
-	}
+	require.Equal(t, []byte("mykey"), e.Key, "Key = %q, want %q", e.Key, "mykey")
+	require.Equal(t, []byte("myval"), e.Value, "Value = %q, want %q", e.Value, "myval")
+	require.Equal(t, int64(1), e.CreateRev, "CreateRev = %d, want 1", e.CreateRev)
+	require.Equal(t, int64(1), e.ModRev, "ModRev = %d, want 1", e.ModRev)
+	require.Equal(t, int64(1), e.Version, "Version = %d, want 1", e.Version)
 }
 
-// ==================== Writer.Revision ====================
-
-func Test_WriterRevisionReturnsStartRev(t *testing.T) {
+func Test_Writer_Expected_Changes_ReturnsEndRev(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -133,17 +98,11 @@ func Test_WriterRevisionReturnsStartRev(t *testing.T) {
 	w.Put([]byte("a"), []byte("1"), 0)
 	w.End()
 
-	w = s.NewWriter()
-	startRev := w.Revision()
-	if startRev.Main != 1 {
-		t.Errorf("writer start rev = %d, want 1", startRev.Main)
-	}
-	w.End()
+	endRev, _ := w.UnsafeExpectedChanges()
+	require.Equal(t, int64(1), endRev, "start rev = %d, want 1", endRev)
 }
 
-// ==================== Writer.DeleteKey ====================
-
-func Test_WriterDeleteKey(t *testing.T) {
+func Test_Writer_DeleteKey(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -152,36 +111,32 @@ func Test_WriterDeleteKey(t *testing.T) {
 	w.End()
 
 	w = s.NewWriter()
-	count, rev, err := w.DeleteKey([]byte("foo"))
+	err := w.DeleteKey([]byte("foo"))
 	require.NoError(t, err, "unexpected error from DeleteKey()")
 	w.End()
 
-	if count != 1 {
-		t.Errorf("deleted = %d, want 1", count)
-	}
-	if rev.Main != 2 {
-		t.Errorf("rev = %d, want 2", rev.Main)
-	}
+	rev, changes := w.UnsafeExpectedChanges()
+	require.Equal(t, int64(2), rev, "rev = %d, want 2", rev)
+	require.Len(t, changes, 1, "changes = %d, want 1", len(changes))
+	require.Equal(t, []byte("foo"), changes[0].Key, "deleted key = %q, want %q", changes[0].Key, "foo")
+	require.True(t, changes[0].Tombstone(), "deleted entry should be a tombstone")
 }
 
-func Test_WriterDeleteKeyNonExistent(t *testing.T) {
+func Test_Writer_DeleteKeyNonExistent(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	count, rev, err := w.DeleteKey([]byte("nope"))
+	err := w.DeleteKey([]byte("nope"))
 	require.NoError(t, err, "unexpected error from DeleteKey()")
 	w.End()
 
-	if count != 0 {
-		t.Errorf("deleted = %d, want 0", count)
-	}
-	if rev.Main != 0 {
-		t.Errorf("rev.Main = %d, want 0 (no changes)", rev.Main)
-	}
+	rev, changes := w.UnsafeExpectedChanges()
+	require.Equal(t, int64(1), rev, "rev = %d, want 1", rev)
+	require.Len(t, changes, 0, "changes = %d, want 0", len(changes))
 }
 
-func Test_WriterDeleteKeyThenReCreate(t *testing.T) {
+func Test_Writer_DeleteKeyThenReCreate(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -197,26 +152,14 @@ func Test_WriterDeleteKeyThenReCreate(t *testing.T) {
 	w.Put([]byte("foo"), []byte("v2"), 0)
 	w.End()
 
-	currRev, _ := s.Revisions()
-	if currRev.Main != 3 {
-		t.Errorf("revision = %d, want 3", currRev.Main)
-	}
-
-	changes := w.Changes()
-	if len(changes) != 1 {
-		t.Fatalf("changes = %d, want 1", len(changes))
-	}
-	if changes[0].CreateRev != 3 {
-		t.Errorf("re-created key CreateRev = %d, want 3", changes[0].CreateRev)
-	}
-	if changes[0].Version != 1 {
-		t.Errorf("re-created key Version = %d, want 1", changes[0].Version)
-	}
+	rev, changes := w.UnsafeExpectedChanges()
+	require.Equal(t, int64(3), rev, "rev = %d, want 3", rev)
+	require.Len(t, changes, 1, "changes = %d, want 1", len(changes))
+	require.Equal(t, int64(3), changes[0].CreateRev, "re-created key CreateRev = %d, want 3", changes[0].CreateRev)
+	require.Equal(t, int64(1), changes[0].Version, "re-created key Version = %d, want 1", changes[0].Version)
 }
 
-// ==================== Writer.DeleteRange ====================
-
-func Test_WriterDeleteRange(t *testing.T) {
+func Test_Writer_DeleteRange(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -228,19 +171,15 @@ func Test_WriterDeleteRange(t *testing.T) {
 	w.End()
 
 	w = s.NewWriter()
-	count, rev, err := w.DeleteRange([]byte("b"), []byte("d"))
+	err := w.DeleteRange([]byte("b"), []byte("d"))
 	require.NoError(t, err, "unexpected error from DeleteRange()")
 	w.End()
-
-	if count != 2 {
-		t.Errorf("deleted = %d, want 2 (b and c)", count)
-	}
-	if rev.Main != 2 {
-		t.Errorf("rev = %d, want 2", rev.Main)
-	}
+	rev, ch := w.UnsafeExpectedChanges()
+	require.Equal(t, int64(2), rev, "rev = %d, want 2", rev)
+	require.Len(t, ch, 2, "deleted = %d, want 2", len(ch))
 }
 
-func Test_WriterDeleteRangeEmpty(t *testing.T) {
+func Test_Writer_DeleteRangeEmpty(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -249,30 +188,26 @@ func Test_WriterDeleteRangeEmpty(t *testing.T) {
 	w.End()
 
 	w = s.NewWriter()
-	count, _, err := w.DeleteRange([]byte("x"), []byte("z"))
+	err := w.DeleteRange([]byte("x"), []byte("z"))
 	require.NoError(t, err, "unexpected error from DeleteRange()")
 	w.End()
-
-	if count != 0 {
-		t.Errorf("deleted = %d, want 0", count)
-	}
+	_, ch := w.UnsafeExpectedChanges()
+	require.Len(t, ch, 0, "deleted = %d, want 0", len(ch))
 }
 
-// ==================== Writer.Changes ====================
-
-func Test_WriterChangesEmpty(t *testing.T) {
+func Test_Writer_UnsafeExpectedChanges_Empty_After_EmptyWrite(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
 	w.End()
 
-	if len(w.Changes()) != 0 {
-		t.Errorf("changes = %d, want 0", len(w.Changes()))
-	}
+	r, ch := w.UnsafeExpectedChanges()
+	require.Equal(t, r, int64(1)) // expectedRev is always going to be 1 + w.startRev (which is 0 here)
+	require.Len(t, ch, 0)
 }
 
-func Test_WriterChangesIncludesTombstones(t *testing.T) {
+func Test_Writer_UnsafeExpectedChanges_IncludesTombstones(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -284,7 +219,7 @@ func Test_WriterChangesIncludesTombstones(t *testing.T) {
 	w.DeleteKey([]byte("foo"))
 	w.End()
 
-	changes := w.Changes()
+	_, changes := w.UnsafeExpectedChanges()
 	if len(changes) != 1 {
 		t.Fatalf("changes = %d, want 1", len(changes))
 	}
@@ -293,9 +228,7 @@ func Test_WriterChangesIncludesTombstones(t *testing.T) {
 	}
 }
 
-// ==================== Writer.End revision bump ====================
-
-func Test_WriterEndNoChangesNoRevBump(t *testing.T) {
+func Test_Writer_End_NoChangesNoRevBump(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -308,7 +241,7 @@ func Test_WriterEndNoChangesNoRevBump(t *testing.T) {
 	}
 }
 
-func Test_WriterEndBumpsRevisionOnce(t *testing.T) {
+func Test_Writer_End_BumpsRevisionOnce(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -324,7 +257,7 @@ func Test_WriterEndBumpsRevisionOnce(t *testing.T) {
 	}
 }
 
-func Test_WriterEndPersistsRaftMeta(t *testing.T) {
+func Test_Writer_End_PersistsRaftMeta(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -351,7 +284,7 @@ func Test_WriterEndPersistsRaftMeta(t *testing.T) {
 	}
 }
 
-func Test_WriterEndNoRaftMetaWhenZero(t *testing.T) {
+func Test_Writer_End_NoRaftMetaWhenZero(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
