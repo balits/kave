@@ -3,16 +3,17 @@ package watch
 import (
 	"testing"
 
-	"github.com/balits/kave/internal/types"
+	"github.com/balits/kave/internal/kv"
 	"github.com/stretchr/testify/require"
 )
 
 func Test_WatchHub_NewWatcher_PlacesSyncedWhenCaughtUp(t *testing.T) {
 	store := &mockStore{currentRev: 10}
-	hub := newTestHub(store)
+	hub := newMockHub(store)
 
 	// startRev >= currentRev → synced
-	w := hub.NewWatcher(t.Context(), 10, []byte("foo"), nil)
+	w, err := hub.NewWatcher(t.Context(), 0, 10, []byte("foo"), nil, nil, false)
+	require.NoError(t, err)
 
 	require.Contains(t, hub.synced, w.id)
 	require.NotContains(t, hub.unsynced, w.id)
@@ -20,10 +21,11 @@ func Test_WatchHub_NewWatcher_PlacesSyncedWhenCaughtUp(t *testing.T) {
 
 func Test_WatchHub_NewWatcher_PlacesSyncedWhenAhead(t *testing.T) {
 	store := &mockStore{currentRev: 5}
-	hub := newTestHub(store)
+	hub := newMockHub(store)
 
 	// startRev > currentRev → also synced (watching future)
-	w := hub.NewWatcher(t.Context(), 20, []byte("foo"), nil)
+	w, err := hub.NewWatcher(t.Context(), 0, 20, []byte("foo"), nil, nil, false)
+	require.NoError(t, err)
 
 	require.Contains(t, hub.synced, w.id)
 	require.NotContains(t, hub.unsynced, w.id)
@@ -31,10 +33,11 @@ func Test_WatchHub_NewWatcher_PlacesSyncedWhenAhead(t *testing.T) {
 
 func Test_WatchHub_NewWatcher_PlacesUnsyncedWhenBehind(t *testing.T) {
 	store := &mockStore{currentRev: 10}
-	hub := newTestHub(store)
+	hub := newMockHub(store)
 
 	// startRev < currentRev → unsynced (needs catch-up)
-	w := hub.NewWatcher(t.Context(), 3, []byte("foo"), nil)
+	w, err := hub.NewWatcher(t.Context(), 0, 3, []byte("foo"), nil, nil, false)
+	require.NoError(t, err)
 
 	require.Contains(t, hub.unsynced, w.id)
 	require.NotContains(t, hub.synced, w.id)
@@ -42,39 +45,43 @@ func Test_WatchHub_NewWatcher_PlacesUnsyncedWhenBehind(t *testing.T) {
 
 func Test_WatchHub_OnCommit_DeliversToSyncedWatcher(t *testing.T) {
 	store := &mockStore{currentRev: 5}
-	hub := newTestHub(store)
+	hub := newMockHub(store)
 
-	w := hub.NewWatcher(t.Context(), 5, []byte("foo"), nil)
+	w, err := hub.NewWatcher(t.Context(), 0, 5, []byte("foo"), nil, nil, false)
+	require.NoError(t, err)
 
-	hub.OnCommit([]types.KvEntry{putEntry("foo", "val", 6)})
+	hub.OnCommit([]*kv.Entry{putEntry("foo", "val", 6)})
 
 	got := expectEvents(t, w.c, 1)
-	require.Equal(t, EventPut, got[0].Kind)
+	require.Equal(t, kv.EventPut, got[0].Kind)
 	require.Equal(t, "foo", string(got[0].Entry.Key))
 	require.Equal(t, "val", string(got[0].Entry.Value))
 }
 
 func Test_WatchHub_OnCommit_DeliversDeleteEvent(t *testing.T) {
 	store := &mockStore{currentRev: 5}
-	hub := newTestHub(store)
+	hub := newMockHub(store)
 
-	w := hub.NewWatcher(t.Context(), 5, []byte("foo"), nil)
+	w, err := hub.NewWatcher(t.Context(), 0, 5, []byte("foo"), nil, nil, false)
+	require.NoError(t, err)
 
-	hub.OnCommit([]types.KvEntry{tombstoneEntry("foo", 6)})
+	hub.OnCommit([]*kv.Entry{testTombstoneEntry("foo", 6)})
 
 	got := expectEvents(t, w.c, 1)
-	require.Equal(t, EventDelete, got[0].Kind)
+	require.Equal(t, kv.EventDelete, got[0].Kind)
 	require.Equal(t, "foo", string(got[0].Entry.Key))
 }
 
 func Test_WatchHub_OnCommit_MultipleWatchers(t *testing.T) {
 	store := &mockStore{currentRev: 5}
-	hub := newTestHub(store)
+	hub := newMockHub(store)
 
-	w1 := hub.NewWatcher(t.Context(), 5, []byte("foo"), nil)
-	w2 := hub.NewWatcher(t.Context(), 5, []byte("foo"), nil)
+	w1, err := hub.NewWatcher(t.Context(), 1, 5, []byte("foo"), nil, nil, false)
+	require.NoError(t, err)
+	w2, err := hub.NewWatcher(t.Context(), 2, 5, []byte("foo"), nil, nil, false)
+	require.NoError(t, err)
 
-	hub.OnCommit([]types.KvEntry{putEntry("foo", "v", 6)})
+	hub.OnCommit([]*kv.Entry{putEntry("foo", "v", 6)})
 
 	got1 := expectEvents(t, w1.c, 1)
 	got2 := expectEvents(t, w2.c, 1)
@@ -84,24 +91,26 @@ func Test_WatchHub_OnCommit_MultipleWatchers(t *testing.T) {
 
 func Test_WatchHub_OnCommit_FiltersNonMatchingKeys(t *testing.T) {
 	store := &mockStore{currentRev: 5}
-	hub := newTestHub(store)
+	hub := newMockHub(store)
 
 	// w watches "foo", commit is for "bar"
-	w := hub.NewWatcher(t.Context(), 5, []byte("foo"), nil)
+	w, err := hub.NewWatcher(t.Context(), 0, 5, []byte("foo"), nil, nil, false)
+	require.NoError(t, err)
 
-	hub.OnCommit([]types.KvEntry{putEntry("bar", "v", 6)})
+	hub.OnCommit([]*kv.Entry{putEntry("bar", "v", 6)})
 
 	expectNoEvents(t, w.c)
 }
 
 func Test_WatchHub_OnCommit_RangeWatcher(t *testing.T) {
 	store := &mockStore{currentRev: 5}
-	hub := newTestHub(store)
+	hub := newMockHub(store)
 
 	// [a, d)
-	w := hub.NewWatcher(t.Context(), 5, []byte("a"), []byte("d"))
+	w, err := hub.NewWatcher(t.Context(), 0, 5, []byte("a"), []byte("d"), nil, false)
+	require.NoError(t, err)
 
-	hub.OnCommit([]types.KvEntry{
+	hub.OnCommit([]*kv.Entry{
 		putEntry("a", "v1", 6), // match
 		putEntry("c", "v2", 7), // match
 		putEntry("d", "v3", 8), // excluded (end is exclusive)
@@ -116,13 +125,14 @@ func Test_WatchHub_OnCommit_RangeWatcher(t *testing.T) {
 
 func Test_WatchHub_OnCommit_SkipsUnsyncedWatchers(t *testing.T) {
 	store := &mockStore{currentRev: 10}
-	hub := newTestHub(store)
+	hub := newMockHub(store)
 
 	// unsynced
-	w := hub.NewWatcher(t.Context(), 3, []byte("foo"), nil)
+	w, err := hub.NewWatcher(t.Context(), 0, 3, []byte("foo"), nil, nil, false)
+	require.NoError(t, err)
 	require.Contains(t, hub.unsynced, w.id)
 
-	hub.OnCommit([]types.KvEntry{putEntry("foo", "v", 11)})
+	hub.OnCommit([]*kv.Entry{putEntry("foo", "v", 11)})
 
 	// OnCommit only sends to synced
 	expectNoEvents(t, w.c)
@@ -130,17 +140,17 @@ func Test_WatchHub_OnCommit_SkipsUnsyncedWatchers(t *testing.T) {
 
 func Test_WatchHub_OnCommit_DemotesOverloadedWatcher(t *testing.T) {
 	store := &mockStore{currentRev: 5}
-	hub := newTestHub(store)
+	hub := newMockHub(store)
 
 	w := newTestWatcher(t, []byte("foo"), nil, 5, nil, nil)
 	close(w.c)
-	w.c = make(chan Event, 1)
+	w.c = make(chan kv.Event, 1)
 	hub.synced[w.id] = w
 
-	hub.OnCommit([]types.KvEntry{putEntry("foo", "v1", 6)})
+	hub.OnCommit([]*kv.Entry{putEntry("foo", "v1", 6)})
 
 	// second commit should trigger overload
-	hub.OnCommit([]types.KvEntry{putEntry("foo", "v2", 7)})
+	hub.OnCommit([]*kv.Entry{putEntry("foo", "v2", 7)})
 
 	require.NotContains(t, hub.synced, w.id)
 	require.Contains(t, hub.unsynced, w.id)
@@ -148,12 +158,13 @@ func Test_WatchHub_OnCommit_DemotesOverloadedWatcher(t *testing.T) {
 
 func Test_WatchHub_OnCommit_DropsWatcherOnCancelledCtx(t *testing.T) {
 	store := &mockStore{currentRev: 5}
-	hub := newTestHub(store)
+	hub := newMockHub(store)
 
-	w := hub.NewWatcher(t.Context(), 5, []byte("foo"), nil)
+	w, err := hub.NewWatcher(t.Context(), 0, 5, []byte("foo"), nil, nil, false)
+	require.NoError(t, err)
 	w.cancel()
 
-	hub.OnCommit([]types.KvEntry{putEntry("foo", "v", 6)})
+	hub.OnCommit([]*kv.Entry{putEntry("foo", "v", 6)})
 
 	require.NotContains(t, hub.synced, w.id)
 	require.NotContains(t, hub.unsynced, w.id)
@@ -161,9 +172,10 @@ func Test_WatchHub_OnCommit_DropsWatcherOnCancelledCtx(t *testing.T) {
 
 func Test_WatchHub_Demote_MovesSyncedToUnsynced(t *testing.T) {
 	store := &mockStore{currentRev: 5}
-	hub := newTestHub(store)
+	hub := newMockHub(store)
 
-	w := hub.NewWatcher(t.Context(), 5, []byte("foo"), nil)
+	w, err := hub.NewWatcher(t.Context(), 0, 5, []byte("foo"), nil, nil, false)
+	require.NoError(t, err)
 	require.Contains(t, hub.synced, w.id)
 
 	hub.mu.Lock()
@@ -176,13 +188,14 @@ func Test_WatchHub_Demote_MovesSyncedToUnsynced(t *testing.T) {
 
 func Test_WatchHub_Promote_MovesUnsyncedToSynced(t *testing.T) {
 	store := &mockStore{currentRev: 10}
-	hub := newTestHub(store)
+	hub := newMockHub(store)
 
-	w := hub.NewWatcher(t.Context(), 3, []byte("foo"), nil)
+	w, err := hub.NewWatcher(t.Context(), 0, 3, []byte("foo"), nil, nil, false)
+	require.NoError(t, err)
 	require.Contains(t, hub.unsynced, w.id)
 
 	hub.mu.Lock()
-	hub.unsafePromote(w)
+	hub.unsafePromote(w.id)
 	hub.mu.Unlock()
 
 	require.NotContains(t, hub.unsynced, w.id)
@@ -191,12 +204,13 @@ func Test_WatchHub_Promote_MovesUnsyncedToSynced(t *testing.T) {
 
 func Test_WatchHub_Drop_ClosesAndRemoves(t *testing.T) {
 	store := &mockStore{currentRev: 5}
-	hub := newTestHub(store)
+	hub := newMockHub(store)
 
-	w := hub.NewWatcher(t.Context(), 5, []byte("foo"), nil)
+	w, err := hub.NewWatcher(t.Context(), 0, 5, []byte("foo"), nil, nil, false)
+	require.NoError(t, err)
 
 	hub.mu.Lock()
-	hub.unsafeDrop(hub.synced, w.id)
+	hub.unsafeDropFromGroup(hub.synced, w.id)
 	hub.mu.Unlock()
 
 	require.NotContains(t, hub.synced, w.id)
@@ -204,4 +218,15 @@ func Test_WatchHub_Drop_ClosesAndRemoves(t *testing.T) {
 
 	_, ok := <-w.c
 	require.False(t, ok, "channel should be closed")
+}
+
+func Test_WatchHub_WatchIDCollision(t *testing.T) {
+	store := &mockStore{}
+	hub := newMockHub(store)
+
+	_, err := hub.NewWatcher(t.Context(), 1, 5, []byte("foo"), nil, nil, false)
+	require.NoError(t, err)
+
+	_, err = hub.NewWatcher(t.Context(), 1, 5, []byte("foo"), nil, nil, false)
+	require.ErrorIs(t, err, ErrWatcherIDConflict)
 }

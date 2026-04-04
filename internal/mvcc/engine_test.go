@@ -335,6 +335,7 @@ func Test_EngineApplyTxn_EmptyOps(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, result.Txn.Success)
 	require.Empty(t, result.Txn.Results)
+	require.Zero(t, result.Header.Revision)
 }
 
 func Test_EngineApplyTxn_WithDeleteOp(t *testing.T) {
@@ -640,8 +641,9 @@ func Test_EngineApplyTxn_CompareModRev(t *testing.T) {
 
 func Test_EngineApplyUnknownCommandError(t *testing.T) {
 	e := newTestEngine(t)
-	_, err := e.ApplyWrite(command.Command{Kind: "UNKNOWN"})
-	require.Error(t, err, "expected error for unknown command type")
+	require.Panics(t, func() {
+		e.ApplyWrite(command.Command{Kind: "UNKNOWN"})
+	})
 }
 
 func Test_EngineApplyTxn_ResultCount(t *testing.T) {
@@ -663,7 +665,6 @@ func Test_EngineApplyTxn_ResultCount(t *testing.T) {
 		require.NotNil(t, r.Put, "results[%d].Put is nil", i)
 	}
 }
-
 func Test_EngineApplyPut_IgnoreValue_PreservesValue(t *testing.T) {
 	e := newTestEngine(t)
 
@@ -688,15 +689,12 @@ func Test_EngineApplyPut_IgnoreValue_PreservesValue(t *testing.T) {
 func Test_EngineApplyPut_IgnoreValue_NonExistent_ReturnsError(t *testing.T) {
 	e := newTestEngine(t)
 
-	result, err := e.ApplyWrite(command.Command{
+	_, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
 		Put:  &command.CmdPut{Key: []byte("ghost"), IgnoreValue: true},
 	})
 
-	// engine encodes the error inside Result.Error rather than returning
-	// a Go error, so it survives serialization through raft
-	require.NoError(t, err, "engine itself should not error")
-	require.NotNil(t, result.Error, "result.Error should be set")
+	require.Error(t, err)
 }
 
 func Test_EngineApplyPut_IgnoreValue_BumpsRevisionAndVersion(t *testing.T) {
@@ -718,18 +716,15 @@ func Test_EngineApplyPut_IgnoreValue_BumpsRevisionAndVersion(t *testing.T) {
 	require.Equal(t, int64(2), entry.ModRev)
 }
 
-// ==================== Engine.Apply PUT IgnoreLease ====================
-
 func Test_EngineApplyPut_IgnoreLease_NonExistent_ReturnsError(t *testing.T) {
 	e := newTestEngine(t)
 
-	result, err := e.ApplyWrite(command.Command{
+	_, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
 		Put:  &command.CmdPut{Key: []byte("ghost"), Value: []byte("v"), IgnoreLease: true},
 	})
 
-	require.NoError(t, err)
-	require.NotNil(t, result.Error)
+	require.Error(t, err)
 }
 
 func Test_EngineApplyPut_IgnoreLease_DoesNotDetachWhenLeaseUnchanged(t *testing.T) {
@@ -778,19 +773,17 @@ func Test_EngineApplyPut_BothIgnore_TouchDoesNotDetach(t *testing.T) {
 func Test_EngineApplyPut_BothIgnore_NonExistent_ReturnsError(t *testing.T) {
 	e := newTestEngine(t)
 
-	result, err := e.ApplyWrite(command.Command{
+	_, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
 		Put:  &command.CmdPut{Key: []byte("ghost"), IgnoreValue: true, IgnoreLease: true},
 	})
 
-	require.NoError(t, err)
-	require.NotNil(t, result.Error)
+	require.Error(t, err)
 }
 
 func Test_EngineApplyPut_IgnoreLease_PreservesLease(t *testing.T) {
 	e, fa := newTestEngineWithAttacher(t)
 
-	// seed with a fake lease ID — engine doesn't care if it's real
 	_, err := e.ApplyWrite(command.Command{
 		Kind: command.KindPut,
 		Put:  &command.CmdPut{Key: []byte("k"), Value: []byte("v1"), LeaseID: 42},

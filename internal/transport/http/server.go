@@ -12,6 +12,8 @@ import (
 	"github.com/balits/kave/internal/transport"
 	"github.com/balits/kave/internal/types/api"
 	"github.com/balits/kave/internal/util"
+	"github.com/balits/kave/internal/watch"
+	"github.com/coder/websocket"
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -22,26 +24,28 @@ var (
 )
 
 const (
-	RouteKvRange  string = transport.RouteKv + "/range"
-	RouteKvPut    string = transport.RouteKv + "/put"
-	RouteKvDelete string = transport.RouteKv + "/delete"
-	RouteKvTxn    string = transport.RouteKv + "/txn"
+	RouteKvRange  = transport.RouteKv + "/range"
+	RouteKvPut    = transport.RouteKv + "/put"
+	RouteKvDelete = transport.RouteKv + "/delete"
+	RouteKvTxn    = transport.RouteKv + "/txn"
 
-	RouteLeaseGrant     string = transport.RouteLease + "/grant"
-	RouteLeaseRevoke    string = transport.RouteLease + "/revoke"
-	RouteLeaseKeepAlive string = transport.RouteLease + "/keep-alive"
-	RouteLeaseLookup    string = transport.RouteLease + "/lookup"
+	RouteLeaseGrant     = transport.RouteLease + "/grant"
+	RouteLeaseRevoke    = transport.RouteLease + "/revoke"
+	RouteLeaseKeepAlive = transport.RouteLease + "/keep-alive"
+	RouteLeaseLookup    = transport.RouteLease + "/lookup"
 
-	RouteOtInit     string = transport.RouteOt + "/init"
-	RouteOtTransfer string = transport.RouteOt + "/transfer"
-	RouteOtWriteAll string = transport.RouteOt + "/write-all"
+	RouteOtInit     = transport.RouteOt + "/init"
+	RouteOtTransfer = transport.RouteOt + "/transfer"
+	RouteOtWriteAll = transport.RouteOt + "/write-all"
 
-	RouteClusterJoin string = transport.RouteCluster + "/join"
+	RouteWatchWS = transport.RouteWatch
 
-	RouteStats   string = "/stats"
-	RouteMetrics string = "/metrics"
-	RouteLivez   string = "/livez"
-	RouteReadyz  string = "/readyz"
+	RouteClusterJoin = transport.RouteCluster + "/join"
+
+	RouteStats   = "/stats"
+	RouteMetrics = "/metrics"
+	RouteLivez   = "/livez"
+	RouteReadyz  = "/readyz"
 )
 
 const (
@@ -75,8 +79,10 @@ type HttpServer struct {
 	otSvc      service.OTService
 	clusterSvc service.ClusterService
 	peerSvc    service.PeerService
-	logger     *slog.Logger
+	watchHub   *watch.WatchHub
 	server     *http.Server
+	logger     *slog.Logger
+	rootLogger *slog.Logger // handle to the original logger without "component" -> "http_server" set: passed to the watch.Session instance
 }
 
 func NewHTTPServer(
@@ -87,6 +93,7 @@ func NewHTTPServer(
 	otService service.OTService,
 	clusterService service.ClusterService,
 	peerService service.PeerService,
+	hub *watch.WatchHub,
 	reg *prometheus.Registry,
 ) *HttpServer {
 	mux := http.NewServeMux()
@@ -96,7 +103,9 @@ func NewHTTPServer(
 		otSvc:      otService,
 		clusterSvc: clusterService,
 		peerSvc:    peerService,
+		watchHub:   hub,
 		logger:     logger.With("component", "http_server", "addr", addr),
+		rootLogger: logger,
 		server: &http.Server{
 			Addr:    addr,
 			Handler: mux,
@@ -119,6 +128,9 @@ func NewHTTPServer(
 	mux.HandleFunc("GET "+RouteOtInit, s.handleOTInit)                             // Init does not read anything from the backend, no middleware need
 	mux.HandleFunc("GET "+RouteOtTransfer, s.readMiddleware(s.handleOTTransfer))   // optional leader if we want the latest data
 	mux.HandleFunc("POST "+RouteOtWriteAll, s.writeMiddleware(s.handleOTWriteAll)) // write must go through raft
+
+	// watch
+	mux.HandleFunc("GET "+RouteWatchWS, s.handleWatch)
 
 	// cluster
 	mux.HandleFunc("POST "+RouteClusterJoin, s.writeMiddleware(s.handleJoin))
@@ -475,6 +487,39 @@ func (s *HttpServer) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
+}
+
+func (s *HttpServer) handleWatch(w http.ResponseWriter, r *http.Request) {
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		Subprotocols: []string{watch.WatchSubprotocol},
+	})
+
+	if err != nil {
+		msg := "failed to accept connection"
+		s.writeError(w, msg, err, http.StatusBadRequest)
+		return
+	}
+
+	defer conn.CloseNow()
+
+	if conn.Subprotocol() != watch.WatchSubprotocol {
+		msg := fmt.Sprintf("client must speak '%s'", watch.WatchSubprotocol)
+		s.logger.Error("faild to accept connection", "error", msg)
+		conn.Close(websocket.StatusPolicyViolation, msg)
+		return
+	}
+
+	session := watch.NewSession(conn, r.Context(), s.watchHub, s.rootLogger, 0, 0)
+	defer session.Close()
+
+	if err = session.Run(); err != nil {
+		msg := "watch handler failed, closing connection"
+		s.logger.Error(msg, "error", err)
+		conn.Close(websocket.StatusAbnormalClosure, fmt.Sprintf("%s: %v", msg, err))
+		return
+	}
+	s.logger.Info("watch handler done, closing connection")
+	conn.Close(websocket.StatusNormalClosure, "all good")
 }
 
 func (s *HttpServer) writeJSON(w http.ResponseWriter, response any, status int) {

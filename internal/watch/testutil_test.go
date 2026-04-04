@@ -1,15 +1,13 @@
 package watch
 
 import (
-	"context"
+	"bytes"
 	"log/slog"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/mvcc"
-	"github.com/balits/kave/internal/types"
 )
 
 type mockStore struct {
@@ -37,36 +35,52 @@ func (m *mockStore) setCurrentRev(rev int64) {
 	m.currentRev = rev
 }
 
-// Range and Get are left as noops since the watch system only uses RevisionRange.
 type mockReader struct {
-	entries []types.KvEntry
+	s       *mockStore
+	entries []*kv.Entry
 	err     error
 }
 
-func (r *mockReader) Range(key, end []byte, rev int64, limit int64) ([]types.KvEntry, int, int64, error) {
-	return nil, 0, 0, nil
+func (r *mockReader) Revisions() (kv.Revision, int64) {
+	return r.s.Revisions()
 }
 
-func (r *mockReader) Get(key []byte, rev int64) *types.KvEntry {
+func (r *mockReader) Range(key, end []byte, rev int64, limit int64) (out []*kv.Entry, count int, highestRev int64, err error) {
+	if rev < r.s.compactedRev {
+		return nil, 0, 0, kv.ErrCompacted
+	}
+
+	match := func(e *kv.Entry) bool {
+		if len(end) == 0 {
+			return bytes.Equal(e.Key, key)
+		}
+		return bytes.Compare(e.Key, key) >= 0 && bytes.Compare(e.Key, end) < 0
+	}
+	for _, e := range r.entries {
+		if match(e) {
+			out = append(out, e)
+			if highestRev < e.ModRev {
+				highestRev = e.ModRev
+			}
+		}
+	}
+
+	return out, len(out), highestRev, nil
+}
+
+func (r *mockReader) Get(key []byte, rev int64) *kv.Entry {
+	e, _, _, err := r.Range(key, nil, rev, 1)
+	if err != nil {
+		return nil
+	}
+	if len(e) == 1 {
+		return e[0]
+	}
 	return nil
 }
 
-func (r *mockReader) RevisionRange(startRev, endRev int64, limit int64) (out []types.KvEntry, err error) {
-	if r.err != nil {
-		return nil, r.err
-	}
-	// Filter entries to the requested range [startRev, endRev] just like the
-	// real implementation would after the endRev++ adjustment.
-	for _, e := range r.entries {
-		if e.ModRev >= startRev && e.ModRev <= endRev {
-			out = append(out, e)
-		}
-	}
-	return
-}
-
-func putEntry(key, value string, modrev int64) types.KvEntry {
-	return types.KvEntry{
+func putEntry(key, value string, modrev int64) *kv.Entry {
+	return &kv.Entry{
 		Key:       []byte(key),
 		Value:     []byte(value),
 		CreateRev: modrev,
@@ -75,28 +89,28 @@ func putEntry(key, value string, modrev int64) types.KvEntry {
 	}
 }
 
-func tombstoneEntry(key string, modrev int64) types.KvEntry {
-	return types.KvEntry{
+func testTombstoneEntry(key string, modrev int64) *kv.Entry {
+	return &kv.Entry{
 		Key:    []byte(key),
 		ModRev: modrev,
 	}
 }
 
-func putEvent(key, value string, modrev int64) Event {
-	return Event{
-		Kind:  EventPut,
+func testPutEvent(key, value string, modrev int64) kv.Event {
+	return kv.Event{
+		Kind:  kv.EventPut,
 		Entry: putEntry(key, value, modrev),
 	}
 }
 
-func deleteEvent(key string, modrev int64) Event {
-	return Event{
-		Kind:  EventDelete,
-		Entry: tombstoneEntry(key, modrev),
+func testDeleteEvent(key string, modrev int64) kv.Event {
+	return kv.Event{
+		Kind:  kv.EventDelete,
+		Entry: testTombstoneEntry(key, modrev),
 	}
 }
 
-func drainEvents(c <-chan Event) (out []Event) {
+func drainEvents(c <-chan kv.Event) (out []kv.Event) {
 	for {
 		select {
 		case ev, ok := <-c:
@@ -110,9 +124,9 @@ func drainEvents(c <-chan Event) (out []Event) {
 	}
 }
 
-func expectEvents(t *testing.T, c <-chan Event, n int) (out []Event) {
+func expectEvents(t *testing.T, c <-chan kv.Event, n int) (out []kv.Event) {
 	t.Helper()
-	out = make([]Event, 0, n)
+	out = make([]kv.Event, 0, n)
 	for range n {
 		select {
 		case ev, ok := <-c:
@@ -127,7 +141,7 @@ func expectEvents(t *testing.T, c <-chan Event, n int) (out []Event) {
 	return out
 }
 
-func expectNoEvents(t *testing.T, c <-chan Event) {
+func expectNoEvents(t *testing.T, c <-chan kv.Event) {
 	t.Helper()
 	select {
 	case ev, ok := <-c:
@@ -139,22 +153,11 @@ func expectNoEvents(t *testing.T, c <-chan Event) {
 	}
 }
 
-func newTestHub(store *mockStore) *WatchHub {
+func newMockHub(store *mockStore) *WatchHub {
 	return &WatchHub{
 		synced:   make(map[int64]*watcher),
 		unsynced: make(map[int64]*watcher),
 		store:    store,
-		logger:   slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})),
-	}
-}
-
-func newTestUnsyncedLoop(hub *WatchHub) *UnsyncedWatcherLoop {
-	ctx, cancel := context.WithCancel(context.Background())
-	return &UnsyncedWatcherLoop{
-		wh:               hub,
-		unsyncedFailures: make(map[int64]int),
-		ctx:              ctx,
-		cancel:           cancel,
-		logger:           *slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})),
+		logger:   slog.Default(),
 	}
 }

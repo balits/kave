@@ -1,5 +1,7 @@
 package kv
 
+import "fmt"
+
 const (
 	revBytesLen       = 16 // 8 (main) + 8 (sub)
 	markedRevBytesLen = 17 // + 1 tombstone marker
@@ -10,6 +12,10 @@ const (
 type Revision struct {
 	Main int64
 	Sub  int64
+}
+
+func (r *Revision) String() string {
+	return fmt.Sprintf("(%d,%d)", r.Main, r.Sub)
 }
 
 func (r Revision) GreaterThan(b Revision) bool {

@@ -86,9 +86,9 @@ func (ki *keyIndex) get(targetRev int64) (createRev Revision, modRev Revision, v
 		panic("get: getting empty key index")
 	}
 
-	g := ki.findGen(targetRev)
-	if g.isEmpty() {
-		return Revision{}, Revision{}, 0, fmt.Errorf("%w: get: generation is empty", ErrKeyNotFound)
+	g, err := ki.findGen(targetRev)
+	if err != nil {
+		return Revision{}, Revision{}, 0, fmt.Errorf("%w: get: %w", ErrKeyNotFound, err)
 	}
 
 	n := g.walkBackwards(func(rev Revision) bool {
@@ -154,7 +154,7 @@ func (ki *keyIndex) doRestore(createRev, modRev Revision, version int64) error {
 // findGen finds out the generation of the keyIndex that the
 // given rev belongs to. If the given rev is at the gap of two generations,
 // which means that the key does not exist at the given rev, it returns nil.
-func (ki *keyIndex) findGen(rev int64) *generation {
+func (ki *keyIndex) findGen(rev int64) (*generation, error) {
 	lastGen := len(ki.generations) - 1
 	currentGen := lastGen
 
@@ -166,15 +166,15 @@ func (ki *keyIndex) findGen(rev int64) *generation {
 		g := ki.generations[currentGen]
 		if currentGen != lastGen {
 			if tomb := g.revs[len(g.revs)-1].Main; tomb <= rev {
-				return nil
+				return nil, fmt.Errorf("tombstone at %d", tomb)
 			}
 		}
 		if g.revs[0].Main <= rev {
-			return &ki.generations[currentGen]
+			return &ki.generations[currentGen], nil
 		}
 		currentGen--
 	}
-	return nil
+	return nil, fmt.Errorf("revision is at the gap of two generations")
 }
 
 func (ki *keyIndex) isEmpty() bool {
@@ -336,6 +336,15 @@ func (g *generation) walkBackwards(f func(rev Revision) bool) int {
 		}
 	}
 	return -1
+}
+
+func (g *generation) walk(f func(rev Revision) error) error {
+	for _, r := range g.revs {
+		if err := f(r); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // equal returns true if the two generations are identical, false otherwise.

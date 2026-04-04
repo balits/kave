@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func Test_GenerationIsEmpty(t *testing.T) {
@@ -339,7 +341,7 @@ func Test_KeyIndexFindGen(t *testing.T) {
 
 	tests := []struct {
 		rev     int64
-		wantNil bool
+		wantErr bool
 		wantRev int64 // first rev of the expected generation
 	}{
 		{1, true, 0},    // before key existed
@@ -355,17 +357,12 @@ func Test_KeyIndexFindGen(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		g := ki.findGen(tt.rev)
-		if tt.wantNil {
-			if g != nil {
-				t.Errorf("findGen(%d) = non-nil, want nil", tt.rev)
-			}
+		g, err := ki.findGen(tt.rev)
+		if tt.wantErr {
+			require.Error(t, err, "findGen(%d) = non-nil, want nil + error", tt.rev)
 		} else {
-			if g == nil {
-				t.Errorf("findGen(%d) = nil, want gen starting at rev %d", tt.rev, tt.wantRev)
-			} else if g.revs[0].Main != tt.wantRev {
-				t.Errorf("findGen(%d).revs[0].Main = %d, want %d", tt.rev, g.revs[0].Main, tt.wantRev)
-			}
+			require.NotNil(t, g,"findGen(%d) = nil, want gen starting at rev %d, got err: %v", tt.rev, tt.wantRev, err)
+			require.Equal(t, g.revs[0].Main, tt.wantRev, "findGen(%d).revs[0].Main = %d, want %d", tt.rev, g.revs[0].Main, tt.wantRev)
 		}
 	}
 }

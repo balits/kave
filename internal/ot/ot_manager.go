@@ -99,7 +99,6 @@ func NewOTManager(reg prometheus.Registerer, logger *slog.Logger, backend backen
 // and its maxTTL to the provided ttl (in seconds).
 //
 // If the key is not found or invalid, an error is returned and the codec remains uninitialized.
-// If the codec is already initialized, an error is returned to prevent overwriting it.
 // This method should be called after the OTManager is created and before any OT operations are performed.
 //
 // NOTE: this method is the mandatory part of the two phase initialization of the OTManager
@@ -110,6 +109,7 @@ func (om *OTManager) InitTokenCodec() error {
 	rtx := om.backend.ReadTx()
 	rtx.RLock()
 	defer rtx.RUnlock()
+
 	clusterKey, err := rtx.UnsafeGet(schema.BucketOT, schema.KeyOTClusterKey)
 	if err != nil {
 		return fmt.Errorf("init token codec error: failed to retrieve cluster key: %w", err)
@@ -127,7 +127,8 @@ func (om *OTManager) InitTokenCodec() error {
 
 // Init generates a new token and returns it and the servers public point A.
 // The token contains the servers scalar a, encrypted with the cluster key,
-// and the timestamp of the generation, which validates this token for use only for the next OTManager.TokenCodec.MaxTTL seconds.
+// and the timestamp of the generation, which validates this token for use only for
+// the next OTManager.TokenCodec.MaxTTL seconds.
 // The the point A is computed as a*G where G is the group generator.
 func (om *OTManager) Init() (pointA, token []byte, err error) {
 	start := time.Now()
@@ -163,9 +164,9 @@ func (om *OTManager) Init() (pointA, token []byte, err error) {
 //
 // Given N slots, group generator G, scalar a from open(token) and point B:
 //
-//	compute point A  = a * G
+//	recompute point A  = a * G
 //	compute point aB = a * B
-//	compute point T  = a * A
+//	compute point T  = a * Ab
 //	for each index i in [0, N):
 //		compute scalar e	= new Scalar(i)
 //		compute point eT   	= e * T

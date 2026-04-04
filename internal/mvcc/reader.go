@@ -11,7 +11,6 @@ import (
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage/backend"
-	"github.com/balits/kave/internal/types"
 )
 
 var (
@@ -19,16 +18,16 @@ var (
 )
 
 type Reader interface {
+	SmartRevisionGetter
+
 	// Range reads all entries in the [key, end) range at the given or current revision
-	//  up to the given limit.
-	Range(key, end []byte, rev int64, limit int64) (entries []types.KvEntry, count int, currRev int64, err error)
+	// up to the given limit (or no limit if limit == 0).
+	// Additionally it returns the count of elements, and the last revison encountered scanning the elements.
+	Range(key, end []byte, rev int64, limit int64) (entries []*kv.Entry, count int, lastRev int64, err error)
 
 	// Get reads a single entry at the given or current revision.
-	Get(key []byte, rev int64) *types.KvEntry
-
-	// RevisionRange reads all entries between the given revisions [startRev, endRev)
-	// exclusive of the end revision.
-	RevisionRange(startRev, endRev int64, limit int64) (entries []types.KvEntry, err error)
+	// Alias for Range(key, nil, 0, 1)
+	Get(key []byte, rev int64) *kv.Entry
 }
 
 type reader struct {
@@ -36,7 +35,11 @@ type reader struct {
 	metrics *metrics.KVMetrics
 }
 
-func (r *reader) Range(key, end []byte, rev int64, limit int64) (entries []types.KvEntry, count int, currentRev int64, err error) {
+func (r *reader) Revisions() (current kv.Revision, compacted int64) {
+	return r.store.Revisions()
+}
+
+func (r *reader) Range(key, end []byte, rev int64, limit int64) (entries []*kv.Entry, count int, highestRev int64, err error) {
 	start := time.Now()
 	r.store.rwlock.RLock()
 	defer r.store.rwlock.RUnlock()
@@ -49,14 +52,10 @@ func (r *reader) Range(key, end []byte, rev int64, limit int64) (entries []types
 	rtx.RLock()
 	defer rtx.RUnlock()
 
-	entries, count, err = doRange(r.store.logger, r.store.kvIndex, rtx, currRev.Main, compactedRev, rev, key, end, limit)
-	if err != nil {
-		return nil, 0, currRev.Main, err
-	}
-	return entries, count, currRev.Main, nil
+	return doRange(r.store.logger, r.store.kvIndex, rtx, currRev.Main, compactedRev, rev, key, end, limit)
 }
 
-func (r *reader) Get(key []byte, rev int64) *types.KvEntry {
+func (r *reader) Get(key []byte, rev int64) *kv.Entry {
 	entries, _, _, err := r.Range(key, nil, rev, 1)
 	if err != nil {
 		return nil
@@ -64,12 +63,12 @@ func (r *reader) Get(key []byte, rev int64) *types.KvEntry {
 	if len(entries) == 0 {
 		return nil
 	}
-	return &entries[0]
+	return entries[0]
 }
 
 // As this is an 'internal', non public facing API, we dont need to track metrics here
 // its only used for the watch implementation, for which we will track different group of metrics
-func (r *reader) RevisionRange(startRev, endRev int64, limit int64) (entries []types.KvEntry, err error) {
+func (r *reader) RevisionRange(startRev, endRev int64, limit int64) (entries []*kv.Entry, err error) {
 	r.store.rwlock.RLock()
 	defer r.store.rwlock.RUnlock()
 
@@ -83,20 +82,20 @@ func (r *reader) RevisionRange(startRev, endRev int64, limit int64) (entries []t
 
 // doRange performs a range query for the given key range and revision, returning up to the given limit of entries.
 // It abstracts away the common logic of a range query, making it resuable for both Reader and Watcher implementations.
-func doRange(l *slog.Logger, kvIndex kv.Index, readTx backend.ReadTx, currRev, compactedRev, targetRev int64, key, end []byte, limit int64) (entries []types.KvEntry, count int, err error) {
+func doRange(l *slog.Logger, kvIndex kv.Index, readTx backend.ReadTx, currRev, compactedRev, targetRev int64, key, end []byte, limit int64) (entries []*kv.Entry, count int, lastRev int64, err error) {
 	if targetRev > currRev {
-		return nil, 0, fmt.Errorf("future revision requested")
+		return nil, 0, 0, fmt.Errorf("future revision requested")
 	}
 	if targetRev <= 0 {
 		targetRev = currRev
 	}
 	if targetRev < compactedRev {
-		return nil, 0, kv.ErrCompacted
+		return nil, 0, 0, kv.ErrCompacted
 	}
 
 	revpairs, total := kvIndex.Revisions(key, end, targetRev, int(limit))
 	if len(revpairs) == 0 {
-		return nil, total, nil
+		return nil, total, targetRev, nil
 	}
 
 	lim := int(limit)
@@ -104,7 +103,7 @@ func doRange(l *slog.Logger, kvIndex kv.Index, readTx backend.ReadTx, currRev, c
 		lim = len(revpairs)
 	}
 
-	entries = make([]types.KvEntry, 0, lim)
+	entries = make([]*kv.Entry, 0, lim)
 	revBytes := kv.NewRevBytes()
 	for _, rp := range revpairs[:lim] {
 		revBytes = kv.EncodeRevisionAsBucketKey(rp, revBytes)
@@ -113,25 +112,26 @@ func doRange(l *slog.Logger, kvIndex kv.Index, readTx backend.ReadTx, currRev, c
 			l.Error("range: revision not found in backend", "main", rp.Main, "sub", rp.Sub)
 			continue
 		}
-		entry, err := types.DecodeKvEntry(entryBytes)
+
+		entry, err := kv.DecodeEntry(entryBytes)
 		if err != nil {
 			l.Error("range: failed to unmarshal entry", "err", err)
 			continue
 		}
+		if entry.ModRev > lastRev {
+			lastRev = entry.ModRev
+		}
 		entries = append(entries, entry)
 	}
 
-	return entries, total, nil
+	return entries, total, lastRev, nil
 }
 
 // doRevisionRange performs a range query for all entries between the given revisions, returning up to the given limit of entries.
 // It abstracts away the common logic of a revision range query, making it resuable for both Reader and Watcher implementations.
-func doRevisionRange(l *slog.Logger, readTx backend.ReadTx, startRev, endRev, currRevMain, compactedRev, limit int64) (entries []types.KvEntry, err error) {
+func doRevisionRange(l *slog.Logger, readTx backend.ReadTx, startRev, endRev, currRevMain, compactedRev, limit int64) (entries []*kv.Entry, err error) {
 	if startRev > currRevMain {
 		return nil, errors.New("revision range: future revision requested")
-	}
-	if startRev <= 0 {
-		startRev = 0
 	}
 	if startRev < compactedRev {
 		return nil, kv.ErrCompacted
@@ -159,7 +159,7 @@ func doRevisionRange(l *slog.Logger, readTx backend.ReadTx, startRev, endRev, cu
 		// bk := kv.DecodeKvBucketKey(k)
 		// we can figure out if key is tombstoned, while having the modRev updated (fixed in w.deleteKey)
 
-		entry, err := types.DecodeKvEntry(v)
+		entry, err := kv.DecodeEntry(v)
 		if err != nil {
 			// we can skip entries that fail to decode, as they might be due to
 			// compaction or other issues, but we dont want to fail

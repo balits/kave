@@ -5,7 +5,6 @@ import (
 
 	"github.com/balits/kave/internal/command"
 	"github.com/balits/kave/internal/kv"
-	"github.com/balits/kave/internal/types"
 )
 
 type LeaseAttacher interface {
@@ -13,7 +12,9 @@ type LeaseAttacher interface {
 	DetachKey(id int64, key []byte)
 }
 
-type CommitObserver = func(changes []types.KvEntry)
+type CommitObserver interface {
+	OnCommit(changes []*kv.Entry)
+}
 
 type Engine struct {
 	store    *KvStore
@@ -52,6 +53,7 @@ func (e *Engine) ApplyWrite(cmd command.Command) (*command.Result, error) {
 			res.Txn = resTxn
 		}
 	default:
+		w.Abort()
 		panic(fmt.Sprintf("unknown command type: %s", cmd.Kind))
 	}
 
@@ -64,15 +66,21 @@ func (e *Engine) ApplyWrite(cmd command.Command) (*command.Result, error) {
 		return nil, err
 	}
 
-	_, cs := w.UnsafeExpectedChanges()
+	finalRev, changes := w.UnsafeExpectedChanges()
 	for _, obs := range e.obs {
-		obs(cs)
+		obs.OnCommit(changes)
+	}
+
+	if len(changes) != 0 {
+		res.Header.Revision = finalRev
+	} else {
+		res.Header.Revision = w.StartRevision().Main
 	}
 	return res, nil
 }
 
 func (e *Engine) applyPut(w Writer, cmd *command.CmdPut) (*command.ResultPut, error) {
-	prev := e.store.NewReader().Get([]byte(cmd.Key), 0)
+	prev := w.Get([]byte(cmd.Key), 0)
 
 	if prev == nil && (cmd.IgnoreLease || cmd.IgnoreValue) {
 		return nil, kv.ErrKeyNotFound
@@ -117,11 +125,11 @@ func (e *Engine) applyPut(w Writer, cmd *command.CmdPut) (*command.ResultPut, er
 
 func (e *Engine) applyDelete(w Writer, cmd *command.CmdDelete) (*command.ResultDelete, error) {
 	var (
-		prevs []types.KvEntry
+		prevs []*kv.Entry
 		err   error
 	)
 	if cmd.PrevEntries {
-		prevs, _, _, err = e.store.NewReader().Range(cmd.Key, cmd.End, 0, 0)
+		prevs, _, _, err = w.Range(cmd.Key, cmd.End, 0, 0)
 		if err != nil {
 			return nil, fmt.Errorf("applyDelete failed: %w", err)
 		}
@@ -192,7 +200,7 @@ func (e *Engine) applyTxnOps(w Writer, ops []command.TxnOp) ([]command.TxnOpResu
 		switch op.Type {
 		case command.TxnOpPut:
 			put := op.Put
-			var prev *types.KvEntry
+			var prev *kv.Entry
 			if put.PrevEntry {
 				prev = w.Get(put.Key, 0)
 			}
@@ -208,7 +216,8 @@ func (e *Engine) applyTxnOps(w Writer, ops []command.TxnOp) ([]command.TxnOpResu
 			})
 		case command.TxnOpDelete:
 			del := op.Delete
-			var prevs []types.KvEntry
+			var prevs []*kv.Entry
+
 			if del.PrevEntries {
 				var err error
 				prevs, _, _, err = w.Range(del.Key, del.End, 0, 0)

@@ -14,7 +14,7 @@ var ErrCompactionFailed = fmt.Errorf("treeIndex: compaction failed")
 
 //	key -> {
 //		key,
-//		{key, modRev, []revs},
+//		{key, lastModRev, []revs},
 //	}
 type Index interface {
 	// Get looks up a single user key at a target revision.
@@ -29,6 +29,10 @@ type Index interface {
 	// Range returns all user keys in [key, end) that are live at targetRev.
 	// If end is nil, returns only the exact key match.
 	Range(key, end []byte, targetRev int64) ([][]byte, []Revision)
+
+	// RevisionRange returns all {revision,tombstone} found for the  key range[key, end)
+	// in the  range [startRev, endRev).
+	RevisionsRange(key, end []byte, startRev, endRev int64) []KvBucketKey
 
 	// Revisions returns limited number of revisions from [key, end) at the given rev.
 	// The returned slice is sorted in the order of key. There is no limit if limit <= 0.
@@ -143,6 +147,54 @@ func (ti *treeIndex) unsafeVisit(key, end []byte, f func(ki *keyIndex) bool) {
 		}
 		return true
 	})
+}
+
+// RevisionRange returns all revisions found for the key [key, end) in the range [startRev, endRev).
+func (ti *treeIndex) RevisionsRange(key, end []byte, startRev, endRev int64) (out []KvBucketKey) {
+	ti.mu.Lock()
+	defer ti.mu.Unlock()
+
+	getRevs := func(ki *keyIndex) {
+		for i, g := range ki.generations {
+			genComplete := i < len(ki.generations)-1
+			lastRevIdx := len(g.revs) - 1
+			g.walk(func(rev Revision) error {
+				if rev.Main > startRev && rev.Main < endRev {
+					tomb := genComplete && g.revs[lastRevIdx] == rev
+					out = append(out, KvBucketKey{Revision: rev, Tombstone: tomb})
+				}
+				return nil
+			})
+		}
+	}
+
+	if startRev > endRev {
+		return
+	}
+
+	if end == nil && len(key) != 0 {
+		ki := &keyIndex{key: key}
+		if ki = ti.keyIndex(ki); ki == nil {
+			return make([]KvBucketKey, 0)
+		}
+		getRevs(ki)
+		return
+	}
+
+	if key == nil {
+		key = []byte{}
+	}
+
+	if end == nil && len(key) != 0 {
+		ti.unsafeGet(key, endRev)
+	}
+
+	ti.unsafeVisit(key, end, func(ki *keyIndex) bool {
+		getRevs(ki)
+		return true
+	})
+
+	return out
 }
 
 // Revisions returns limited number of revisions from key(included) to end(excluded)

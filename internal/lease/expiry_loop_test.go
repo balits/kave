@@ -2,7 +2,6 @@ package lease
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"testing"
 	"time"
@@ -126,7 +125,7 @@ func Test_ExpiryLoop_LosesLeadership_StopsProposing(t *testing.T) {
 	go func() {
 		defer func() {
 			r := recover()
-			fmt.Println(r)
+			t.Log(r)
 		}()
 		ft.FakeTick() // this should block until tickerC is not nil which will never happen
 	}()

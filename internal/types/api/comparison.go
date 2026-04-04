@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/balits/kave/internal/types"
+	"github.com/balits/kave/internal/kv"
 )
 
 // TODO: no checks for union field
@@ -34,9 +34,9 @@ func (c *Comparison) Check() error {
 	return nil
 }
 
-func (c *Comparison) Eval(target *types.KvEntry) (result bool) {
+func (c *Comparison) Eval(target *kv.Entry) (result bool) {
 	if target == nil {
-		target = &types.KvEntry{}
+		target = &kv.Entry{}
 	}
 
 	var t CompareTargetUnion

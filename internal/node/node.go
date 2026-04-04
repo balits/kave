@@ -9,6 +9,7 @@ import (
 	"github.com/balits/kave/internal/compaction"
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/fsm"
+	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/lease"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
@@ -19,6 +20,7 @@ import (
 	transport "github.com/balits/kave/internal/transport/http"
 	"github.com/balits/kave/internal/util"
 	"github.com/balits/kave/internal/util/logutil"
+	"github.com/balits/kave/internal/watch"
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sync/errgroup"
@@ -30,10 +32,15 @@ type Node struct {
 
 	proposeFunc  util.ProposeFunc
 	isLeaderFunc util.IsLeaderFunc
+
 	backend      backend.Backend
+	kvIndex      kv.Index
+	hub          *watch.WatchHub
+	unsyncedLoop *watch.UnsyncedLoop
 	kvstore      *mvcc.KvStore
 	leaseManager *lease.LeaseManager
 	otManager    *ot.OTManager
+	engine       *mvcc.Engine
 	fsm          *fsm.Fsm
 	raft         *raft.Raft
 	raftDeps     *config.RaftDependencies // stored bcs raft.HasExistingState() upon Bootstrap requires it
@@ -93,6 +100,7 @@ func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*No
 		n.otService,
 		n.clusterService,
 		n.peerService,
+		n.hub,
 		reg,
 	)
 	return n, nil
@@ -208,18 +216,24 @@ func (n *Node) Shutdown(ctx context.Context) error {
 
 func (n *Node) initStorage(reg prometheus.Registerer, storageOpts storage.StorageOptions, otOpts ot.Options) error {
 	n.backend = backend.New(reg, storageOpts)
-	n.kvstore = mvcc.NewKvStore(reg, n.logger, n.backend)
+	n.kvIndex = kv.NewTreeIndex(n.logger)
+	n.kvstore = mvcc.NewKvStoreWithIndex(reg, n.logger, n.backend, n.kvIndex)
 	om, err := ot.NewOTManager(reg, n.logger, n.backend, otOpts)
 	if err != nil {
 		return err
 	}
 	n.otManager = om
+
+	n.hub = watch.NewWatchHub(reg, n.logger, n.kvstore)
+	n.unsyncedLoop = watch.NewUnsyncedLoop(n.logger, n.hub, n.kvIndex, n.backend.ReadTx(), n.kvstore)
+	n.engine = mvcc.NewEngine(n.kvstore, n.leaseManager, n.hub)
+
 	return nil
 }
 
 func (n *Node) initRaft(reg prometheus.Registerer, cfg *config.Config) error {
 	n.leaseManager = lease.NewManager(reg, n.logger, n.kvstore, n.backend)
-	n.fsm = fsm.New(n.logger, n.kvstore, n.leaseManager, n.otManager, cfg.Me.NodeID)
+	n.fsm = fsm.NewWithEngine(n.logger, n.kvstore, n.leaseManager, n.otManager, n.engine, cfg.Me.NodeID)
 
 	hclogger := logutil.NewHcLogAdapter(n.logger, cfg.LogLevel)
 	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, hclogger, cfg.LogLevel)

@@ -194,6 +194,38 @@ Hello world
     - [ ] refactor LeaseService return types
     - [ ] cluster integration tests
     - [ ] live workload + web ui for stats, metrics and manual commands
+    - [ ] watch API
+        - [x] watcher
+            - store key, end, startRev, currentRev and a buffered channel of events for send/sendAll
+            - since channel is buffered, send/sendAll returns errWatcherOverloaded,
+                we can try again later
+        - [x] WatchHub: manages all watchers on the node, and their "synced" status
+            - [x] CreateWatcher / CancelWatcher
+            - [x] manage "up-to-date" watchers and "unsynced" watchers
+                - synced or up-to-date if watcher.currentRev >= STORE_CURRENT_REV, unsynced otherwise
+            - [x] OnCommit hooked into fsm.Apply, to process each new entry/event 
+        - [x] UnsyncedLoop (background routine wrapping the WatchHub)
+            - [x] tracks unsynced watchers, periodically feeds a subset of them events
+                so they might eventually promote to synced watchers in the hub
+            - [x] if a watcher fails to promote X times, it gets dropped
+            - [x] promotion happens when the watchers.currentRev >= HIGHEST_REV_FOR_KEYRANGE, where KEYRANGE is [watcher.keyStart, watcher.keyEnd)
+            - [x] to reduce latency in the fsm.Apply path (WatchHub.OnCommit()), batch promotion/deletion at the end of each tick, instead of locking the hub for the entire tick
+            - [x] remove Reader.RevisionRange, use kvIndex.RevisionsRange(key, end []byte, startRev, endRev int64)
+        - [ ] Stream: creates/cancels watchers, runs them in go routines and collects messages through a public read only channle 
+            - [x]manages its own subset of watcher, wraps the hub
+            - [x] starts a collector go routine for each new watch created, and collects it
+                in an output channel, emitting StreamEvents {watcher_id, event}
+        - [ ] Session: wraps a websocket connection, creates a Stream and handles ws reads/writes
+            - [x] collector routine: collects events and messages then writes the json to the client
+                - collects events from the stream
+                - collects control messages from the session
+                - wraps these in ServerMessage and writes them to the connection
+                - writes have a timeout, that will bring down the whole session if writes are too slow
+            - [x] dispatcher routine: reads client events and forwards them to the stream/ and their result to the collector for writes
+                - dispatcher blocks on reading from the connection
+                - one a client message arrives for watch create/cancel, it forwards the request to the stream, then sends the result to the collector go routine 
+                - wraps these in ServerMessage and writes them to the collector
+            - [ ] fix _err = json.Marshal() on ServerMessage
 
 # CHORES
 - [ ] use require in every test insteaf of if err != nil ...

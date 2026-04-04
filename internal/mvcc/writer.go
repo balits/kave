@@ -7,11 +7,12 @@ import (
 	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage/backend"
-	"github.com/balits/kave/internal/types"
+	"github.com/balits/kave/internal/util"
 )
 
 type Writer interface {
-	// writer should implement normal read operations too, since we have the exclusive writelock
+	// writer should implement normal read operations too, since we have the exclusive writelock,
+	// but the write transaction does not end at reading, so callers should still call w.End() or w.Abort().
 	Reader
 
 	// StartRev returns the writers start revision,
@@ -37,18 +38,22 @@ type Writer interface {
 	// Abort discards all changes and releases locks. It should be called if the caller decides not to commit the transaction.
 	Abort()
 
+	// StartRevision returns the revision at the beginning of the writer,
+	// before any writes were applied.
+	StartRevision() kv.Revision
+
 	// UnsafeExpectedChanges returns all the changes made up until this point in time,
 	// and the expected end revision which would be the new global revision after succesfull call to w.End()
 	//
 	// NOTE: its only safe to rely on the expected end revision after calling w.End() without it producing an error
-	UnsafeExpectedChanges() (unsafeEndRev int64, unsageChanges []types.KvEntry)
+	UnsafeExpectedChanges() (unsafeEndRev int64, unsafeChanges []*kv.Entry)
 }
 
 type writer struct {
 	store    *KvStore
 	writeTx  backend.WriteTx
 	startRev kv.Revision
-	changes  []types.KvEntry
+	changes  []*kv.Entry
 	txnMode  bool
 
 	startTime time.Time
@@ -67,15 +72,17 @@ func newWriter(
 	}
 }
 
-func (w *writer) StartRev() kv.Revision { return w.startRev }
+func (w *writer) Revisions() (current kv.Revision, compacted int64) {
+	return w.store.Revisions()
+}
 
-func (w *writer) UnsafeExpectedChanges() (int64, []types.KvEntry) {
+func (w *writer) StartRevision() kv.Revision { return w.startRev }
+
+func (w *writer) UnsafeExpectedChanges() (int64, []*kv.Entry) {
 	return w.startRev.Main + 1, w.changes
 }
 
-// delegates
-
-func (w *writer) Get(key []byte, rev int64) *types.KvEntry {
+func (w *writer) Get(key []byte, rev int64) *kv.Entry {
 	entries, _, _, err := w.Range(key, nil, rev, 1)
 	if err != nil {
 		return nil
@@ -83,26 +90,21 @@ func (w *writer) Get(key []byte, rev int64) *types.KvEntry {
 	if len(entries) == 0 {
 		return nil
 	}
-	return &entries[0]
+	return entries[0]
 }
 
-func (w *writer) Range(key, end []byte, targetRev int64, limit int64) (entries []types.KvEntry, count int, currentRev int64, err error) {
+func (w *writer) Range(key, end []byte, targetRev int64, limit int64) (entries []*kv.Entry, count int, currentRev int64, err error) {
 	start := time.Now()
 	w.store.metrics.ReadsTotal.Inc()
 	defer func() { w.store.metrics.ReadDurationSec.Observe(time.Since(start).Seconds()) }()
 
 	currRev, compactedRev := w.store.Revisions()
-	entries, count, err = doRange(w.store.logger, w.store.kvIndex, w.writeTx, currRev.Main, compactedRev, targetRev, key, end, limit)
-	if err != nil {
-		return nil, 0, currRev.Main, err
-	}
-
-	return entries, count, currRev.Main, nil
+	return doRange(w.store.logger, w.store.kvIndex, w.writeTx, currRev.Main, compactedRev, targetRev, key, end, limit)
 }
 
 // As this is an 'internal', non public facing API, we dont need to track metrics here
 // its only used for the watch implementation, for which we will track different group of metrics
-func (w *writer) RevisionRange(startRev, endRev int64, limit int64) (entries []types.KvEntry, err error) {
+func (w *writer) RevisionRange(startRev, endRev int64, limit int64) (entries []*kv.Entry, err error) {
 	currRev, compactedRev := w.store.Revisions()
 	return doRevisionRange(w.store.logger, w.writeTx, startRev, endRev, currRev.Main, compactedRev, limit)
 }
@@ -130,7 +132,7 @@ func (w *writer) put(key, value []byte, leaseID int64) error {
 	idxRevBytes := kv.NewRevBytes()
 	idxRevBytes = kv.EncodeRevisionAsBucketKey(idxRev, idxRevBytes)
 
-	entry := types.KvEntry{
+	entry := &kv.Entry{
 		Key:       key,
 		Value:     value,
 		CreateRev: createRev,
@@ -139,7 +141,7 @@ func (w *writer) put(key, value []byte, leaseID int64) error {
 		LeaseID:   leaseID,
 	}
 
-	d, err := types.EncodeKvEntry(entry)
+	d, err := kv.EncodeKvEntry(entry)
 	if err != nil {
 		return fmt.Errorf("failed to encode entry: %v", err)
 	}
@@ -202,13 +204,13 @@ func (w *writer) deleteKey(key []byte) error {
 	// tombstone entry has a key but no value (api layer does not allow nil values)
 	// modRev is bumped, so watchers dont see a sudden modRev == 0 after watching from lets say revs 5->8,
 	// and then a put happens at rev 9, watchers couldve seen see 5,6,7,8,0 instead of 5,6,7,8,9(tombstone, since value == nil)
-	tombstoneEntry := types.KvEntry{
+	tombstoneEntry := &kv.Entry{
 		Key:    key,
 		ModRev: nextRev,
 	}
-	tombstoneEntryBytes, err := types.EncodeKvEntry(tombstoneEntry)
+	tombstoneEntryBytes, err := kv.EncodeKvEntry(tombstoneEntry)
 	if err != nil {
-		return fmt.Errorf("writer.deleteKey(): failed to encode entry: %v", err)
+		return fmt.Errorf("writer.deleteKey(): %v", err)
 	}
 
 	// update history
@@ -243,12 +245,12 @@ func (w *writer) End() error {
 	if len(w.changes) != 0 {
 		w.store.revMu.Lock()
 		w.store.currentRev = kv.Revision{Main: w.store.currentRev.Main + 1}
-		w.writeTx.UnsafePut(schema.BucketMeta, schema.KeyCurrentRevision, types.EncodeUint64(uint64(w.store.currentRev.Main)))
+		w.writeTx.UnsafePut(schema.BucketMeta, schema.KeyCurrentRevision, util.EncodeUint64(uint64(w.store.currentRev.Main)))
 	}
 
 	if w.store.applyIndex > 0 {
-		w.writeTx.UnsafePut(schema.BucketMeta, schema.KeyRaftApplyIndex, types.EncodeUint64(w.store.applyIndex))
-		w.writeTx.UnsafePut(schema.BucketMeta, schema.KeyRaftTerm, types.EncodeUint64(w.store.raftTerm))
+		w.writeTx.UnsafePut(schema.BucketMeta, schema.KeyRaftApplyIndex, util.EncodeUint64(w.store.applyIndex))
+		w.writeTx.UnsafePut(schema.BucketMeta, schema.KeyRaftTerm, util.EncodeUint64(w.store.raftTerm))
 	}
 
 	info, err := w.writeTx.Commit()

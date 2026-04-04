@@ -32,9 +32,9 @@ type Fsm struct {
 	logger         *slog.Logger
 }
 
-func New(logger *slog.Logger, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager, nodeID string) *Fsm {
+func NewWithEngine(logger *slog.Logger, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager, engine *mvcc.Engine, nodeID string) *Fsm {
 	f := &Fsm{
-		engine: mvcc.NewEngine(store, lm),
+		engine: engine,
 		lm:     lm,
 		store:  store,
 		om:     om,
@@ -42,6 +42,10 @@ func New(logger *slog.Logger, store *mvcc.KvStore, lm *lease.LeaseManager, om *o
 		myID:   nodeID,
 	}
 	return f
+}
+
+func New(logger *slog.Logger, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager, nodeID string) *Fsm {
+	return NewWithEngine(logger, store, lm, om, mvcc.NewEngine(store, lm), nodeID)
 }
 
 // SetMetrics is needed for a two phase init of the fsm
@@ -92,16 +96,10 @@ func (f *Fsm) Apply(log *raft.Log) interface{} {
 		panic(fmt.Sprintf("Unsupported command kind: %v", cmd.Kind))
 	}
 
-	// one more RLock :/
-	// but raft ensures Applies are called sequentially so no sudden rev bump is expected
-	finalRev, _ := f.store.Revisions()
-
-	res.Header = command.ResultHeader{
-		RaftTerm:  log.Term,
-		RaftIndex: log.Index,
-		NodeID:    f.myID,
-		Revision:  finalRev.Main,
-	}
+	// set fields that apply could touch
+	res.Header.RaftTerm = log.Term
+	res.Header.RaftIndex = log.Index
+	res.Header.NodeID = f.myID
 
 	if res.Error == nil {
 		for _, o := range f.writeObservers {

@@ -15,16 +15,15 @@ import (
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage/backend"
-	"github.com/balits/kave/internal/types"
 	"github.com/balits/kave/internal/util"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 var (
 	errLease           = errors.New("lease error")
-	errLeaseIDConflict = fmt.Errorf("%w: lease ID conflict", errLease)
+	ErrLeaseIDConflict = fmt.Errorf("%w: lease ID conflict", errLease)
 	ErrLeaseNotFound   = fmt.Errorf("%w: lease not found", errLease)
-	errLeaseInvalidTTL = fmt.Errorf("%w: TTL must be bigger than 0", errLease)
+	ErrLeaseInvalidTTL = fmt.Errorf("%w: TTL must be bigger than 0", errLease)
 )
 
 const (
@@ -64,7 +63,7 @@ func NewManager(reg prometheus.Registerer, logger *slog.Logger, store *mvcc.KvSt
 
 func (lm *LeaseManager) Grant(requestedID, ttl int64) (*Lease, error) {
 	if ttl <= 0 {
-		return nil, errLeaseInvalidTTL
+		return nil, ErrLeaseInvalidTTL
 	}
 	if ttl > maxTTL {
 		ttl = maxTTL
@@ -462,7 +461,7 @@ func (lm *LeaseManager) Restore() error {
 				return nil
 			}
 
-			entry, err := types.DecodeKvEntry(v)
+			entry, err := kv.DecodeEntry(v)
 			if err != nil {
 				lm.logger.Warn("restore error: failed to decode entry", "error", err)
 				return nil
@@ -511,7 +510,7 @@ func (lm *LeaseManager) Restore() error {
 // NOTE: caller needs to hold the lock
 func (lm *LeaseManager) unsafeSaveToLeaseMap(l *Lease) error {
 	if _, ok := lm.leaseMap[l.ID]; ok {
-		return errLeaseIDConflict
+		return ErrLeaseIDConflict
 	}
 	lm.leaseMap[l.ID] = l
 	return nil
@@ -603,7 +602,7 @@ func (lm *LeaseManager) unsafeUpdateHeap(id int64, t time.Time) {
 // NOTE: caller needs to hold the lock
 func (lm *LeaseManager) unsafeRegrant(requestedID, remainingTTLsec int64) (*Lease, error) {
 	if remainingTTLsec <= 0 {
-		return nil, errLeaseInvalidTTL
+		return nil, ErrLeaseInvalidTTL
 	}
 	if remainingTTLsec > maxTTL {
 		remainingTTLsec = maxTTL
