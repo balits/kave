@@ -6,11 +6,36 @@ import (
 	"fmt"
 )
 
-var (
-	errDecodingFailed = fmt.Errorf("codec error: entry decoding failed")
-)
+// Entry a valódi tipus amit az adatbázisban tárolunk
+type Entry struct {
+	Key       []byte `json:"key"`
+	Value     []byte `json:"value"`
+	CreateRev int64  `json:"create_revision"`
+	ModRev    int64  `json:"mod_revision"`
+	Version   int64  `json:"version"`
+	LeaseID   int64  `json:"lease_id,omitempty"`
+}
 
-func EncodeKvEntry(e Entry) ([]byte, error) {
+func (e Entry) Tombstone() bool {
+	return len(e.Key) != 0 && len(e.Value) == 0
+}
+
+func (e Entry) String() string {
+	return fmt.Sprintf(
+		"Entry{Key: %s, Value: %s, CreateRev: %d, ModRev: %d, Version: %d, LeaseID: %d}",
+		string(e.Key),
+		string(e.Value),
+		e.CreateRev,
+		e.ModRev,
+		e.Version,
+		e.LeaseID,
+	)
+}
+
+func EncodeKvEntry(e *Entry) ([]byte, error) {
+	if e == nil {
+		return nil, fmt.Errorf("codec error: failed to encode nil entry")
+	}
 	totalLen := 4 + len(e.Key) + 4 + len(e.Value) + 8 + 8 + 8 + 8
 	buf := make([]byte, totalLen)
 	offset := 0

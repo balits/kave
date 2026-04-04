@@ -15,6 +15,8 @@ import (
 	"github.com/balits/kave/internal/util"
 	"github.com/balits/kave/internal/watch"
 	"github.com/coder/websocket"
+	"github.com/balits/kave/internal/watch"
+	"github.com/coder/websocket"
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -25,7 +27,15 @@ const (
 	RouteKvPut    = transport.RouteKv + "/put"
 	RouteKvDelete = transport.RouteKv + "/delete"
 	RouteKvTxn    = transport.RouteKv + "/txn"
+	RouteKvRange  = transport.RouteKv + "/range"
+	RouteKvPut    = transport.RouteKv + "/put"
+	RouteKvDelete = transport.RouteKv + "/delete"
+	RouteKvTxn    = transport.RouteKv + "/txn"
 
+	RouteLeaseGrant     = transport.RouteLease + "/grant"
+	RouteLeaseRevoke    = transport.RouteLease + "/revoke"
+	RouteLeaseKeepAlive = transport.RouteLease + "/keep-alive"
+	RouteLeaseLookup    = transport.RouteLease + "/lookup"
 	RouteLeaseGrant     = transport.RouteLease + "/grant"
 	RouteLeaseRevoke    = transport.RouteLease + "/revoke"
 	RouteLeaseKeepAlive = transport.RouteLease + "/keep-alive"
@@ -36,9 +46,19 @@ const (
 	RouteOtWriteAll = transport.RouteOt + "/write-all"
 
 	RouteWatchWS = transport.RouteWatch
+	RouteOtInit     = transport.RouteOt + "/init"
+	RouteOtTransfer = transport.RouteOt + "/transfer"
+	RouteOtWriteAll = transport.RouteOt + "/write-all"
+
+	RouteWatchWS = transport.RouteWatch
 
 	RouteClusterJoin = transport.RouteCluster + "/join"
+	RouteClusterJoin = transport.RouteCluster + "/join"
 
+	RouteStats   = "/stats"
+	RouteMetrics = "/metrics"
+	RouteLivez   = "/livez"
+	RouteReadyz  = "/readyz"
 	RouteStats   = "/stats"
 	RouteMetrics = "/metrics"
 	RouteLivez   = "/livez"
@@ -94,11 +114,12 @@ type HttpServer struct {
 	leaseSvc     service.LeaseService
 	otSvc        service.OTService
 	raftSvc      service.RaftService
+	watchHub *watch.WatchHub
 	readLimiter  *rateLimiter
 	writeLimiter *rateLimiter
 	logger       *slog.Logger
 	server       *http.Server
->>>>>>> 8081303 (add(testing): parallelize testing to speed up CI)
+	rootLogger *slog.Logger
 }
 
 func NewHTTPServer(
@@ -108,13 +129,9 @@ func NewHTTPServer(
 	kvService service.KVService,
 	leaseService service.LeaseService,
 	otService service.OTService,
-<<<<<<< HEAD
 	clusterService service.ClusterService,
 	peerService service.PeerService,
 	hub *watch.WatchHub,
-=======
-	raftService service.RaftService,
->>>>>>> 958bbce (add: peerDiscovery for initial peer map, merge PeerService+ClusterService into RaftService)
 	reg *prometheus.Registry,
 	readLimitConfig RateLimiterConfig,
 	writeLimitConfig RateLimiterConfig,
@@ -137,8 +154,9 @@ func NewHTTPServer(
 		leaseSvc: leaseService,
 		otSvc:    otService,
 		raftSvc:  raftService,
+		watchHub:   hub,
 		logger:   logger.With("component", "http_server", "addr", addr),
->>>>>>> 958bbce (add: peerDiscovery for initial peer map, merge PeerService+ClusterService into RaftService)
+		rootLogger: logger,
 		server: &http.Server{
 			Addr:    addr,
 			Handler: mux,
@@ -162,9 +180,9 @@ func NewHTTPServer(
 	mux.HandleFunc("GET "+RouteLeaseLookup, s.readChain(s.handleLeaseLookup)) // optional leader if we want the most "up to date" data regarding a lease's ttl
 
 	// ot
-	mux.HandleFunc("GET "+RouteOtInit, s.handleOTInit)                        // Init does not read anything from the backend, no middleware need
-	mux.HandleFunc("GET "+RouteOtTransfer, s.readChain(s.handleOTTransfer))   // optional leader if we want the latest data
-	mux.HandleFunc("POST "+RouteOtWriteAll, s.writeChain(s.handleOTWriteAll)) // write must go through raft
+	mux.HandleFunc("GET "+RouteOtInit, s.handleOTInit)                             // Init does not read anything from the backend, no middleware need
+	mux.HandleFunc("GET "+RouteOtTransfer, s.readMiddleware(s.handleOTTransfer))   // optional leader if we want the latest data
+	mux.HandleFunc("POST "+RouteOtWriteAll, s.writeMiddleware(s.handleOTWriteAll)) // write must go through raft
 
 	// watch
 	mux.HandleFunc("GET "+RouteWatchWS, s.handleWatch)
@@ -493,6 +511,39 @@ func (s *HttpServer) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
+}
+
+func (s *HttpServer) handleWatch(w http.ResponseWriter, r *http.Request) {
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		Subprotocols: []string{watch.WatchSubprotocol},
+	})
+
+	if err != nil {
+		msg := "failed to accept connection"
+		s.writeError(w, msg, err, http.StatusBadRequest)
+		return
+	}
+
+	defer conn.CloseNow()
+
+	if conn.Subprotocol() != watch.WatchSubprotocol {
+		msg := fmt.Sprintf("client must speak '%s'", watch.WatchSubprotocol)
+		s.logger.Error("faild to accept connection", "error", msg)
+		conn.Close(websocket.StatusPolicyViolation, msg)
+		return
+	}
+
+	session := watch.NewSession(conn, r.Context(), s.watchHub, s.rootLogger, 0, 0)
+	defer session.Close()
+
+	if err = session.Run(); err != nil {
+		msg := "watch handler failed, closing connection"
+		s.logger.Error(msg, "error", err)
+		conn.Close(websocket.StatusAbnormalClosure, fmt.Sprintf("%s: %v", msg, err))
+		return
+	}
+	s.logger.Info("watch handler done, closing connection")
+	conn.Close(websocket.StatusNormalClosure, "all good")
 }
 
 func (s *HttpServer) handleWatch(w http.ResponseWriter, r *http.Request) {

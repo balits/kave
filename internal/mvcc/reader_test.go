@@ -6,10 +6,6 @@ import (
 )
 
 func Test_Reader_RangeSingleKey(t *testing.T) {
-<<<<<<< HEAD
-=======
-	t.Parallel()
->>>>>>> 8081303 (add(testing): parallelize testing to speed up CI)
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -19,12 +15,15 @@ func Test_Reader_RangeSingleKey(t *testing.T) {
 
 	r := s.NewReader()
 	entries, total, lastRev, err := r.Range([]byte("foo"), nil, 0, 0)
+	entries, total, lastRev, err := r.Range([]byte("foo"), nil, 0, 0)
 	if err != nil {
 		t.Fatalf("Range: %v", err)
 	}
 	if total != 1 {
 		t.Errorf("total = %d, want 1", total)
 	}
+	if lastRev != 1 {
+		t.Errorf("curRev = %d, want 1", lastRev)
 	if lastRev != 1 {
 		t.Errorf("curRev = %d, want 1", lastRev)
 	}
@@ -37,10 +36,6 @@ func Test_Reader_RangeSingleKey(t *testing.T) {
 }
 
 func Test_Reader_RangeAtSpecificRev(t *testing.T) {
-<<<<<<< HEAD
-=======
-	t.Parallel()
->>>>>>> 8081303 (add(testing): parallelize testing to speed up CI)
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -74,10 +69,6 @@ func Test_Reader_RangeAtSpecificRev(t *testing.T) {
 }
 
 func Test_Reader_RangeRevZeroUsesCurrentRev(t *testing.T) {
-<<<<<<< HEAD
-=======
-	t.Parallel()
->>>>>>> 8081303 (add(testing): parallelize testing to speed up CI)
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -100,10 +91,6 @@ func Test_Reader_RangeRevZeroUsesCurrentRev(t *testing.T) {
 }
 
 func Test_Reader_RangeFutureRevError(t *testing.T) {
-<<<<<<< HEAD
-=======
-	t.Parallel()
->>>>>>> 8081303 (add(testing): parallelize testing to speed up CI)
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -119,10 +106,6 @@ func Test_Reader_RangeFutureRevError(t *testing.T) {
 }
 
 func Test_Reader_RangeMultipleKeys(t *testing.T) {
-<<<<<<< HEAD
-=======
-	t.Parallel()
->>>>>>> 8081303 (add(testing): parallelize testing to speed up CI)
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -147,10 +130,6 @@ func Test_Reader_RangeMultipleKeys(t *testing.T) {
 }
 
 func Test_Reader_RangeWithLimit(t *testing.T) {
-<<<<<<< HEAD
-=======
-	t.Parallel()
->>>>>>> 8081303 (add(testing): parallelize testing to speed up CI)
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -174,10 +153,6 @@ func Test_Reader_RangeWithLimit(t *testing.T) {
 }
 
 func Test_Reader_RangeNonExistentKey(t *testing.T) {
-<<<<<<< HEAD
-=======
-	t.Parallel()
->>>>>>> 8081303 (add(testing): parallelize testing to speed up CI)
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -196,10 +171,6 @@ func Test_Reader_RangeNonExistentKey(t *testing.T) {
 }
 
 func Test_Reader_RangeDeletedKey(t *testing.T) {
-<<<<<<< HEAD
-=======
-	t.Parallel()
->>>>>>> 8081303 (add(testing): parallelize testing to speed up CI)
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -222,10 +193,6 @@ func Test_Reader_RangeDeletedKey(t *testing.T) {
 }
 
 func Test_Reader_RangeDeletedKeyAtOldRev(t *testing.T) {
-<<<<<<< HEAD
-=======
-	t.Parallel()
->>>>>>> 8081303 (add(testing): parallelize testing to speed up CI)
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -248,10 +215,6 @@ func Test_Reader_RangeDeletedKeyAtOldRev(t *testing.T) {
 }
 
 func Test_Reader_RangeEmptyStore(t *testing.T) {
-<<<<<<< HEAD
-=======
-	t.Parallel()
->>>>>>> 8081303 (add(testing): parallelize testing to speed up CI)
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 

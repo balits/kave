@@ -19,7 +19,7 @@ type ReadTx interface {
 	// UnsafeGet returns the value for the given key in the given bucket, or an error if the key doesn't exist.
 	UnsafeGet(bucket storage.Bucket, key []byte) ([]byte, error)
 
-	// UnsafeRange iterates over all key-value pairs in the [start, end) range and applies the given function to them
+	// UnsafeRange iterates over all key-value pairs in the [start, end) range and applies the given function to them,
 	// returning each value in a slice. The function can return an error to stop the iteration and return it.
 	UnsafeRange(bucket storage.Bucket, start, end []byte, f func(k, v []byte) error) (res [][]byte, err error)
 
