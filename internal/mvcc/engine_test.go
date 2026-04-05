@@ -83,6 +83,7 @@ func newTestEngineWithAttacher(t *testing.T) (*Engine, *fakeAttacher) {
 }
 
 func Test_EngineApplyPut(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	result, err := e.ApplyWrite(command.Command{
@@ -97,6 +98,7 @@ func Test_EngineApplyPut(t *testing.T) {
 }
 
 func Test_EngineApplyPutMultiple(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("a"), Value: []byte("1")}})
@@ -114,6 +116,7 @@ func Test_EngineApplyPutMultiple(t *testing.T) {
 }
 
 func Test_EngineApplyPutOverwrite(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("v1")}})
@@ -129,6 +132,7 @@ func Test_EngineApplyPutOverwrite(t *testing.T) {
 }
 
 func Test_EngineApplyPutWithPrevEntry(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("v1")}})
@@ -145,6 +149,7 @@ func Test_EngineApplyPutWithPrevEntry(t *testing.T) {
 }
 
 func Test_EngineApplyPutWithPrevEntryNonExistent(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	result, err := e.ApplyWrite(command.Command{
@@ -156,6 +161,7 @@ func Test_EngineApplyPutWithPrevEntryNonExistent(t *testing.T) {
 }
 
 func Test_EngineApplyDeleteSingleKey(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("foo"), Value: []byte("bar")}})
@@ -175,6 +181,7 @@ func Test_EngineApplyDeleteSingleKey(t *testing.T) {
 }
 
 func Test_EngineApplyDeleteNonExistent(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	result, err := e.ApplyWrite(command.Command{
@@ -187,6 +194,7 @@ func Test_EngineApplyDeleteNonExistent(t *testing.T) {
 }
 
 func Test_EngineApplyDeleteRange(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	for _, kv := range [][]string{{"a", "1"}, {"b", "2"}, {"c", "3"}, {"d", "4"}} {
@@ -204,6 +212,7 @@ func Test_EngineApplyDeleteRange(t *testing.T) {
 }
 
 func Test_EngineApplyDeleteWithPrevEntries(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("x"), Value: []byte("xv")}})
@@ -222,6 +231,7 @@ func Test_EngineApplyDeleteWithPrevEntries(t *testing.T) {
 }
 
 func Test_EngineApplyDeleteWithPrevEntriesNonExistent(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	result, err := e.ApplyWrite(command.Command{
@@ -234,6 +244,7 @@ func Test_EngineApplyDeleteWithPrevEntriesNonExistent(t *testing.T) {
 }
 
 func Test_EngineApplyTxn_SuccessBranch(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("counter"), Value: []byte("hello")}})
@@ -268,6 +279,7 @@ func Test_EngineApplyTxn_SuccessBranch(t *testing.T) {
 }
 
 func Test_EngineApplyTxn_FailureBranch(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("counter"), Value: []byte("hello")}})
@@ -302,6 +314,7 @@ func Test_EngineApplyTxn_FailureBranch(t *testing.T) {
 }
 
 func Test_EngineApplyTxn_NoComparisonsAlwaysSuccess(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	result, err := e.ApplyWrite(command.Command{
@@ -322,6 +335,7 @@ func Test_EngineApplyTxn_NoComparisonsAlwaysSuccess(t *testing.T) {
 }
 
 func Test_EngineApplyTxn_EmptyOps(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	result, err := e.ApplyWrite(command.Command{
@@ -339,6 +353,7 @@ func Test_EngineApplyTxn_EmptyOps(t *testing.T) {
 }
 
 func Test_EngineApplyTxn_WithDeleteOp(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k1"), Value: []byte("v1")}})
@@ -366,6 +381,7 @@ func Test_EngineApplyTxn_WithDeleteOp(t *testing.T) {
 }
 
 func Test_EngineApplyTxn_CompareNonExistentKey(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	result, err := e.ApplyWrite(command.Command{
@@ -394,6 +410,7 @@ func Test_EngineApplyTxn_CompareNonExistentKey(t *testing.T) {
 }
 
 func Test_EngineApplyTxn_MultipleComparisonsAllPass(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("a"), Value: []byte("1")}})
@@ -419,6 +436,7 @@ func Test_EngineApplyTxn_MultipleComparisonsAllPass(t *testing.T) {
 }
 
 func Test_EngineApplyTxn_OneComparisonFails(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("a"), Value: []byte("1")}})
@@ -444,6 +462,7 @@ func Test_EngineApplyTxn_OneComparisonFails(t *testing.T) {
 }
 
 func Test_EngineApplyTxn_PutWithPrevEntry(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("old")}})
@@ -468,6 +487,7 @@ func Test_EngineApplyTxn_PutWithPrevEntry(t *testing.T) {
 }
 
 func Test_EngineApplyTxn_DeleteWithPrevEntries(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("x"), Value: []byte("xv")}})
@@ -492,6 +512,7 @@ func Test_EngineApplyTxn_DeleteWithPrevEntries(t *testing.T) {
 }
 
 func Test_EngineApplyTxn_MixedOps(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	for _, kv := range [][]string{{"a", "1"}, {"b", "2"}, {"c", "3"}} {
@@ -528,6 +549,7 @@ func Test_EngineApplyTxn_MixedOps(t *testing.T) {
 }
 
 func Test_EngineApplyTxn_CompareValue(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("expected")}})
@@ -555,6 +577,7 @@ func Test_EngineApplyTxn_CompareValue(t *testing.T) {
 }
 
 func Test_EngineApplyTxn_CompareValueMismatch(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("actual")}})
@@ -582,6 +605,7 @@ func Test_EngineApplyTxn_CompareValueMismatch(t *testing.T) {
 }
 
 func Test_EngineApplyTxn_CompareCreateRev(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("v1")}})
@@ -611,6 +635,7 @@ func Test_EngineApplyTxn_CompareCreateRev(t *testing.T) {
 }
 
 func Test_EngineApplyTxn_CompareModRev(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("v1")}})
@@ -640,6 +665,7 @@ func Test_EngineApplyTxn_CompareModRev(t *testing.T) {
 }
 
 func Test_EngineApplyUnknownCommandError(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 	require.Panics(t, func() {
 		e.ApplyWrite(command.Command{Kind: "UNKNOWN"})
@@ -647,6 +673,7 @@ func Test_EngineApplyUnknownCommandError(t *testing.T) {
 }
 
 func Test_EngineApplyTxn_ResultCount(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	result, err := e.ApplyWrite(command.Command{
@@ -666,6 +693,7 @@ func Test_EngineApplyTxn_ResultCount(t *testing.T) {
 	}
 }
 func Test_EngineApplyPut_IgnoreValue_PreservesValue(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{
@@ -687,6 +715,7 @@ func Test_EngineApplyPut_IgnoreValue_PreservesValue(t *testing.T) {
 }
 
 func Test_EngineApplyPut_IgnoreValue_NonExistent_ReturnsError(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{
@@ -698,6 +727,7 @@ func Test_EngineApplyPut_IgnoreValue_NonExistent_ReturnsError(t *testing.T) {
 }
 
 func Test_EngineApplyPut_IgnoreValue_BumpsRevisionAndVersion(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{Kind: command.KindPut, Put: &command.CmdPut{Key: []byte("k"), Value: []byte("v")}})
@@ -716,7 +746,12 @@ func Test_EngineApplyPut_IgnoreValue_BumpsRevisionAndVersion(t *testing.T) {
 	require.Equal(t, int64(2), entry.ModRev)
 }
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 8081303 (add(testing): parallelize testing to speed up CI)
 func Test_EngineApplyPut_IgnoreLease_NonExistent_ReturnsError(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{
@@ -728,6 +763,7 @@ func Test_EngineApplyPut_IgnoreLease_NonExistent_ReturnsError(t *testing.T) {
 }
 
 func Test_EngineApplyPut_IgnoreLease_DoesNotDetachWhenLeaseUnchanged(t *testing.T) {
+	t.Parallel()
 	e, fa := newTestEngineWithAttacher(t)
 
 	_, err := e.ApplyWrite(command.Command{
@@ -750,6 +786,7 @@ func Test_EngineApplyPut_IgnoreLease_DoesNotDetachWhenLeaseUnchanged(t *testing.
 }
 
 func Test_EngineApplyPut_BothIgnore_TouchDoesNotDetach(t *testing.T) {
+	t.Parallel()
 	e, fa := newTestEngineWithAttacher(t)
 
 	_, err := e.ApplyWrite(command.Command{
@@ -771,6 +808,7 @@ func Test_EngineApplyPut_BothIgnore_TouchDoesNotDetach(t *testing.T) {
 }
 
 func Test_EngineApplyPut_BothIgnore_NonExistent_ReturnsError(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t)
 
 	_, err := e.ApplyWrite(command.Command{
@@ -782,6 +820,7 @@ func Test_EngineApplyPut_BothIgnore_NonExistent_ReturnsError(t *testing.T) {
 }
 
 func Test_EngineApplyPut_IgnoreLease_PreservesLease(t *testing.T) {
+	t.Parallel()
 	e, fa := newTestEngineWithAttacher(t)
 
 	_, err := e.ApplyWrite(command.Command{

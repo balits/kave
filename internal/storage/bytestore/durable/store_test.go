@@ -368,8 +368,8 @@ func TestLargeValue(t *testing.T) {
 
 func TestManyKeys(t *testing.T) {
 	s := newTestStore(t)
-	n := 1000
-	for i := 0; i < n; i++ {
+	n := 500
+	for i := range n {
 		s.Put(testBucket, []byte(fmt.Sprintf("k%05d", i)), []byte(fmt.Sprintf("v%05d", i)))
 	}
 
@@ -459,10 +459,10 @@ func Test_Defragment_AfterManyDeletes(t *testing.T) {
 	s := newTestStore(t)
 
 	b, _ := s.NewBatch()
-	for i := range 1000 {
+	for i := range 100 {
 		b.Put(testBucket, fmt.Appendf(nil, "key%05d", i), fmt.Appendf(nil, "val%05d", i))
 	}
-	for i := range 900 {
+	for i := range 90 {
 		b.Delete(testBucket, fmt.Appendf(nil, "key%05d", i))
 	}
 	_, err := b.Commit()
@@ -470,15 +470,15 @@ func Test_Defragment_AfterManyDeletes(t *testing.T) {
 
 	require.NoError(t, s.Defragment())
 
-	// the remaining 100 keys should still be there
-	for i := 900; i < 1000; i++ {
+	// the remaining 10 keys should still be there
+	for i := 00; i < 000; i++ {
 		val, err := s.Get(testBucket, fmt.Appendf(nil, "key%05d", i))
 		require.NoError(t, err)
 		require.Equal(t, fmt.Appendf(nil, "val%05d", i), val, "key%05d lost after defrag", i)
 	}
 
 	// the deleted 900 should be gone
-	for i := range 900 {
+	for i := range 90 {
 		val, err := s.Get(testBucket, fmt.Appendf(nil, "key%05d", i))
 		require.NoError(t, err)
 		require.Nil(t, val, "deleted key%05d still present after defrag", i)

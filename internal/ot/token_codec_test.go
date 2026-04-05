@@ -29,6 +29,7 @@ func Test_NewTokenCodec_InvalidKeySize(t *testing.T) {
 }
 
 func Test_SealOpen_RoundTrip(t *testing.T) {
+	t.Parallel()
 	tc := newTestCodec(t, DefaultTokenTTL)
 
 	scalar := make([]byte, scalarSize)
@@ -48,6 +49,7 @@ func Test_SealOpen_RoundTrip(t *testing.T) {
 }
 
 func Test_SealOpen_DifferentScalarSizes(t *testing.T) {
+	t.Parallel()
 	tc := newTestCodec(t, DefaultTokenTTL)
 
 	// The codec only works with scalars of size 32
@@ -62,6 +64,7 @@ func Test_SealOpen_DifferentScalarSizes(t *testing.T) {
 }
 
 func Test_Open_ExpiredToken(t *testing.T) {
+	t.Parallel()
 	ttl := int64(1)
 	tc := newTestCodec(t, ttl)
 
@@ -78,6 +81,7 @@ func Test_Open_ExpiredToken(t *testing.T) {
 }
 
 func Test_Open_TamperedToken(t *testing.T) {
+	t.Parallel()
 	tc := newTestCodec(t, DefaultTokenTTL)
 
 	scalar := make([]byte, scalarSize)
@@ -94,6 +98,7 @@ func Test_Open_TamperedToken(t *testing.T) {
 }
 
 func Test_Open_WrongKey(t *testing.T) {
+	t.Parallel()
 	// Create two codecs with different cluster keys.
 	// A token sealed by one should not open with the other.
 	tc1 := newTestCodec(t, DefaultTokenTTL)
@@ -110,6 +115,7 @@ func Test_Open_WrongKey(t *testing.T) {
 }
 
 func Test_Open_TruncatedToken(t *testing.T) {
+	t.Parallel()
 	tc := newTestCodec(t, DefaultTokenTTL)
 
 	scalar := make([]byte, scalarSize)
@@ -126,6 +132,7 @@ func Test_Open_TruncatedToken(t *testing.T) {
 }
 
 func Test_Open_TamperedNonce(t *testing.T) {
+	t.Parallel()
 	tc := newTestCodec(t, DefaultTokenTTL)
 
 	scalar := make([]byte, scalarSize)
@@ -142,6 +149,7 @@ func Test_Open_TamperedNonce(t *testing.T) {
 }
 
 func Test_Seal_UniqueTokensEachCall(t *testing.T) {
+	t.Parallel()
 	tc := newTestCodec(t, DefaultTokenTTL)
 
 	scalar := make([]byte, scalarSize)

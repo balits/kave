@@ -41,6 +41,7 @@ func runForAllKinds(t *testing.T, name string, f func(t *testing.T, kind storage
 	kinds := []storage.StorageKind{storage.StorageKindInMemory}
 	for _, kind := range kinds {
 		t.Run(fmt.Sprintf("%s/%s", name, kind), func(t *testing.T) {
+			t.Parallel()
 			f(t, kind)
 		})
 	}

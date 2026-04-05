@@ -9,6 +9,7 @@ import (
 )
 
 func Test_HeapItemLess_EarlierExpiry(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a := &heapItem{expiry: now}
 	b := &heapItem{expiry: now.Add(time.Second)}
@@ -16,6 +17,7 @@ func Test_HeapItemLess_EarlierExpiry(t *testing.T) {
 }
 
 func Test_HeapItemLess_LaterExpiry(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a := &heapItem{expiry: now.Add(time.Second)}
 	b := &heapItem{expiry: now}
@@ -23,6 +25,7 @@ func Test_HeapItemLess_LaterExpiry(t *testing.T) {
 }
 
 func Test_HeapItemLess_EqualExpiry(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a := &heapItem{expiry: now}
 	b := &heapItem{expiry: now}
@@ -30,11 +33,13 @@ func Test_HeapItemLess_EqualExpiry(t *testing.T) {
 }
 
 func Test_HeapItemLess_NilB(t *testing.T) {
+	t.Parallel()
 	a := &heapItem{expiry: time.Now()}
 	require.Equal(t, 1, a.less(nil))
 }
 
 func Test_LeaseHeap_Len(t *testing.T) {
+	t.Parallel()
 	h := leaseHeap{}
 	require.Empty(t, h)
 	now := time.Now()
@@ -43,6 +48,7 @@ func Test_LeaseHeap_Len(t *testing.T) {
 }
 
 func Test_LeaseHeap_Less(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	h := leaseHeap{
 		&heapItem{expiry: now, index: 0},
@@ -53,6 +59,7 @@ func Test_LeaseHeap_Less(t *testing.T) {
 }
 
 func Test_LeaseHeap_Swap(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a := &heapItem{expiry: now, index: 0}
 	b := &heapItem{expiry: now.Add(time.Second), index: 1}
@@ -71,6 +78,7 @@ func Test_LeaseHeap_Swap(t *testing.T) {
 }
 
 func Test_LeaseHeap_PushSetsIndex(t *testing.T) {
+	t.Parallel()
 	h := &leaseHeap{}
 	item := &heapItem{expiry: time.Now(), lease: lease(1)}
 	heap.Push(h, item)
@@ -82,6 +90,7 @@ func Test_LeaseHeap_PushSetsIndex(t *testing.T) {
 }
 
 func Test_LeaseHeap_MinHeapOrdering(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	items := []*heapItem{
 		item(lease(3), now.Add(3*time.Second)),
@@ -99,6 +108,7 @@ func Test_LeaseHeap_MinHeapOrdering(t *testing.T) {
 }
 
 func Test_LeaseHeap_Single(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	h := buildHeap([]*heapItem{item(lease(1), now)})
 	require.Equal(t, 1, h.Len())
@@ -109,6 +119,7 @@ func Test_LeaseHeap_Single(t *testing.T) {
 }
 
 func Test_LeaseHeap_Duplicates(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	h := &leaseHeap{}
 	for i := range 5 {
@@ -122,6 +133,7 @@ func Test_LeaseHeap_Duplicates(t *testing.T) {
 }
 
 func Test_LeaseHeap_PeekMin(t *testing.T) {
+	t.Parallel()
 	h := &leaseHeap{}
 	require.Nil(t, h.peekMin())
 
@@ -140,6 +152,7 @@ func Test_LeaseHeap_PeekMin(t *testing.T) {
 }
 
 func Test_LeaseHeap_PeekMinConsistentWithPop(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	items := []*heapItem{
 		item(lease(1), now.Add(2*time.Second)),
@@ -155,6 +168,7 @@ func Test_LeaseHeap_PeekMinConsistentWithPop(t *testing.T) {
 }
 
 func Test_LeaseHeap_IndexConsistencyAfterMixedOps(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	h := &leaseHeap{}
 

@@ -133,56 +133,9 @@ func (ts *testOTService) mustWriteAll(blob []byte) *api.OTWriteAllResponse {
 	return res
 }
 
-// func Choose(t *testing.T, pointABytes []byte, choice int) (pointBBytes []byte, b group.Scalar) {
-// 	t.Helper()
-// 	A := ot.Group.NewElement()
-// 	require.NoError(t, A.UnmarshalBinary(pointABytes))
-
-// 	b = ot.Group.RandomScalar(rand.Reader)
-// 	cScalar := ot.Group.NewScalar().SetUint64(uint64(choice))
-// 	cA := ot.Group.NewElement().Mul(A, cScalar)
-// 	bG := ot.Group.NewElement().MulGen(b)
-// 	B := ot.Group.NewElement().Add(bG, cA)
-
-// 	pointBBytes, err := B.MarshalBinary()
-// 	require.NoError(t, err)
-// 	return
-// }
-
-// func TryDecrypt(t *testing.T, pointABytes []byte, b group.Scalar, ct []byte) ([]byte, error) {
-// 	t.Helper()
-// 	A := ot.Group.NewElement()
-// 	if err := A.UnmarshalBinary(pointABytes); err != nil {
-// 		return nil, err
-// 	}
-
-// 	key := ot.Group.NewElement().Mul(A, b)
-// 	keyBytes, err := key.MarshalBinary()
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	h := sha256.New()
-// 	h.Write(keyBytes)
-// 	hk := h.Sum(nil)
-
-// 	block, err := aes.NewCipher(hk)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	aead, err := cipher.NewGCM(block)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	ns := aead.NonceSize()
-// 	if len(ct) < ns {
-// 		return nil, fmt.Errorf("ciphertext too short")
-// 	}
-// 	return aead.Open(nil, ct[:ns], ct[ns:], nil)
-// }
 
 func Test_OTService_Init_ReturnsPointAAndToken(t *testing.T) {
+	t.Parallel()
 	ts, _ := newTestOTService(t)
 	res := ts.mustInit()
 
@@ -192,6 +145,7 @@ func Test_OTService_Init_ReturnsPointAAndToken(t *testing.T) {
 }
 
 func Test_OTService_Init_UniquePerCall(t *testing.T) {
+	t.Parallel()
 	ts, _ := newTestOTService(t)
 	r1 := ts.mustInit()
 	r2 := ts.mustInit()
@@ -199,6 +153,7 @@ func Test_OTService_Init_UniquePerCall(t *testing.T) {
 }
 
 func Test_OTService_WriteAll_OK(t *testing.T) {
+	t.Parallel()
 	ts, _ := newTestOTService(t)
 	blob := makeTestBlob(ot.DefaultSlotCount, ot.DefaultSlotSize)
 	res := ts.mustWriteAll(blob)
@@ -207,18 +162,21 @@ func Test_OTService_WriteAll_OK(t *testing.T) {
 }
 
 func Test_OTService_WriteAll_RejectsNilBlob(t *testing.T) {
+	t.Parallel()
 	ts, _ := newTestOTService(t)
 	_, err := ts.WriteAll(ts.ctx, api.OTWriteAllRequest{Blob: nil})
 	require.Error(t, err)
 }
 
 func Test_OTService_WriteAll_RejectsWrongSizeBlob(t *testing.T) {
+	t.Parallel()
 	ts, _ := newTestOTService(t)
 	_, err := ts.WriteAll(ts.ctx, api.OTWriteAllRequest{Blob: []byte("too small")})
 	require.Error(t, err)
 }
 
 func Test_OTService_Transfer_ReturnsNSlotCiphertexts(t *testing.T) {
+	t.Parallel()
 	ts, c := newTestOTService(t)
 	blob := makeTestBlob(ot.DefaultSlotCount, ot.DefaultSlotSize)
 	ts.mustWriteAll(blob)
@@ -236,6 +194,7 @@ func Test_OTService_Transfer_ReturnsNSlotCiphertexts(t *testing.T) {
 }
 
 func Test_OTService_Transfer_NoBlobWritten_Fails(t *testing.T) {
+	t.Parallel()
 	ts, c := newTestOTService(t)
 	initRes := ts.mustInit()
 
@@ -248,6 +207,7 @@ func Test_OTService_Transfer_NoBlobWritten_Fails(t *testing.T) {
 }
 
 func Test_OTService_Transfer_InvalidPointB_Fails(t *testing.T) {
+	t.Parallel()
 	ts, _ := newTestOTService(t)
 	blob := makeTestBlob(ot.DefaultSlotCount, ot.DefaultSlotSize)
 	ts.mustWriteAll(blob)
@@ -261,6 +221,7 @@ func Test_OTService_Transfer_InvalidPointB_Fails(t *testing.T) {
 }
 
 func Test_OTService_Transfer_TamperedToken_Fails(t *testing.T) {
+	t.Parallel()
 	ts, c := newTestOTService(t)
 	blob := makeTestBlob(ot.DefaultSlotCount, ot.DefaultSlotSize)
 	ts.mustWriteAll(blob)
@@ -282,6 +243,7 @@ func Test_OTService_Transfer_TamperedToken_Fails(t *testing.T) {
 // E2E: Init → WriteAll → Transfer → client.decrypt
 
 func Test_OTService_E2E_ChosenSlotDecrypts(t *testing.T) {
+	t.Parallel()
 	ts, c := newTestOTService(t)
 	blob := makeTestBlob(ot.DefaultSlotCount, ot.DefaultSlotSize)
 	ts.mustWriteAll(blob)
@@ -304,6 +266,7 @@ func Test_OTService_E2E_ChosenSlotDecrypts(t *testing.T) {
 }
 
 func Test_OTService_E2E_NonChosenSlotsFail(t *testing.T) {
+	t.Parallel()
 	ts, c := newTestOTService(t)
 	blob := makeTestBlob(ot.DefaultSlotCount, ot.DefaultSlotSize)
 	ts.mustWriteAll(blob)
@@ -328,12 +291,14 @@ func Test_OTService_E2E_NonChosenSlotsFail(t *testing.T) {
 }
 
 func Test_OTService_Init_HeaderContainsNodeID(t *testing.T) {
+	t.Parallel()
 	ts, _ := newTestOTService(t)
 	res := ts.mustInit()
 	require.Equal(t, "test-ot", res.Header.NodeID)
 }
 
 func Test_OTService_WriteAll_HeaderHasRaftMeta(t *testing.T) {
+	t.Parallel()
 	ts, _ := newTestOTService(t)
 	blob := makeTestBlob(ot.DefaultSlotCount, ot.DefaultSlotSize)
 	res := ts.mustWriteAll(blob)

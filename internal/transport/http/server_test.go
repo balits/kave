@@ -40,12 +40,11 @@ type testServer struct {
 	t          *testing.T
 	srv        *httptest.Server
 	httpServer *HttpServer
-
-	store    *mvcc.KvStore
-	lm       *lease.LeaseManager
-	peerSvc  *service.MockPeerService
-	om       *ot.OTManager
-	otClient ot.MockOTClient
+	store      *mvcc.KvStore
+	lm         *lease.LeaseManager
+	peerSvc    *service.MockPeerService
+	om         *ot.OTManager
+	otClient   ot.MockOTClient
 }
 
 func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
@@ -115,8 +114,13 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 	leaseSvc := service.NewLeaseService(logger, propose)
 	otService := service.NewOTService(logger, kvstore, om, peerSvc, propose)
 	clusterSvc := &service.MockClusterService{}
+<<<<<<< HEAD
 
 	httpServer := NewHTTPServer(logger, me.GetHttpListenAddress(), kvSvc, leaseSvc, otService, clusterSvc, peerSvc, hub, reg)
+=======
+	rateLimiterConfig := NewRateLimiterConfig(1000, 200) // set to a gorbillion so tests can run in parallel
+	httpServer := NewHTTPServer(logger, me.GetHttpListenAddress(), kvSvc, leaseSvc, otService, clusterSvc, peerSvc, reg, rateLimiterConfig, rateLimiterConfig)
+>>>>>>> 8081303 (add(testing): parallelize testing to speed up CI)
 
 	ts := httptest.NewServer(httpServer.server.Handler)
 	t.Cleanup(ts.Close)
@@ -177,6 +181,7 @@ func (ts *testServer) overrideLeader(leader *httptest.Server) {
 }
 
 func Test_KvPut_CreatesKey(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodPost, RouteKvPut,
 		api.PutRequest{Key: []byte("hello"), Value: []byte("world")})
@@ -188,6 +193,7 @@ func Test_KvPut_CreatesKey(t *testing.T) {
 }
 
 func Test_KvPut_BumpsRevisionAfterWrites(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	for i := range 5 {
 		resp := ts.do(http.MethodPost, RouteKvPut, api.PutRequest{
@@ -202,6 +208,7 @@ func Test_KvPut_BumpsRevisionAfterWrites(t *testing.T) {
 }
 
 func Test_KvPut_WithPrevEntry_ReturnsOldValue(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	key := "k"
 	oldVal := "v1"
@@ -221,6 +228,7 @@ func Test_KvPut_WithPrevEntry_ReturnsOldValue(t *testing.T) {
 }
 
 func Test_KvPut_OverwritePreservesCreateRev(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	ts.mustPut("k", "v1")
 	ts.mustPut("k", "v2")
@@ -236,6 +244,7 @@ func Test_KvPut_OverwritePreservesCreateRev(t *testing.T) {
 }
 
 func Test_KvPut_MalformedBody_Returns400(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	req, _ := http.NewRequest(http.MethodPost, ts.srv.URL+RouteKvPut,
 		strings.NewReader("bad json"))
@@ -246,6 +255,7 @@ func Test_KvPut_MalformedBody_Returns400(t *testing.T) {
 }
 
 func Test_KvGet_ExistingKey(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	ts.mustPut("foo", "bar")
 
@@ -261,6 +271,7 @@ func Test_KvGet_ExistingKey(t *testing.T) {
 }
 
 func Test_KvGet_MissingKey_ReturnsEmpty(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodGet, RouteKvRange, api.RangeRequest{
 		Key: []byte("missing"),
@@ -274,6 +285,7 @@ func Test_KvGet_MissingKey_ReturnsEmpty(t *testing.T) {
 }
 
 func Test_KvGet_AtOldRevision(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	ts.mustPut("k", "v1")
 	ts.mustPut("k", "v2")
@@ -288,6 +300,7 @@ func Test_KvGet_AtOldRevision(t *testing.T) {
 }
 
 func Test_KvGet_RangeQuery(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	for _, k := range []string{"a", "b", "c", "d"} {
 		ts.mustPut(k, k)
@@ -304,6 +317,7 @@ func Test_KvGet_RangeQuery(t *testing.T) {
 }
 
 func Test_KvGet_WithLimit(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	for _, k := range []string{"a", "b", "c", "d", "e"} {
 		ts.mustPut(k, k)
@@ -320,6 +334,7 @@ func Test_KvGet_WithLimit(t *testing.T) {
 }
 
 func Test_KvGet_CountOnly(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	ts.mustPut("x", "1")
 	ts.mustPut("y", "2")
@@ -336,6 +351,7 @@ func Test_KvGet_CountOnly(t *testing.T) {
 }
 
 func Test_KvGet_Prefix(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	ts.mustPut("app", "1")
 	ts.mustPut("apple", "2")
@@ -352,6 +368,7 @@ func Test_KvGet_Prefix(t *testing.T) {
 }
 
 func Test_KvDelete_RemovesKey(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	ts.mustPut("bye", "gone")
 
@@ -372,6 +389,7 @@ func Test_KvDelete_RemovesKey(t *testing.T) {
 }
 
 func Test_KvDelete_NonExistentKey_ReturnsZero(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodDelete, RouteKvDelete, api.DeleteRequest{
 		Key: []byte("ghost"),
@@ -384,6 +402,7 @@ func Test_KvDelete_NonExistentKey_ReturnsZero(t *testing.T) {
 }
 
 func Test_KvDelete_Range(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	for _, k := range []string{"a", "b", "c", "d"} {
 		ts.mustPut(k, k)
@@ -398,6 +417,7 @@ func Test_KvDelete_Range(t *testing.T) {
 }
 
 func Test_KvDelete_WithPrevEntries(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	ts.mustPut("p", "pval")
 
@@ -412,6 +432,7 @@ func Test_KvDelete_WithPrevEntries(t *testing.T) {
 }
 
 func Test_KvDelete_ThenGetAtOldRevision(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	ts.mustPut("k", "v")
 	ts.do(http.MethodDelete, RouteKvDelete, api.DeleteRequest{Key: []byte("k")})
@@ -434,6 +455,7 @@ func Test_KvDelete_ThenGetAtOldRevision(t *testing.T) {
 }
 
 func Test_KvTxn_SuccessBranch(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	ts.mustPut("counter", "v1")
 
@@ -468,6 +490,7 @@ func Test_KvTxn_SuccessBranch(t *testing.T) {
 }
 
 func Test_KvTxn_FailureBranch(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	ts.mustPut("counter", "v1")
 
@@ -499,6 +522,7 @@ func Test_KvTxn_FailureBranch(t *testing.T) {
 }
 
 func Test_KvTxn_BumpsRevisionOnce(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 
 	resp := ts.do(http.MethodPost, RouteKvTxn, api.TxnRequest{
@@ -515,6 +539,7 @@ func Test_KvTxn_BumpsRevisionOnce(t *testing.T) {
 }
 
 func Test_LeaseGrant_OK(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodPost, RouteLeaseGrant, api.LeaseGrantRequest{LeaseID: 1, TTL: 30})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -526,12 +551,14 @@ func Test_LeaseGrant_OK(t *testing.T) {
 }
 
 func Test_LeaseGrant_ZeroTTL_Returns400(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodPost, RouteLeaseGrant, api.LeaseGrantRequest{TTL: 0})
 	require.Equal(t, 400, resp.StatusCode)
 }
 
 func Test_LeaseGrant_IDConflict_Returns400(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	ts.do(http.MethodPost, RouteLeaseGrant, api.LeaseGrantRequest{LeaseID: 99, TTL: 10})
 	resp := ts.do(http.MethodPost, RouteLeaseGrant, api.LeaseGrantRequest{LeaseID: 99, TTL: 10})
@@ -539,6 +566,7 @@ func Test_LeaseGrant_IDConflict_Returns400(t *testing.T) {
 }
 
 func Test_LeaseRevoke_OK(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	ts.do(http.MethodPost, RouteLeaseGrant,
 		api.LeaseGrantRequest{LeaseID: 5, TTL: 30})
@@ -553,6 +581,7 @@ func Test_LeaseRevoke_OK(t *testing.T) {
 }
 
 func Test_LeaseRevoke_NonExistent_FoundIsFalse(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodDelete, RouteLeaseRevoke, api.LeaseRevokeRequest{LeaseID: 999})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -564,6 +593,7 @@ func Test_LeaseRevoke_NonExistent_FoundIsFalse(t *testing.T) {
 }
 
 func Test_LeaseKeepAlive_OK(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	require.Equal(t, http.StatusOK, ts.do(http.MethodPost, RouteLeaseGrant, api.LeaseGrantRequest{LeaseID: 7, TTL: 30}).StatusCode)
 
@@ -576,12 +606,14 @@ func Test_LeaseKeepAlive_OK(t *testing.T) {
 }
 
 func Test_LeaseKeepAlive_NotFound_Returns400(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodPost, RouteLeaseKeepAlive, api.LeaseKeepAliveRequest{LeaseID: 404})
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func Test_LeaseLookup_OK(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	require.Equal(t, http.StatusOK, ts.do(http.MethodPost, RouteLeaseGrant, api.LeaseGrantRequest{LeaseID: 11, TTL: 60}).StatusCode)
 
@@ -596,18 +628,21 @@ func Test_LeaseLookup_OK(t *testing.T) {
 }
 
 func Test_LeaseLookup_NotFound_Returns400(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodGet, RouteLeaseLookup, api.LeaseLookupRequest{LeaseID: 0})
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func Test_Livez_OK(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodGet, "/livez", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
 func Test_Livez_RaftShutdown_Returns503(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	ts.peerSvc.State_ = raft.Shutdown
 	resp := ts.do(http.MethodGet, "/livez", nil)
@@ -615,12 +650,14 @@ func Test_Livez_RaftShutdown_Returns503(t *testing.T) {
 }
 
 func Test_Readyz_OK(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodGet, "/readyz", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
 func Test_Readyz_NoLeader_Returns503(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	ts.peerSvc.ErrLeader = fmt.Errorf("election in progress")
 	resp := ts.do(http.MethodGet, "/readyz", nil)
@@ -628,6 +665,7 @@ func Test_Readyz_NoLeader_Returns503(t *testing.T) {
 }
 
 func Test_Readyz_Lagging_Returns503(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	ts.peerSvc.ErrLag = fmt.Errorf("15 entries behind")
 	resp := ts.do(http.MethodGet, "/readyz", nil)
@@ -635,6 +673,7 @@ func Test_Readyz_Lagging_Returns503(t *testing.T) {
 }
 
 func Test_HealthProbes_ServedLocallyOnFollower(t *testing.T) {
+	t.Parallel()
 	leader := newTestServer(t, true)
 	follower := newTestServer(t, true)
 	follower.overrideLeader(leader.srv)
@@ -647,6 +686,7 @@ func Test_HealthProbes_ServedLocallyOnFollower(t *testing.T) {
 }
 
 func Test_Stats_OK(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodGet, "/stats", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -657,6 +697,7 @@ func Test_Stats_OK(t *testing.T) {
 }
 
 func Test_OTInit_OK(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodGet, RouteOtInit, api.OTInitRequest{})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -669,6 +710,7 @@ func Test_OTInit_OK(t *testing.T) {
 }
 
 func Test_OTInit_UniqueTokenPerCall(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 
 	resp1 := ts.do(http.MethodGet, RouteOtInit, api.OTInitRequest{})
@@ -683,6 +725,7 @@ func Test_OTInit_UniqueTokenPerCall(t *testing.T) {
 }
 
 func Test_OTInit_MalformedBody_Returns400(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	req, _ := http.NewRequest(http.MethodGet, ts.srv.URL+RouteOtInit,
 		strings.NewReader("bad json"))
@@ -693,6 +736,7 @@ func Test_OTInit_MalformedBody_Returns400(t *testing.T) {
 }
 
 func Test_OTWriteAll_OK(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	blob := ot.FakeBlob(t, ts.om)
 
@@ -706,6 +750,7 @@ func Test_OTWriteAll_OK(t *testing.T) {
 }
 
 func Test_OTWriteAll_NilBlob_Returns400(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodPost, RouteOtWriteAll,
 		api.OTWriteAllRequest{Blob: nil})
@@ -713,6 +758,7 @@ func Test_OTWriteAll_NilBlob_Returns400(t *testing.T) {
 }
 
 func Test_OTWriteAll_WrongSizeBlob_Returns400(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodPost, RouteOtWriteAll,
 		api.OTWriteAllRequest{Blob: []byte("nope")})
@@ -720,6 +766,7 @@ func Test_OTWriteAll_WrongSizeBlob_Returns400(t *testing.T) {
 }
 
 func Test_OTWriteAll_MalformedBody_Returns400(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	req, _ := http.NewRequest(http.MethodPost, ts.srv.URL+RouteOtWriteAll,
 		strings.NewReader("bad json"))
@@ -730,6 +777,7 @@ func Test_OTWriteAll_MalformedBody_Returns400(t *testing.T) {
 }
 
 func Test_OTTransfer_OK(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 
 	blob := ot.FakeBlob(t, ts.om)
@@ -751,6 +799,7 @@ func Test_OTTransfer_OK(t *testing.T) {
 }
 
 func Test_OTTransfer_InvalidPointB_Returns400(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	blob := ot.FakeBlob(t, ts.om)
 	ts.do(http.MethodPost, RouteOtWriteAll,
@@ -767,6 +816,7 @@ func Test_OTTransfer_InvalidPointB_Returns400(t *testing.T) {
 }
 
 func Test_OTTransfer_NoBlobWritten_Returns400(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 
 	initResp := ts.do(http.MethodGet, RouteOtInit, api.OTInitRequest{})
@@ -781,6 +831,7 @@ func Test_OTTransfer_NoBlobWritten_Returns400(t *testing.T) {
 }
 
 func Test_OTTransfer_MalformedBody_Returns400(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodGet, RouteOtTransfer, map[string]string{"bad": "json"})
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -789,6 +840,7 @@ func Test_OTTransfer_MalformedBody_Returns400(t *testing.T) {
 // E2E through HTTP: Init → WriteAll → Transfer → client decrypt
 
 func Test_OT_E2E_HTTP_ChosenSlotDecrypts(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 
 	blob := ot.FakeBlob(t, ts.om)
@@ -818,6 +870,7 @@ func Test_OT_E2E_HTTP_ChosenSlotDecrypts(t *testing.T) {
 }
 
 func Test_OT_E2E_HTTP_NonChosenSlotsFail(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 
 	blob := ot.FakeBlob(t, ts.om)
@@ -846,6 +899,7 @@ func Test_OT_E2E_HTTP_NonChosenSlotsFail(t *testing.T) {
 }
 
 func Test_OTInit_ServedLocally_NoLeaderMiddleware(t *testing.T) {
+	t.Parallel()
 	// Init is NOT behind leaderMiddleware, so even a follower with no leader
 	// should serve it locally (not return 503)
 	ts := newTestServer(t, true)
@@ -858,6 +912,7 @@ func Test_OTInit_ServedLocally_NoLeaderMiddleware(t *testing.T) {
 }
 
 func Test_OTTransfer_SerializableRead_ServedLocally_NoLeaderMiddleware(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 
 	blob := ot.FakeBlob(t, ts.om)
@@ -879,6 +934,7 @@ func Test_OTTransfer_SerializableRead_ServedLocally_NoLeaderMiddleware(t *testin
 }
 
 func Test_OTWriteAll_RequiresLeader(t *testing.T) {
+	t.Parallel()
 	ts := newTestServer(t, true)
 	ts.peerSvc.ErrLeader = fmt.Errorf("no quorum")
 

@@ -31,6 +31,7 @@ func newTestKVStore(t *testing.T) *KvStore {
 }
 
 func Test_KVStoreRevisionInitial(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 
 	currRev, _ := s.Revisions()
@@ -40,6 +41,7 @@ func Test_KVStoreRevisionInitial(t *testing.T) {
 }
 
 func Test_KVStoreRevisionAfterWrites(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 
 	w := s.NewWriter()
@@ -57,6 +59,7 @@ func Test_KVStoreRevisionAfterWrites(t *testing.T) {
 }
 
 func Test_KVStoreUpdateRaftMeta(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 
 	s.UpdateRaftMeta(100, 5)
@@ -69,6 +72,7 @@ func Test_KVStoreUpdateRaftMeta(t *testing.T) {
 }
 
 func Test_KVStoreSnapshot(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 
 	snap := s.Snapshot()
@@ -78,6 +82,7 @@ func Test_KVStoreSnapshot(t *testing.T) {
 }
 
 func Test_KVStoreFullLifecycle(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 
 	w := s.NewWriter()
@@ -122,6 +127,7 @@ func Test_KVStoreFullLifecycle(t *testing.T) {
 }
 
 func Test_KVStoreVersionTracking(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 
 	for range 5 {
@@ -147,6 +153,7 @@ func Test_KVStoreVersionTracking(t *testing.T) {
 }
 
 func Test_KVStoreSubRevisions(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 
 	w := s.NewWriter()
@@ -179,6 +186,7 @@ func Test_KVStoreSubRevisions(t *testing.T) {
 }
 
 func Test_KVStoreMultipleWritersSameKey(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 
 	w := s.NewWriter()
@@ -210,6 +218,7 @@ func Test_KVStoreMultipleWritersSameKey(t *testing.T) {
 }
 
 func Test_KVStoreRestoreInmem(t *testing.T) {
+	t.Parallel()
 	reg1 := prometheus.NewRegistry()
 	reg2 := prometheus.NewRegistry()
 	s := NewKvStore(reg1, slog.Default(), backend.New(reg2, storage.StorageOptions{
@@ -247,6 +256,7 @@ func Test_KVStoreRestoreInmem(t *testing.T) {
 }
 
 func Test_KVStoreRestoreBoltdb(t *testing.T) {
+	t.Parallel()
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
 
@@ -286,6 +296,7 @@ func Test_KVStoreRestoreBoltdb(t *testing.T) {
 }
 
 func Test_KVStoreRangeRejectsCompactedRev(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 
 	w := s.NewWriter()
@@ -304,6 +315,7 @@ func Test_KVStoreRangeRejectsCompactedRev(t *testing.T) {
 }
 
 func Test_KVStoreCompactDeletesEntries(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 
 	// Write key at revisions 1, 2, 3

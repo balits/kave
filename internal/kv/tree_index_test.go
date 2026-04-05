@@ -4,12 +4,15 @@ import (
 	"log/slog"
 	"reflect"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
-func Test_TreeIndex_PutAndGet(t *testing.T) {
-	ti := NewTreeIndex(slog.Default())
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+}
+
+func Test_TreeIndexPutAndGet(t *testing.T) {
+	t.Parallel()
+	ti := NewTreeIndex(testLogger())
 
 	if err := ti.Put([]byte("foo"), Revision{1, 0}); err != nil {
 		t.Fatalf("Put: %v", err)
@@ -43,16 +46,18 @@ func Test_TreeIndex_PutAndGet(t *testing.T) {
 	}
 }
 
-func Test_TreeIndex_GetNonExistent(t *testing.T) {
-	ti := NewTreeIndex(slog.Default())
+func Test_TreeIndexGetNonExistent(t *testing.T) {
+	t.Parallel()
+	ti := NewTreeIndex(testLogger())
 	_, _, _, err := ti.Get([]byte("missing"), 1)
 	if err == nil {
 		t.Error("expected error for non-existent key")
 	}
 }
 
-func Test_TreeIndex_MultipleKeys(t *testing.T) {
-	ti := NewTreeIndex(slog.Default())
+func Test_TreeIndexMultipleKeys(t *testing.T) {
+	t.Parallel()
+	ti := NewTreeIndex(testLogger())
 	ti.Put([]byte("a"), Revision{1, 0})
 	ti.Put([]byte("b"), Revision{2, 0})
 	ti.Put([]byte("c"), Revision{3, 0})
@@ -74,8 +79,9 @@ func Test_TreeIndex_MultipleKeys(t *testing.T) {
 	}
 }
 
-func Test_TreeIndex_Tombstone(t *testing.T) {
-	ti := NewTreeIndex(slog.Default())
+func Test_TreeIndexTombstone(t *testing.T) {
+	t.Parallel()
+	ti := NewTreeIndex(testLogger())
 	ti.Put([]byte("foo"), Revision{1, 0})
 
 	if err := ti.Tombstone([]byte("foo"), Revision{2, 0}); err != nil {
@@ -111,8 +117,9 @@ func Test_TreeIndex_Tombstone(t *testing.T) {
 	}
 }
 
-func Test_TreeIndex_Range(t *testing.T) {
-	ti := NewTreeIndex(slog.Default())
+func Test_TreeIndexRange(t *testing.T) {
+	t.Parallel()
+	ti := NewTreeIndex(testLogger())
 	ti.Put([]byte("bar"), Revision{1, 0})
 	ti.Put([]byte("baz"), Revision{2, 0})
 	ti.Put([]byte("foo"), Revision{3, 0})
@@ -144,8 +151,9 @@ func Test_TreeIndex_Range(t *testing.T) {
 	}
 }
 
-func Test_TreeIndex_Revisions(t *testing.T) {
-	ti := NewTreeIndex(slog.Default())
+func Test_TreeIndexRevisions(t *testing.T) {
+	t.Parallel()
+	ti := NewTreeIndex(testLogger())
 	ti.Put([]byte("foo"), Revision{1, 0})
 	ti.Put([]byte("foo1"), Revision{2, 0})
 	ti.Put([]byte("foo2"), Revision{3, 0})
@@ -182,8 +190,9 @@ func Test_TreeIndex_Revisions(t *testing.T) {
 	}
 }
 
-func Test_TreeIndex_CountRevisions(t *testing.T) {
-	ti := NewTreeIndex(slog.Default())
+func Test_TreeIndexCountRevisions(t *testing.T) {
+	t.Parallel()
+	ti := NewTreeIndex(testLogger())
 	ti.Put([]byte("a"), Revision{1, 0})
 	ti.Put([]byte("b"), Revision{2, 0})
 	ti.Put([]byte("c"), Revision{3, 0})
@@ -208,8 +217,9 @@ func Test_TreeIndex_CountRevisions(t *testing.T) {
 	}
 }
 
-func Test_TreeIndex_Compact(t *testing.T) {
-	ti := NewTreeIndex(slog.Default())
+func Test_TreeIndexCompact(t *testing.T) {
+	t.Parallel()
+	ti := NewTreeIndex(testLogger())
 	ti.Put([]byte("foo"), Revision{1, 0})
 	ti.Put([]byte("foo"), Revision{2, 0})
 	ti.Put([]byte("bar"), Revision{3, 0})
@@ -236,8 +246,9 @@ func Test_TreeIndex_Compact(t *testing.T) {
 	}
 }
 
-func Test_TreeIndex_CompactRemovesEmptyKeys(t *testing.T) {
-	ti := NewTreeIndex(slog.Default())
+func Test_TreeIndexCompactRemovesEmptyKeys(t *testing.T) {
+	t.Parallel()
+	ti := NewTreeIndex(testLogger())
 	ti.Put([]byte("foo"), Revision{1, 0})
 	ti.Tombstone([]byte("foo"), Revision{2, 0})
 
@@ -250,8 +261,9 @@ func Test_TreeIndex_CompactRemovesEmptyKeys(t *testing.T) {
 	}
 }
 
-func Test_TreeIndex_Keep(t *testing.T) {
-	ti := NewTreeIndex(slog.Default())
+func Test_TreeIndexKeep(t *testing.T) {
+	t.Parallel()
+	ti := NewTreeIndex(testLogger())
 	ti.Put([]byte("a"), Revision{1, 0})
 	ti.Put([]byte("a"), Revision{3, 0})
 	ti.Put([]byte("b"), Revision{2, 0})
@@ -265,8 +277,9 @@ func Test_TreeIndex_Keep(t *testing.T) {
 	}
 }
 
-func Test_TreeIndex_Clear(t *testing.T) {
-	ti := NewTreeIndex(slog.Default())
+func Test_TreeIndexClear(t *testing.T) {
+	t.Parallel()
+	ti := NewTreeIndex(testLogger())
 	ti.Put([]byte("foo"), Revision{1, 0})
 	ti.Put([]byte("bar"), Revision{2, 0})
 
@@ -278,9 +291,10 @@ func Test_TreeIndex_Clear(t *testing.T) {
 	}
 }
 
-func Test_TreeIndex_Equal(t *testing.T) {
-	a := NewTreeIndex(slog.Default())
-	b := NewTreeIndex(slog.Default())
+func Test_TreeIndexEqual(t *testing.T) {
+	t.Parallel()
+	a := NewTreeIndex(testLogger())
+	b := NewTreeIndex(testLogger())
 
 	a.Put([]byte("foo"), Revision{1, 0})
 	b.Put([]byte("foo"), Revision{1, 0})
@@ -295,8 +309,9 @@ func Test_TreeIndex_Equal(t *testing.T) {
 	}
 }
 
-func Test_TreeIndex_InsertAndKeyIndex(t *testing.T) {
-	ti := NewTreeIndex(slog.Default())
+func Test_TreeIndexInsertAndKeyIndex(t *testing.T) {
+	t.Parallel()
+	ti := NewTreeIndex(testLogger())
 
 	ki := &keyIndex{key: []byte("manual")}
 	ki.put(5, 0)
