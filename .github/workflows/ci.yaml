@@ -37,7 +37,7 @@ jobs:
     name: Build & Push Image
     runs-on: ubuntu-latest
     needs: test 
-    if: github.event_name = 'push' && github.ref = 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref_name == 'main'
     permissions:
       contents: read
       packages: write
@@ -83,7 +83,7 @@ jobs:
     name: Deplox to Kubernetes
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name = 'push' && github.ref = 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref_name == 'main'
     steps:
       - uses: actions/checkout@v4
 
