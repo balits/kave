@@ -1,0 +1,51 @@
+image:
+  repository: ghcr.io/balits/kave
+  tag: ""
+  pullPolicy: IfNotPresent
+
+voters:
+  replicas: 3
+
+ports:
+  raft: 7000
+  http: 8000
+
+config:
+  logLevel: debug
+  storageKind: boltdb
+  storageDataDir: /data
+  checkpointIntervalMinutes: 5
+  compactionThreshold: 5
+  compactionIntervalMinutes: 10
+  compactionMaxRevGap: 10
+  otSlotCount: 32
+  otSlotSize: 64
+  otTokenTTL: 60
+
+storage:
+  size: 1Gi
+  storageClassName: "" # todo: might need to change on different platform
+
+healthcheck:
+  liveness:
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    failureThreshold: 3
+  readiness:
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    failureThreshold: 3
+
+pdb:
+  minAvailable: 2 # for 3 voters
+
+traefik:
+  enabled: false # local cluster doesnt need it
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

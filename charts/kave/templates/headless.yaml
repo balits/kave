@@ -1,0 +1,27 @@
+# For a StatefulSet pod named kave-voter-0 in namespace default, K8s creates:
+#   A record:   kave-voter-0.kave-headless.default.svc.cluster.local → <pod IP>
+#   SRV record: _raft._tcp.kave-headless.default.svc.cluster.local
+#               -> kave-voter-0.kave-headless.default.svc.cluster.local:7000
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kave.headlessServiceName" . }}
+  labels:
+    {{- include "kave.labels" . | nindent 4  }}
+spec:
+  clusterIP: None   # this is what makes it headless
+  # publishNotReadyAddresses: true is critical for Raft bootstrap.
+  # Without it, K8s only adds a pod to DNS once its readiness probe passes.
+  # But readiness requires a leader, and a leader requires peers to have
+  # found each other via DNS first — a catch-22. Setting this to true
+  # means pods appear in DNS immediately, before they pass readiness.
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: {{ include "kave.name" . }}
+  ports:
+    - name: raft
+      port: {{ .Values.ports.raft }}
+      protocol: TCP
+    - name: http
+      port: {{ .Values.ports.http }}
+      protocol: TCP

@@ -1,0 +1,27 @@
+{{- if .Values.traefik.enabled }}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+    name: kave-ratelimiter
+spec:
+    ratelimit:
+        average: 100
+        burst: 50
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+    name: {{ include "kave.name" . }}
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`kave.DOMAIN.com`)
+      kind: Rule
+      middlewares:
+        - name: "kave-ratelimiter"
+      services:
+        - name: kave # ref to the existing service
+          port: 80
+  tls:
+    certResolver: letsencrypt
+{{- end}}
