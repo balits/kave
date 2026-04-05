@@ -38,7 +38,6 @@ type writer struct {
 	writeTx  backend.WriteTx
 	startRev kv.Revision
 	changes  []types.KvEntry
-	txnMode  bool
 
 	startTime time.Time
 }

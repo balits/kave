@@ -40,8 +40,8 @@ func (f *fakeAttacher) DetachKey(leaseID int64, key []byte) {
 	f.detached = append(f.detached, detachCall{leaseID: leaseID, key: key})
 }
 
-func (f *fakeAttacher) attachCount() int { return len(f.attached) }
-func (f *fakeAttacher) detachCount() int { return len(f.detached) }
+// func (f *fakeAttacher) attachCount() int { return len(f.attached) }
+// func (f *fakeAttacher) detachCount() int { return len(f.detached) }
 
 func (f *fakeAttacher) wasAttached(leaseID int64, key []byte) bool {
 	for _, c := range f.attached {
@@ -747,7 +747,6 @@ func Test_EngineApplyPut_IgnoreValue_BumpsRevisionAndVersion(t *testing.T) {
 	require.Equal(t, int64(1), entry.CreateRev, "createRev must not change")
 	require.Equal(t, int64(2), entry.ModRev)
 }
-
 
 func Test_EngineApplyPut_IgnoreLease_NonExistent_ReturnsError(t *testing.T) {
 	t.Parallel()

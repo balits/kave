@@ -6,7 +6,6 @@ import (
 )
 
 var (
-	errEncodingFailed = fmt.Errorf("codec error: entry encoding failed")
 	errDecodingFailed = fmt.Errorf("codec error: entry decoding failed")
 )
 

@@ -258,7 +258,12 @@ func (ti *treeIndex) Compact(rev int64) (avail map[Revision]struct{}, err error)
 	clone.Ascend(func(ki *keyIndex) bool {
 		// lock the resource only when we need to modify it
 		ti.mu.Lock()
-		ki.compact(rev, avail)
+		err = ki.compact(rev, avail)
+		if err != nil {
+			err = fmt.Errorf("failed to compact key index: %w", err)
+			ti.mu.Unlock()
+			return false
+		}
 		if ki.isEmpty() {
 			_, ok := ti.tree.Delete(ki)
 			if !ok {
@@ -274,16 +279,16 @@ func (ti *treeIndex) Compact(rev int64) (avail map[Revision]struct{}, err error)
 	return avail, err
 }
 
-func (this *treeIndex) Equal(i Index) bool {
-	that := i.(*treeIndex)
+func (a *treeIndex) Equal(i Index) bool {
+	b := i.(*treeIndex)
 
-	if this.tree.Len() != that.tree.Len() {
+	if a.tree.Len() != b.tree.Len() {
 		return false
 	}
 
 	eq := true
-	this.tree.Ascend(func(thisKi *keyIndex) bool {
-		thatKi, _ := that.tree.Get(thisKi)
+	a.tree.Ascend(func(thisKi *keyIndex) bool {
+		thatKi, _ := b.tree.Get(thisKi)
 		if !thisKi.equal(thatKi) {
 			eq = false
 			return false

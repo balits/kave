@@ -184,7 +184,7 @@ func (s *HttpServer) handleKvRange(w http.ResponseWriter, r *http.Request) {
 	response, err := s.kvSvc.Range(r.Context(), req)
 	if err != nil {
 		s.logger.Error(kvRangeErrMsg, "error", err)
-		if errors.Is(err, util.ProposeError) {
+		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
 			status = http.StatusBadRequest
@@ -207,7 +207,7 @@ func (s *HttpServer) handleKvPut(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	response, err := s.kvSvc.Put(r.Context(), req)
 	if err != nil {
-		if errors.Is(err, util.ProposeError) {
+		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
 			status = http.StatusBadRequest
@@ -230,7 +230,7 @@ func (s *HttpServer) handleKvDelete(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	response, err := s.kvSvc.Delete(r.Context(), req)
 	if err != nil {
-		if errors.Is(err, util.ProposeError) {
+		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
 			status = http.StatusBadRequest
@@ -254,7 +254,7 @@ func (s *HttpServer) handleKvTxn(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	response, err := s.kvSvc.Txn(r.Context(), req)
 	if err != nil {
-		if errors.Is(err, util.ProposeError) {
+		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
 			status = http.StatusBadRequest
@@ -298,7 +298,7 @@ func (s *HttpServer) handleLeaseGrant(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	response, err := s.leaseSvc.Grant(r.Context(), req)
 	if err != nil {
-		if errors.Is(err, util.ProposeError) {
+		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
 			status = http.StatusBadRequest
@@ -320,7 +320,7 @@ func (s *HttpServer) handleLeaseRevoke(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	response, err := s.leaseSvc.Revoke(r.Context(), req)
 	if err != nil {
-		if errors.Is(err, util.ProposeError) {
+		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
 			status = http.StatusBadRequest
@@ -343,7 +343,7 @@ func (s *HttpServer) handleLeaseKeepAlive(w http.ResponseWriter, r *http.Request
 	status := http.StatusOK
 	response, err := s.leaseSvc.KeepAlive(r.Context(), req)
 	if err != nil {
-		if errors.Is(err, util.ProposeError) {
+		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
 			status = http.StatusBadRequest
@@ -366,7 +366,7 @@ func (s *HttpServer) handleLeaseLookup(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	response, err := s.leaseSvc.Lookup(r.Context(), req)
 	if err != nil {
-		if errors.Is(err, util.ProposeError) {
+		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
 			status = http.StatusBadRequest
@@ -392,7 +392,7 @@ func (s *HttpServer) handleOTInit(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	response, err := s.otSvc.Init(r.Context(), req)
 	if err != nil {
-		if errors.Is(err, util.ProposeError) {
+		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
 			status = http.StatusBadRequest
@@ -415,7 +415,7 @@ func (s *HttpServer) handleOTTransfer(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	reponse, err := s.otSvc.Transfer(r.Context(), req)
 	if err != nil {
-		if errors.Is(err, util.ProposeError) {
+		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
 			status = http.StatusBadRequest
@@ -438,7 +438,7 @@ func (s *HttpServer) handleOTWriteAll(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	response, err := s.otSvc.WriteAll(r.Context(), req)
 	if err != nil {
-		if errors.Is(err, util.ProposeError) {
+		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
 			status = http.StatusBadRequest
