@@ -1,0 +1,6 @@
+apiVersion: v2
+name: kave
+description: A raft-backed distributed KV store with MVCC, leases, watches and secret keys protected by Oblivious Transfer
+type: application
+version: 0.1.0 # bumped on each change to the chart
+appVersion: "0.1.0" 

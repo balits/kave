@@ -1,0 +1,22 @@
+# type: ClusterIP => only reachable inside the cluster (default, safe)
+# type: NodePort => reachable from outside on a high port (dev/testing)
+# type: LoadBalancer => provisions a cloud LB (DigitalOcean, GKE, etc.)
+#
+# For a local cluster (kind, minikube), use NodePort or kubectl port-forward.
+# For DigitalOcean or GKE, LoadBalancer provisions a real IP automatically.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kave.name" . }}
+  labels:
+    {{- include "kave.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ include "kave.name" . }}
+    kave/role: voter   # only route to voters, not learners
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

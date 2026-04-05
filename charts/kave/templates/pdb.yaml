@@ -1,0 +1,13 @@
+# a cluster of 3 needs at least 2 nodes to reach quorom
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kave.name" . }}-voter-pdb
+  labels:
+    {{- include "kave.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "kave.name" . }}
+      kave/role: voter
