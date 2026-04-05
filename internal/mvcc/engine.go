@@ -87,7 +87,7 @@ func (e *Engine) applyPut(w Writer, cmd *command.CmdPut) (*command.ResultPut, er
 	}
 
 	var (
-		key     []byte = cmd.Key
+		key     = cmd.Key
 		value   []byte
 		leaseID int64
 	)

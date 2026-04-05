@@ -27,7 +27,6 @@ func NewLeaseService(logger *slog.Logger, propose util.ProposeFunc) LeaseService
 
 type leaseSvc struct {
 	propse   util.ProposeFunc
-	isLeader util.IsLeaderFunc
 	logger   *slog.Logger
 }
 

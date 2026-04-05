@@ -1833,8 +1833,6 @@ func Test_KVService_Txn_MalformedRequest_FailureOpNilPut(t *testing.T) {
 	require.Contains(t, err.Error(), "malformed request")
 }
 
-func intPtr(v int64) *int64 { return &v }
-
 func Test_KVService_Txn_CompareNonExistentKey_VersionNonZero_Fails(t *testing.T) {
 	ts := newTestKVService(t)
 

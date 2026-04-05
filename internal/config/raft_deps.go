@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/balits/kave/internal/util/logutil"
-	util "github.com/balits/kave/internal/util/logutil"
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
 )
@@ -38,7 +37,7 @@ func NewRaftConfig(nodeID string, logger *logutil.HcLogAdapter, logLevel slog.Le
 	return rc
 }
 
-func NewRaftDependencies(advertiseAddr raft.ServerAddress, listenAddr string, dir string, logger *util.HcLogAdapter) (*RaftDependencies, error) {
+func NewRaftDependencies(advertiseAddr raft.ServerAddress, listenAddr string, dir string, logger *logutil.HcLogAdapter) (*RaftDependencies, error) {
 	var (
 		logs     raft.LogStore
 		stable   raft.StableStore

@@ -365,19 +365,3 @@ func loop(t *testing.T, ex *ExpiryLoop) {
 	t.Cleanup(cancel)
 	go ex.Run(ctx)
 }
-
-type expiryFuture struct {
-	result command.ResultLeaseRevoke
-}
-
-func (f *expiryFuture) Error() error {
-	return nil
-}
-
-func (f *expiryFuture) Index() uint64 {
-	return 0
-}
-
-func (f *expiryFuture) Response() any {
-	return f.result
-}
