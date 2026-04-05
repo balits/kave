@@ -17,10 +17,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-var (
-	errRaftShutdown = errors.New("raft is shutdown")
-)
-
 const (
 	RouteKvRange  string = transport.RouteKv + "/range"
 	RouteKvPut    string = transport.RouteKv + "/put"
@@ -69,14 +65,33 @@ const (
 	livezErrMsg  string = "livez check failed"
 )
 
+var (
+	errRaftShutdown = errors.New("raft is shutdown")
+	// errMsgMap       = map[string]string{
+	// 	RouteKvRange:        kvRangeErrMsg,
+	// 	RouteKvPut:          kvPutErrMsg,
+	// 	RouteKvDelete:       kvDeleteErrMsg,
+	// 	RouteKvTxn:          kvTxnErrMsg,
+	// 	RouteLeaseGrant:     leaseGrantErrMsg,
+	// 	RouteLeaseRevoke:    leaseRevokeErrMsg,
+	// 	RouteLeaseKeepAlive: leaseKeepAliveErrMsg,
+	// 	RouteLeaseLookup:    leaseLookupErrMsg,
+	// 	RouteOtInit:         otInitErrMsg,
+	// 	RouteOtTransfer:     otTransferErrMsg,
+	// 	RouteOtWriteAll:     otWriteAllErrMsg,
+	// }
+)
+
 type HttpServer struct {
-	kvSvc      service.KVService
-	leaseSvc   service.LeaseService
-	otSvc      service.OTService
-	clusterSvc service.ClusterService
-	peerSvc    service.PeerService
-	logger     *slog.Logger
-	server     *http.Server
+	kvSvc        service.KVService
+	leaseSvc     service.LeaseService
+	otSvc        service.OTService
+	clusterSvc   service.ClusterService
+	peerSvc      service.PeerService
+	readLimiter  *rateLimiter
+	writeLimiter *rateLimiter
+	logger       *slog.Logger
+	server       *http.Server
 }
 
 func NewHTTPServer(
@@ -88,6 +103,8 @@ func NewHTTPServer(
 	clusterService service.ClusterService,
 	peerService service.PeerService,
 	reg *prometheus.Registry,
+	readLimitConfig RateLimiterConfig,
+	writeLimitConfig RateLimiterConfig,
 ) *HttpServer {
 	mux := http.NewServeMux()
 	s := &HttpServer{
@@ -102,6 +119,10 @@ func NewHTTPServer(
 			Handler: mux,
 		},
 	}
+
+	// TODO(ratelimiter): run real benchmarks to determine rps and burst: something around 75% of peak capacity
+	s.writeLimiter = newRateLimiter(readLimitConfig)
+	s.readLimiter = newRateLimiter(writeLimitConfig)
 
 	// kv
 	mux.HandleFunc("GET "+RouteKvRange, s.readMiddleware(s.handleKvRange)) // optional leader if we want the latest data

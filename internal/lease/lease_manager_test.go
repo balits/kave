@@ -35,6 +35,7 @@ func newTestLm(t *testing.T) *LeaseManager {
 }
 
 func Test_LeaseManager_Grant(t *testing.T) {
+	t.Parallel()
 	lm := newTestLm(t)
 
 	tests := []struct {
@@ -79,6 +80,7 @@ func Test_LeaseManager_Grant(t *testing.T) {
 }
 
 func Test_LeaseManager_Revoke(t *testing.T) {
+	t.Parallel()
 	lm := newTestLm(t)
 
 	l, err := lm.Grant(1, 5)
@@ -101,6 +103,7 @@ func Test_LeaseManager_Revoke(t *testing.T) {
 }
 
 func Test_LeaseManager_KeepAlive(t *testing.T) {
+	t.Parallel()
 	lm := newTestLm(t)
 
 	l, err := lm.Grant(0, 5)
@@ -118,6 +121,7 @@ func Test_LeaseManager_KeepAlive(t *testing.T) {
 }
 
 func Test_LeaseManager_AttachKey(t *testing.T) {
+	t.Parallel()
 	lm := newTestLm(t)
 	l, err := lm.Grant(0, 5)
 	require.NoError(t, err, "lease grant")
@@ -129,6 +133,7 @@ func Test_LeaseManager_AttachKey(t *testing.T) {
 }
 
 func Test_LeaseManager_DetachKey(t *testing.T) {
+	t.Parallel()
 	lm := newTestLm(t)
 	l, err := lm.Grant(0, 5)
 	require.NoError(t, err, "lease grant")
@@ -141,6 +146,7 @@ func Test_LeaseManager_DetachKey(t *testing.T) {
 }
 
 func Test_LeaseManager_Checkpoint(t *testing.T) {
+	t.Parallel()
 	c := util.NewFakeClock(time.Now()).(*util.FakeClock)
 	lm := lmWithClock(t, c)
 
@@ -179,6 +185,7 @@ func Test_LeaseManager_Checkpoint(t *testing.T) {
 }
 
 func Test_LeaseManager_DrainExpiredLeases(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	c := util.NewFakeClock(now).(*util.FakeClock)
 	lm := lmWithClock(t, c)
@@ -198,6 +205,7 @@ func Test_LeaseManager_DrainExpiredLeases(t *testing.T) {
 }
 
 func Test_LeaseManager_ApplyExpired(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	c := util.NewFakeClock(now).(*util.FakeClock)
 	lm := lmWithClock(t, c)
@@ -227,6 +235,7 @@ func Test_LeaseManager_ApplyExpired(t *testing.T) {
 }
 
 func Test_Restore_BasicRoundTrip_NoKeys(t *testing.T) {
+	t.Parallel()
 	lm := newTestLm(t)
 
 	l1, _ := lm.Grant(1, 30)
@@ -244,6 +253,7 @@ func Test_Restore_BasicRoundTrip_NoKeys(t *testing.T) {
 }
 
 func Test_LeaseManager_Restore_BasicRoundTrip_WithKeys(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	c := util.NewFakeClock(now).(*util.FakeClock)
 	lm := lmWithClock(t, c)
@@ -315,6 +325,7 @@ func Test_LeaseManager_Restore_BasicRoundTrip_WithKeys(t *testing.T) {
 }
 
 func Test_LeaseManager_Restore_ExpiredLeaseIsNotRestored(t *testing.T) {
+	t.Parallel()
 	lm := newTestLm(t)
 
 	l, err := lm.Grant(99, 10)
@@ -329,6 +340,7 @@ func Test_LeaseManager_Restore_ExpiredLeaseIsNotRestored(t *testing.T) {
 }
 
 func Test_Restore_HeapOrderIsPreserved(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	fc := util.NewFakeClock(now).(*util.FakeClock)
 	lm := lmWithClock(t, fc)
@@ -350,6 +362,7 @@ func Test_Restore_HeapOrderIsPreserved(t *testing.T) {
 }
 
 func Test_Restore_OrphanedKeyIsSkipped(t *testing.T) {
+	t.Parallel()
 	lm := newTestLm(t)
 
 	nonExistentLeaseID := int64(999)
@@ -367,6 +380,7 @@ func Test_Restore_OrphanedKeyIsSkipped(t *testing.T) {
 }
 
 func Test_Restore_CorruptLeaseRecordIsSkipped(t *testing.T) {
+	t.Parallel()
 	lm := newTestLm(t)
 
 	lm.Grant(10, 30)

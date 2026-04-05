@@ -18,7 +18,10 @@ const (
 	errMsgProxyLeader     string = "proxying to leader failed"
 )
 
+
 func (s *HttpServer) readMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	limiter := s.readLimiter.Middleware(s, next)
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		drainedBytes, err := drainBody(r.Body)
 		if err != nil {
@@ -37,7 +40,7 @@ func (s *HttpServer) readMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		if peek.Serializable {
-			next(w, r)
+			limiter(w, r)
 			return
 		}
 
@@ -57,11 +60,13 @@ func (s *HttpServer) readMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		next(w, r)
+		limiter(w, r)
 	}
 }
 
 func (s *HttpServer) writeMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	limiter := s.writeLimiter.Middleware(s, next)
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		leader, err := s.peerSvc.GetLeader()
 		if err != nil {
@@ -74,7 +79,7 @@ func (s *HttpServer) writeMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		next(w, r)
+		limiter(w, r)
 	}
 }
 
@@ -90,12 +95,13 @@ func (s *HttpServer) proxyToLeader(w http.ResponseWriter, r *http.Request, leade
 			"leader_addr", leader.GetHttpAdvertisedAddress(),
 		)
 	}
+	limiter := s.writeLimiter.Middleware(s, proxy.ServeHTTP)
 
 	s.logger.Debug("proxying request to leader",
 		"leader_id", leader.NodeID,
 		"path", r.URL.Path,
 	)
-	proxy.ServeHTTP(w, r)
+	limiter(w, r)
 }
 
 func drainBody(oldBody io.ReadCloser) (read []byte, err error) {
@@ -105,37 +111,6 @@ func drainBody(oldBody io.ReadCloser) (read []byte, err error) {
 		return nil, fmt.Errorf("draining body failed: %w", err)
 	}
 	return
-}
-
-func getErrMsgForPath(path string) string {
-	switch path {
-	case RouteKvRange:
-		return kvRangeErrMsg
-	case RouteKvPut:
-		return kvPutErrMsg
-	case RouteKvDelete:
-		return kvDeleteErrMsg
-	case RouteKvTxn:
-		return kvTxnErrMsg
-	case RouteLeaseGrant:
-		return leaseGrantErrMsg
-	case RouteLeaseRevoke:
-		return leaseRevokeErrMsg
-	case RouteLeaseKeepAlive:
-		return leaseKeepAliveErrMsg
-	case RouteLeaseLookup:
-		return leaseLookupErrMsg
-	case RouteOtWriteAll:
-		return otWriteAllErrMsg
-	case RouteOtInit:
-		return otInitErrMsg
-	case RouteOtTransfer:
-		return otTransferErrMsg
-	case RouteClusterJoin:
-		return clusterJoinErrMsg
-	default:
-		return "error: unknown url"
-	}
 }
 
 // just put it here for later, when we add TLS

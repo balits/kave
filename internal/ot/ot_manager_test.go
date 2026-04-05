@@ -53,22 +53,26 @@ func mustWriteBlob(t *testing.T, om *OTManager) []byte {
 }
 
 func Test_OTManager_GenerateClusterKey(t *testing.T) {
+	t.Parallel()
 	newTestOTManager(t, nil) // internally we generate the cluster key
 }
 
 func Test_OTManager_GenerateClusterKey_OnlyOne(t *testing.T) {
+	t.Parallel()
 	om := newTestOTManager(t, nil)
 	_, err := om.ApplyGenerateClusterKey()
 	require.Error(t, err, "generating cluster key twice should fail")
 }
 
 func Test_NewOTManager_Options_DefaultOptions(t *testing.T) {
+	t.Parallel()
 	om := newTestOTManager(t, nil)
 	require.Equal(t, DefaultSlotCount, om.opts.SlotCount)
 	require.Equal(t, DefaultSlotSize, om.opts.SlotSize)
 }
 
 func Test_NewOTManager_Options_ValidCustomOptions(t *testing.T) {
+	t.Parallel()
 	o := &Options{
 		SlotCount: DefaultSlotCount + 1,
 		SlotSize:  DefaultSlotSize + 1,
@@ -81,6 +85,7 @@ func Test_NewOTManager_Options_ValidCustomOptions(t *testing.T) {
 }
 
 func Test_NewOTManager_Options_InvalidSlotCount_FallsBackToDefault(t *testing.T) {
+	t.Parallel()
 	o := &Options{
 		SlotCount: MinSlotCount - 1,
 		SlotSize:  MaxSlotCount + 1,
@@ -92,6 +97,7 @@ func Test_NewOTManager_Options_InvalidSlotCount_FallsBackToDefault(t *testing.T)
 }
 
 func Test_OTManager_Init(t *testing.T) {
+	t.Parallel()
 	om := newTestOTManager(t, nil)
 
 	pointA, token, err := om.Init()
@@ -104,6 +110,7 @@ func Test_OTManager_Init(t *testing.T) {
 }
 
 func Test_OTManager_Init_UniquePerCall(t *testing.T) {
+	t.Parallel()
 	om := newTestOTManager(t, nil)
 	_, tok1, err := om.Init()
 	require.NoError(t, err)
@@ -113,28 +120,33 @@ func Test_OTManager_Init_UniquePerCall(t *testing.T) {
 }
 
 func Test_OTManager_CheckBlob_Nil(t *testing.T) {
+	t.Parallel()
 	om := newTestOTManager(t, nil)
 	require.ErrorIs(t, om.CheckBlob(nil), ErrBlobUninitialized)
 }
 
 func Test_OTManager_CheckBlob_AllZeroes(t *testing.T) {
+	t.Parallel()
 	om := newTestOTManager(t, nil)
 	blob := make([]byte, om.opts.SlotCount*om.opts.SlotSize)
 	require.ErrorIs(t, om.CheckBlob(blob), ErrBlobUninitialized)
 }
 
 func Test_OTManager_CheckBlob_WrongSize(t *testing.T) {
+	t.Parallel()
 	om := newTestOTManager(t, nil)
 	require.ErrorIs(t, om.CheckBlob([]byte("too short")), ErrBlobSizeCorrupted)
 }
 
 func Test_OTManager_CheckBlob_Valid(t *testing.T) {
+	t.Parallel()
 	om := newTestOTManager(t, nil)
 	blob := FakeBlob(t, om)
 	require.NoError(t, om.CheckBlob(blob))
 }
 
 func Test_OTManager_ApplyWriteAll(t *testing.T) {
+	t.Parallel()
 	om := newTestOTManager(t, nil)
 	blob := FakeBlob(t, om)
 	_, err := om.ApplyWriteAll(command.CmdOTWriteAll{Blob: blob})
@@ -142,6 +154,7 @@ func Test_OTManager_ApplyWriteAll(t *testing.T) {
 }
 
 func Test_OTManager_ApplyWriteAll_RejectsInvalidBlob(t *testing.T) {
+	t.Parallel()
 	om := newTestOTManager(t, nil)
 
 	_, err := om.ApplyWriteAll(command.CmdOTWriteAll{Blob: nil})
@@ -152,6 +165,7 @@ func Test_OTManager_ApplyWriteAll_RejectsInvalidBlob(t *testing.T) {
 }
 
 func Test_OTManager_BlobToSlots_AllSlotsPresent(t *testing.T) {
+	t.Parallel()
 	om := newTestOTManager(t, nil)
 	blob := FakeBlob(t, om)
 
@@ -166,6 +180,7 @@ func Test_OTManager_BlobToSlots_AllSlotsPresent(t *testing.T) {
 }
 
 func Test_OTManager_E2E_ChosenSlotDecrypts(t *testing.T) {
+	t.Parallel()
 	om := newTestOTManager(t, nil)
 	blob := mustWriteBlob(t, om)
 	cl := &MockOTClient{T: t}
@@ -187,6 +202,7 @@ func Test_OTManager_E2E_ChosenSlotDecrypts(t *testing.T) {
 }
 
 func Test_OTManager_EndToEnd_NonChosenSlotsFail(t *testing.T) {
+	t.Parallel()
 	om := newTestOTManager(t, nil)
 	mustWriteBlob(t, om)
 	cl := &MockOTClient{T: t}
@@ -210,6 +226,7 @@ func Test_OTManager_EndToEnd_NonChosenSlotsFail(t *testing.T) {
 }
 
 func Test_OTManager_EndToEnd_AllChoicesWork(t *testing.T) {
+	t.Parallel()
 	om := newTestOTManager(t, nil)
 	blob := mustWriteBlob(t, om)
 	cl := &MockOTClient{T: t}
@@ -229,6 +246,7 @@ func Test_OTManager_EndToEnd_AllChoicesWork(t *testing.T) {
 }
 
 func Test_OTManager_EndToEnd_FirstAndLastSlot(t *testing.T) {
+	t.Parallel()
 	om := newTestOTManager(t, nil)
 	blob := mustWriteBlob(t, om)
 	cl := &MockOTClient{T: t}

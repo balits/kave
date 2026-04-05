@@ -9,9 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ==================== Writer.Put ====================
-
-func Test_WriterPutSingleKey(t *testing.T) {
+func Test_Writer_PutSingleKey(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -30,7 +29,8 @@ func Test_WriterPutSingleKey(t *testing.T) {
 	}
 }
 
-func Test_WriterPutMultipleKeys(t *testing.T) {
+func Test_Writer_PutMultipleKeys(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -51,7 +51,8 @@ func Test_WriterPutMultipleKeys(t *testing.T) {
 	}
 }
 
-func Test_WriterPutSameKeyTwice(t *testing.T) {
+func Test_Writer_PutSameKeyTwice(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -69,7 +70,8 @@ func Test_WriterPutSameKeyTwice(t *testing.T) {
 	}
 }
 
-func Test_WriterPutPreservesCreateRev(t *testing.T) {
+func Test_Writer_PutPreservesCreateRev(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -93,7 +95,8 @@ func Test_WriterPutPreservesCreateRev(t *testing.T) {
 	}
 }
 
-func Test_WriterPutEntryFields(t *testing.T) {
+func Test_Writer_PutEntryFields(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -123,9 +126,8 @@ func Test_WriterPutEntryFields(t *testing.T) {
 	}
 }
 
-// ==================== Writer.Revision ====================
-
-func Test_WriterRevisionReturnsStartRev(t *testing.T) {
+func Test_Writer_RevisionReturnsStartRev(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -141,9 +143,8 @@ func Test_WriterRevisionReturnsStartRev(t *testing.T) {
 	w.End()
 }
 
-// ==================== Writer.DeleteKey ====================
-
-func Test_WriterDeleteKey(t *testing.T) {
+func Test_Writer_DeleteKey(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -164,7 +165,8 @@ func Test_WriterDeleteKey(t *testing.T) {
 	}
 }
 
-func Test_WriterDeleteKeyNonExistent(t *testing.T) {
+func Test_Writer_DeleteKeyNonExistent(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -181,7 +183,8 @@ func Test_WriterDeleteKeyNonExistent(t *testing.T) {
 	}
 }
 
-func Test_WriterDeleteKeyThenReCreate(t *testing.T) {
+func Test_Writer_DeleteKeyThenReCreate(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -214,9 +217,8 @@ func Test_WriterDeleteKeyThenReCreate(t *testing.T) {
 	}
 }
 
-// ==================== Writer.DeleteRange ====================
-
-func Test_WriterDeleteRange(t *testing.T) {
+func Test_Writer_DeleteRange(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -240,7 +242,8 @@ func Test_WriterDeleteRange(t *testing.T) {
 	}
 }
 
-func Test_WriterDeleteRangeEmpty(t *testing.T) {
+func Test_Writer_DeleteRangeEmpty(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -258,9 +261,8 @@ func Test_WriterDeleteRangeEmpty(t *testing.T) {
 	}
 }
 
-// ==================== Writer.Changes ====================
-
-func Test_WriterChangesEmpty(t *testing.T) {
+func Test_Writer_ChangesEmpty(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -272,7 +274,8 @@ func Test_WriterChangesEmpty(t *testing.T) {
 	}
 }
 
-func Test_WriterChangesIncludesTombstones(t *testing.T) {
+func Test_Writer_ChangesIncludesTombstones(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -293,9 +296,8 @@ func Test_WriterChangesIncludesTombstones(t *testing.T) {
 	}
 }
 
-// ==================== Writer.End revision bump ====================
-
-func Test_WriterEndNoChangesNoRevBump(t *testing.T) {
+func Test_Writer_EndNoChangesNoRevBump(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -308,7 +310,8 @@ func Test_WriterEndNoChangesNoRevBump(t *testing.T) {
 	}
 }
 
-func Test_WriterEndBumpsRevisionOnce(t *testing.T) {
+func Test_Writer_EndBumpsRevisionOnce(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -324,7 +327,8 @@ func Test_WriterEndBumpsRevisionOnce(t *testing.T) {
 	}
 }
 
-func Test_WriterEndPersistsRaftMeta(t *testing.T) {
+func Test_Writer_EndPersistsRaftMeta(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -351,7 +355,8 @@ func Test_WriterEndPersistsRaftMeta(t *testing.T) {
 	}
 }
 
-func Test_WriterEndNoRaftMetaWhenZero(t *testing.T) {
+func Test_Writer_EndNoRaftMetaWhenZero(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 

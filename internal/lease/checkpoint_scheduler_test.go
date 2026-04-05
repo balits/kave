@@ -59,6 +59,7 @@ func newTestScheduler(t *testing.T, lm *LeaseManager, isLeaderValue bool) (*Chec
 }
 
 func Test_CheckpointScheduler_NonLeader_NoProposal(t *testing.T) {
+	t.Parallel()
 	lm := newTestLm(t)
 	cs, cp := newTestScheduler(t, lm, false)
 
@@ -71,6 +72,7 @@ func Test_CheckpointScheduler_NonLeader_NoProposal(t *testing.T) {
 }
 
 func Test_CheckpointScheduler_EmptyManager_NoProposal(t *testing.T) {
+	t.Parallel()
 	lm := newTestLm(t)
 	cs, cp := newTestScheduler(t, lm, true)
 
@@ -80,6 +82,7 @@ func Test_CheckpointScheduler_EmptyManager_NoProposal(t *testing.T) {
 }
 
 func Test_CheckpointScheduler_LiveLeases_ProposedWithCorrectTTL(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	fc := util.NewFakeClock(now).(*util.FakeClock)
 	lm := lmWithClock(t, fc)
@@ -114,6 +117,7 @@ func Test_CheckpointScheduler_LiveLeases_ProposedWithCorrectTTL(t *testing.T) {
 }
 
 func Test_CheckpointScheduler_AdvancedClock_DecreasesTTL(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	fc := util.NewFakeClock(now).(*util.FakeClock)
 	lm := lmWithClock(t, fc)
@@ -143,6 +147,7 @@ func Test_CheckpointScheduler_AdvancedClock_DecreasesTTL(t *testing.T) {
 }
 
 func Test_CheckpointScheduler_ExpiredLeases_Excluded(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	fc := util.NewFakeClock(now).(*util.FakeClock)
 	lm := lmWithClock(t, fc)
@@ -164,6 +169,7 @@ func Test_CheckpointScheduler_ExpiredLeases_Excluded(t *testing.T) {
 }
 
 func Test_CheckpointScheduler_AllExpired_NoProposal(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	fc := util.NewFakeClock(now).(*util.FakeClock)
 	lm := lmWithClock(t, fc)
@@ -179,6 +185,7 @@ func Test_CheckpointScheduler_AllExpired_NoProposal(t *testing.T) {
 }
 
 func Test_CheckpointScheduler_ProposeError_IsNonFatal(t *testing.T) {
+	t.Parallel()
 	lm := newTestLm(t)
 	cs, cp := newTestScheduler(t, lm, true)
 	cp.errOn = 1
@@ -197,6 +204,7 @@ func Test_CheckpointScheduler_ProposeError_IsNonFatal(t *testing.T) {
 }
 
 func Test_CheckpointScheduler_MultipleTicks_AccumulatesCorrectly(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	fc := util.NewFakeClock(now).(*util.FakeClock)
 	lm := lmWithClock(t, fc)

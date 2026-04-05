@@ -49,6 +49,7 @@ func newTestExpiryLoop(t *testing.T, lm *LeaseManager, ticker util.Ticker, isLea
 }
 
 func Test_ExpiryLoop_Run(t *testing.T) {
+	t.Parallel()
 	var (
 		fc = util.NewFakeClock(time.Now()).(*util.FakeClock)
 		ft = util.NewFakeTicker().(*util.FakeTicker)
@@ -80,6 +81,7 @@ func Test_ExpiryLoop_Run(t *testing.T) {
 }
 
 func Test_ExpiryLoop_StartAsNonLeader_NoProposals(t *testing.T) {
+	t.Parallel()
 	fc := util.NewFakeClock(time.Now()).(*util.FakeClock)
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	lm := lmWithClock(t, fc)
@@ -98,6 +100,7 @@ func Test_ExpiryLoop_StartAsNonLeader_NoProposals(t *testing.T) {
 }
 
 func Test_ExpiryLoop_LosesLeadership_StopsProposing(t *testing.T) {
+	t.Parallel()
 	fc := util.NewFakeClock(time.Now()).(*util.FakeClock)
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	lm := lmWithClock(t, fc)
@@ -140,6 +143,7 @@ func Test_ExpiryLoop_LosesLeadership_StopsProposing(t *testing.T) {
 }
 
 func Test_ExpiryLoop_RegainsLeadership_ResumesProposing(t *testing.T) {
+	t.Parallel()
 	fc := util.NewFakeClock(time.Now()).(*util.FakeClock)
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	lm := lmWithClock(t, fc)
@@ -167,6 +171,7 @@ func Test_ExpiryLoop_RegainsLeadership_ResumesProposing(t *testing.T) {
 }
 
 func Test_ExpiryLoop_NoExpiredLeases(t *testing.T) {
+	t.Parallel()
 	var (
 		fc = util.NewFakeClock(time.Now()).(*util.FakeClock)
 		ft = util.NewFakeTicker().(*util.FakeTicker)
@@ -188,6 +193,7 @@ func Test_ExpiryLoop_NoExpiredLeases(t *testing.T) {
 }
 
 func Test_ExpiryLoop_MultipleLeases_OnlyExpiredProposed(t *testing.T) {
+	t.Parallel()
 	fc := util.NewFakeClock(time.Now()).(*util.FakeClock)
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	lm := lmWithClock(t, fc)
@@ -219,6 +225,7 @@ func Test_ExpiryLoop_MultipleLeases_OnlyExpiredProposed(t *testing.T) {
 }
 
 func Test_ExpiryLoop_KeepAlive_PreventsExpiry(t *testing.T) {
+	t.Parallel()
 	var (
 		fc = util.NewFakeClock(time.Now()).(*util.FakeClock)
 		ft = util.NewFakeTicker().(*util.FakeTicker)
@@ -245,6 +252,7 @@ func Test_ExpiryLoop_KeepAlive_PreventsExpiry(t *testing.T) {
 }
 
 func Test_ExpiryLoop_ExpiredLease_ProposedOnlyOnce(t *testing.T) {
+	t.Parallel()
 	var (
 		fc = util.NewFakeClock(time.Now()).(*util.FakeClock)
 		ft = util.NewFakeTicker().(*util.FakeTicker)
@@ -275,6 +283,7 @@ func Test_ExpiryLoop_ExpiredLease_ProposedOnlyOnce(t *testing.T) {
 }
 
 func Test_ExpiryLoop_ExpiryAcrossTwoTicks(t *testing.T) {
+	t.Parallel()
 	var (
 		fc = util.NewFakeClock(time.Now()).(*util.FakeClock)
 		ft = util.NewFakeTicker().(*util.FakeTicker)
@@ -307,6 +316,7 @@ func Test_ExpiryLoop_ExpiryAcrossTwoTicks(t *testing.T) {
 }
 
 func Test_ExpiryLoop_EmptyManager_NoProposals(t *testing.T) {
+	t.Parallel()
 	var (
 		fc = util.NewFakeClock(time.Now()).(*util.FakeClock)
 		ft = util.NewFakeTicker().(*util.FakeTicker)
@@ -327,6 +337,7 @@ func Test_ExpiryLoop_EmptyManager_NoProposals(t *testing.T) {
 }
 
 func Test_ExpiryLoop_DoubleStart_Idempotent(t *testing.T) {
+	t.Parallel()
 	var (
 		ft = util.NewFakeTicker().(*util.FakeTicker)
 		lm = newTestLm(t)

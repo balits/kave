@@ -5,7 +5,8 @@ import (
 	"testing"
 )
 
-func TestReaderRangeSingleKey(t *testing.T) {
+func Test_Reader_RangeSingleKey(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -32,7 +33,8 @@ func TestReaderRangeSingleKey(t *testing.T) {
 	}
 }
 
-func TestReaderRangeAtSpecificRev(t *testing.T) {
+func Test_Reader_RangeAtSpecificRev(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -65,7 +67,8 @@ func TestReaderRangeAtSpecificRev(t *testing.T) {
 	}
 }
 
-func TestReaderRangeRevZeroUsesCurrentRev(t *testing.T) {
+func Test_Reader_RangeRevZeroUsesCurrentRev(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -87,7 +90,8 @@ func TestReaderRangeRevZeroUsesCurrentRev(t *testing.T) {
 	}
 }
 
-func TestReaderRangeFutureRevError(t *testing.T) {
+func Test_Reader_RangeFutureRevError(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -102,7 +106,8 @@ func TestReaderRangeFutureRevError(t *testing.T) {
 	}
 }
 
-func TestReaderRangeMultipleKeys(t *testing.T) {
+func Test_Reader_RangeMultipleKeys(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -126,7 +131,8 @@ func TestReaderRangeMultipleKeys(t *testing.T) {
 	}
 }
 
-func TestReaderRangeWithLimit(t *testing.T) {
+func Test_Reader_RangeWithLimit(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -149,7 +155,8 @@ func TestReaderRangeWithLimit(t *testing.T) {
 	}
 }
 
-func TestReaderRangeNonExistentKey(t *testing.T) {
+func Test_Reader_RangeNonExistentKey(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -167,7 +174,8 @@ func TestReaderRangeNonExistentKey(t *testing.T) {
 	}
 }
 
-func TestReaderRangeDeletedKey(t *testing.T) {
+func Test_Reader_RangeDeletedKey(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -189,7 +197,8 @@ func TestReaderRangeDeletedKey(t *testing.T) {
 	}
 }
 
-func TestReaderRangeDeletedKeyAtOldRev(t *testing.T) {
+func Test_Reader_RangeDeletedKeyAtOldRev(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -211,7 +220,8 @@ func TestReaderRangeDeletedKeyAtOldRev(t *testing.T) {
 	}
 }
 
-func TestReaderRangeEmptyStore(t *testing.T) {
+func Test_Reader_RangeEmptyStore(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 

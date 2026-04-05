@@ -34,4 +34,28 @@ up3build: ## Builds image and runs 3-node cluster
 test:
 	go test -v ./internal/...
 
-.PHONY: build build-img up3 down3 up3build
+test-race:
+	go test -v -race -count=3 ./internal/... 
+
+kluster-create: ## Creates a k8s cluster with kind
+	kind create cluster --name kave
+
+kluster-verify: ## Verifyies kind cluster
+	kubectl get nodes
+
+helm-validate: ## validate template
+	helm template kave ./charts/kave
+
+helm-lint: ## Lint for mistakes
+	helm lint ./charts/kave
+
+helm-install: ## Install to the cluster
+	helm install kave ./charts/kave
+
+helm-upgrade: ## Upgrade after changes
+	helm upgrade kave ./charts/kave
+
+helm-uninstall: ## Unintstal
+	helm uninstall kave 
+
+.PHONY: build build-img up3 down3 up3build test test-race kluster-create, kluster-verify helm-validate helm-lint helm-install helm-upgrade helm-uninstall

@@ -7,6 +7,7 @@ import (
 )
 
 func Test_GenerationIsEmpty(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		g    generation
@@ -26,6 +27,7 @@ func Test_GenerationIsEmpty(t *testing.T) {
 }
 
 func Test_GenerationWalkBackwards(t *testing.T) {
+	t.Parallel()
 	g := generation{revs: []Revision{{2, 0}, {4, 0}, {6, 0}}}
 
 	// Walk until we find rev <= 5 (should stop at index 1 → rev {4,0})
@@ -54,6 +56,7 @@ func Test_GenerationWalkBackwards(t *testing.T) {
 }
 
 func Test_GenerationEqual(t *testing.T) {
+	t.Parallel()
 	g1 := generation{version: 2, created: Revision{1, 0}, revs: []Revision{{1, 0}, {3, 0}}}
 	g2 := generation{version: 2, created: Revision{1, 0}, revs: []Revision{{1, 0}, {3, 0}}}
 	g3 := generation{version: 3, created: Revision{1, 0}, revs: []Revision{{1, 0}, {3, 0}}}
@@ -71,6 +74,7 @@ func Test_GenerationEqual(t *testing.T) {
 }
 
 func Test_KeyIndexPut(t *testing.T) {
+	t.Parallel()
 	ki := &keyIndex{key: []byte("foo")}
 
 	// First put creates generation with created revision
@@ -115,6 +119,7 @@ func Test_KeyIndexPut(t *testing.T) {
 }
 
 func Test_KeyIndexPutRejectsOlderRevision(t *testing.T) {
+	t.Parallel()
 	ki := &keyIndex{key: []byte("foo")}
 	ki.put(5, 0)
 
@@ -129,10 +134,7 @@ func Test_KeyIndexPutRejectsOlderRevision(t *testing.T) {
 	}
 }
 
-// ==================== keyIndex.get tests ====================
-
 // Helper: build a keyIndex with a known lifecycle:
-//
 //	PUT at {2,0}, PUT at {4,0}, PUT at {6,0}  — generation 0
 //	DEL at {8,0}                               — tombstone, starts generation 1
 //	PUT at {10,0}, PUT at {12,0}               — generation 1
@@ -152,6 +154,7 @@ func newTest_KeyIndex() *keyIndex {
 }
 
 func Test_KeyIndexGet(t *testing.T) {
+	t.Parallel()
 	ki := newTest_KeyIndex()
 
 	tests := []struct {
@@ -194,6 +197,7 @@ func Test_KeyIndexGet(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			created, mod, ver, err := ki.get(tt.rev)
 			if tt.wantErr {
 				if err == nil {
@@ -218,6 +222,7 @@ func Test_KeyIndexGet(t *testing.T) {
 }
 
 func Test_KeyIndexGetPanicsOnEmpty(t *testing.T) {
+	t.Parallel()
 	ki := &keyIndex{key: []byte("foo"), generations: []generation{{}}}
 	defer func() {
 		if r := recover(); r == nil {
@@ -228,6 +233,7 @@ func Test_KeyIndexGetPanicsOnEmpty(t *testing.T) {
 }
 
 func Test_KeyIndexTombstone(t *testing.T) {
+	t.Parallel()
 	ki := &keyIndex{key: []byte("foo")}
 	ki.put(5, 0)
 
@@ -261,6 +267,7 @@ func Test_KeyIndexTombstone(t *testing.T) {
 }
 
 func Test_KeyIndexTombstoneOnEmpty(t *testing.T) {
+	t.Parallel()
 	ki := &keyIndex{key: []byte("foo"), generations: []generation{{}}}
 	err := ki.tombstone(1, 0)
 	if err == nil {
@@ -269,6 +276,7 @@ func Test_KeyIndexTombstoneOnEmpty(t *testing.T) {
 }
 
 func Test_KeyIndexTombstoneOnEmptyGeneration(t *testing.T) {
+	t.Parallel()
 	ki := &keyIndex{key: []byte("foo")}
 	ki.put(1, 0)
 	ki.tombstone(2, 0)
@@ -281,6 +289,7 @@ func Test_KeyIndexTombstoneOnEmptyGeneration(t *testing.T) {
 }
 
 func Test_KeyIndexIsEmpty(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		ki   keyIndex
@@ -315,6 +324,7 @@ func Test_KeyIndexIsEmpty(t *testing.T) {
 }
 
 func Test_KeyIndexLess(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		a, b []byte
 		want bool
@@ -335,6 +345,7 @@ func Test_KeyIndexLess(t *testing.T) {
 }
 
 func Test_KeyIndexFindGen(t *testing.T) {
+	t.Parallel()
 	ki := newTest_KeyIndex()
 
 	tests := []struct {
@@ -371,6 +382,7 @@ func Test_KeyIndexFindGen(t *testing.T) {
 }
 
 func Test_KeyIndexSince(t *testing.T) {
+	t.Parallel()
 	ki := newTest_KeyIndex()
 
 	tests := []struct {
@@ -397,9 +409,9 @@ func Test_KeyIndexSince(t *testing.T) {
 	}
 }
 
-// ==================== keyIndex.compact tests ====================
 
 func Test_KeyIndexCompact(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		compact   int64
 		wantGens  int
@@ -434,6 +446,7 @@ func Test_KeyIndexCompact(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("compact(%d)", tt.compact), func(t *testing.T) {
+			t.Parallel()
 			ki := newTest_KeyIndex()
 			avail := make(map[Revision]struct{})
 			if err := ki.compact(tt.compact, avail); err != nil {
@@ -453,6 +466,7 @@ func Test_KeyIndexCompact(t *testing.T) {
 }
 
 func Test_KeyIndexCompactBeyondLastRevision(t *testing.T) {
+	t.Parallel()
 	ki := &keyIndex{key: []byte("foo")}
 	ki.put(1, 0)
 	ki.put(2, 0)
@@ -471,6 +485,7 @@ func Test_KeyIndexCompactBeyondLastRevision(t *testing.T) {
 }
 
 func Test_KeyIndexKeepDoesNotMutate(t *testing.T) {
+	t.Parallel()
 	ki := newTest_KeyIndex()
 	clone := cloneKeyIndex(ki)
 
@@ -486,6 +501,7 @@ func Test_KeyIndexKeepDoesNotMutate(t *testing.T) {
 }
 
 func Test_KeyIndexKeepExcludesTombstone(t *testing.T) {
+	t.Parallel()
 	ki := newTest_KeyIndex()
 	avail := make(map[Revision]struct{})
 	ki.keep(8, avail) // rev 8 is a tombstone
@@ -497,6 +513,7 @@ func Test_KeyIndexKeepExcludesTombstone(t *testing.T) {
 }
 
 func Test_KeyIndexRestoreTombstone(t *testing.T) {
+	t.Parallel()
 	ki := &keyIndex{key: []byte("foo")}
 	if err := ki.restoreTombstone(16, 0); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -523,6 +540,7 @@ func Test_KeyIndexRestoreTombstone(t *testing.T) {
 }
 
 func Test_KeyIndexEqual(t *testing.T) {
+	t.Parallel()
 	a := newTest_KeyIndex()
 	b := newTest_KeyIndex()
 	if !a.equal(b) {

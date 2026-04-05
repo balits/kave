@@ -117,6 +117,7 @@ func (ls *testLeaseService) mustLookup(id int64) *api.LeaseLookupResponse {
 }
 
 func Test_LeaseService_Grant(t *testing.T) {
+	t.Parallel()
 	ls := newTestLeaseService(t)
 
 	res := ls.mustGrant(-1, 10)
@@ -140,6 +141,7 @@ func Test_LeaseService_Grant(t *testing.T) {
 }
 
 func Test_LeaseService_Revoke(t *testing.T) {
+	t.Parallel()
 	ls := newTestLeaseService(t)
 
 	resg := ls.mustGrant(0, 10)
@@ -159,6 +161,7 @@ func Test_LeaseService_Revoke(t *testing.T) {
 }
 
 func Test_LeaseService_KeepAlive(t *testing.T) {
+	t.Parallel()
 	ls := newTestLeaseService(t)
 
 	resGranted := ls.mustGrant(-1, 10)
@@ -174,6 +177,7 @@ func Test_LeaseService_KeepAlive(t *testing.T) {
 }
 
 func Test_LeaseService_Lookup(t *testing.T) {
+	t.Parallel()
 	ls := newTestLeaseService(t)
 
 	resGranted := ls.mustGrant(-1, 10)

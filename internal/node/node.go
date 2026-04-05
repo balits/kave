@@ -94,6 +94,9 @@ func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*No
 		n.clusterService,
 		n.peerService,
 		reg,
+		// TODO(ratelimiter): run benches to figure out real R and B
+		transport.NewRateLimiterConfig(1000, 200),
+		transport.NewRateLimiterConfig(100, 20),
 	)
 	return n, nil
 }
