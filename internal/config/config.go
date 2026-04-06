@@ -172,6 +172,7 @@ func LoadConfig() *Config {
 	var cj ConfigJson
 	file, err := os.Open(*configPath)
 	check("config file", err)
+
 	d := json.NewDecoder(file)
 	d.DisallowUnknownFields()
 	check("config file: decoding: ", d.Decode(&cj))
@@ -187,6 +188,6 @@ func LoadConfig() *Config {
 
 func check(msg string, err error) {
 	if err != nil {
-		panic(fmt.Errorf("fatal error: %s :%v", msg, err))
+		panic(fmt.Errorf("fatal error: %s: %v", msg, err))
 	}
 }
