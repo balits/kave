@@ -7,14 +7,14 @@ metadata:
 data:
   clusterConfig.json: |
     {
-        "log_level": {{  .Values.config.logLevel | quote }}
+        "log_level": {{  .Values.config.logLevel | quote }},
         "checkpoint_interval_minutes": {{  .Values.config.checkpointIntervalMinutes }},
         "storage_kind": {{  .Values.config.storageKind | quote }},
         "storage_data_dir": {{  .Values.config.storageDataDir | quote }},
         "compaction_threshold": {{  .Values.config.compactionThreshold }},
         "compaction_interval_minutes": {{  .Values.config.compactionIntervalMinutes }},
-        "compaction_max_rev_gap": {{  .Values.config.compactionMaxRevGap }}
-        "ot_slot_count": {{ .Values.config.otSlotCount }}
-        "ot_slot_size": {{  .Values.config.otSlotSize }}
+        "compaction_max_rev_gap": {{  .Values.config.compactionMaxRevGap }},
+        "ot_slot_count": {{ .Values.config.otSlotCount }},
+        "ot_slot_size": {{  .Values.config.otSlotSize }},
         "ot_token_ttl": {{  .Values.config.otTokenTTL }}
     }
