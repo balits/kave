@@ -156,10 +156,10 @@ func LoadConfig() *Config {
 	)
 
 	err := fs.Parse(os.Args[1:])
-	check(err)
+	check("parsing flagset", err)
 
 	if *configPath == "" {
-		check(errors.New("no config file found"))
+		check("config file", errors.New("no config file found"))
 	}
 
 	me := Peer{
@@ -167,17 +167,17 @@ func LoadConfig() *Config {
 		RaftPort: *raftPort,
 		HttpPort: *httpPort,
 	}
-	check(me.check())
+	check("peer info about me", me.check())
 
 	var cj ConfigJson
 	file, err := os.Open(*configPath)
-	check(err)
+	check("config file", err)
 	d := json.NewDecoder(file)
 	d.DisallowUnknownFields()
-	check(d.Decode(&cj))
+	check("config file: decoding: ", d.Decode(&cj))
 
 	cfg, err := cj.ToConfig()
-	check(err)
+	check("config file: converting json to config object", err)
 
 	cfg.Me = me
 	cfg.Bootstrap = strings.HasSuffix(*nodeID, "-0")
@@ -185,8 +185,8 @@ func LoadConfig() *Config {
 	return cfg
 }
 
-func check(err error) {
+func check(msg string, err error) {
 	if err != nil {
-		panic(fmt.Errorf("fatal error: %v", err))
+		panic(fmt.Errorf("fatal error: %s :%v", msg, err))
 	}
 }
