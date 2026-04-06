@@ -9,7 +9,6 @@ import (
 
 const bucket storage.Bucket = "test"
 
-
 func TestRecordPut(t *testing.T) {
 	wc := NewWriteCollector()
 	wc.RecordPut(bucket, []byte("k"), []byte("v"))
@@ -47,7 +46,6 @@ func TestRecordDelete(t *testing.T) {
 	}
 }
 
-
 func TestPutUndoesDelete(t *testing.T) {
 	wc := NewWriteCollector()
 	wc.RecordDelete(bucket, []byte("k"))
@@ -61,7 +59,6 @@ func TestPutUndoesDelete(t *testing.T) {
 	}
 }
 
-
 func TestDeleteUndoesPut(t *testing.T) {
 	wc := NewWriteCollector()
 	wc.RecordPut(bucket, []byte("k"), []byte("v"))
@@ -74,7 +71,6 @@ func TestDeleteUndoesPut(t *testing.T) {
 		t.Error("delete should be recorded")
 	}
 }
-
 
 func TestInterleavedPutDelete(t *testing.T) {
 	wc := NewWriteCollector()
@@ -104,7 +100,6 @@ func TestDeletePutDelete(t *testing.T) {
 		t.Error("final delete should be recorded")
 	}
 }
-
 
 func TestMultipleBuckets(t *testing.T) {
 	wc := NewWriteCollector()
@@ -139,7 +134,6 @@ func TestDeleteInOneBucketDoesNotAffectOther(t *testing.T) {
 	}
 }
 
-
 func TestReset(t *testing.T) {
 	wc := NewWriteCollector()
 	wc.RecordPut(bucket, []byte("k1"), []byte("v1"))
@@ -154,7 +148,6 @@ func TestReset(t *testing.T) {
 		t.Errorf("deletes not empty after reset: %v", wc.Deletes())
 	}
 }
-
 
 func TestManyKeys(t *testing.T) {
 	wc := NewWriteCollector()

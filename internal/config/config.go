@@ -158,7 +158,8 @@ func LoadConfig() *Config {
 		httpPort   = fs.String("http_port", getEnv("HTTP_PORT"), "http port of the raft node")
 	)
 
-	fs.Parse(os.Args[1:])
+	err := fs.Parse(os.Args[1:])
+	check(err)
 
 	if *configPath == "" {
 		check(errors.New("no config file found"))

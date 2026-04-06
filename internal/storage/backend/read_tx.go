@@ -2,6 +2,7 @@ package backend
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/balits/kave/internal/storage"
 )
@@ -54,7 +55,7 @@ func (r *readtx) UnsafeRange(bucket storage.Bucket, start, end []byte, f func(k,
 // TODO: dedup, cleanup
 func (r *readtx) UnsafeScan(bucket storage.Bucket, start, end []byte, f func(k, v []byte) error) error {
 	var err error
-	r.b.store.Scan(bucket, func(k, v []byte) bool {
+	scanErr := r.b.store.Scan(bucket, func(k, v []byte) bool {
 		if (start == nil || bytes.Compare(k, start) >= 0) &&
 			(end == nil || bytes.Compare(k, end) < 0) {
 			if err = f(k, v); err != nil {
@@ -63,5 +64,8 @@ func (r *readtx) UnsafeScan(bucket storage.Bucket, start, end []byte, f func(k, 
 		}
 		return true
 	})
-	return err
+	if err != nil || scanErr != nil {
+		return fmt.Errorf("UnsafeScan failed: '%v' (inner error: '%v')", scanErr, err)
+	}
+	return nil
 }

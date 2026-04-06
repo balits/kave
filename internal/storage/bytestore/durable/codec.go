@@ -29,12 +29,12 @@ func decode(r io.Reader, oldPath string) (*bolt.DB, error) {
 	}
 
 	if _, err := io.Copy(f, r); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("failed to copy files: %v", err)
 	}
 
 	if err := f.Sync(); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("failed to sync file: %v", err)
 	}
 

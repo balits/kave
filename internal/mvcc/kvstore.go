@@ -113,7 +113,7 @@ func (s *KvStore) Restore(r io.Reader) error {
 	s.kvIndex.Clear()
 	rtx := s.backend.ReadTx()
 	rtx.RLock()
-	rtx.UnsafeScan(schema.BucketKV, min, max, func(k, v []byte) error {
+	err := rtx.UnsafeScan(schema.BucketKV, min, max, func(k, v []byte) error {
 		bk := kv.DecodeKvBucketKey(k)
 		entry, err := types.DecodeKvEntry(v)
 		if bk.Tombstone {
@@ -131,6 +131,9 @@ func (s *KvStore) Restore(r io.Reader) error {
 		lastRev = bk.Revision
 		return nil
 	})
+	if err != nil {
+		s.logger.Error("restore error: scanning over keys errored", "error", err)
+	}
 
 	raftTermBytes, err := rtx.UnsafeGet(schema.BucketMeta, schema.KeyRaftTerm)
 	if err != nil {
@@ -187,8 +190,16 @@ func (s *KvStore) Compact(rev int64) (<-chan struct{}, error) {
 		wtx := s.backend.WriteTx()
 		wtx.Lock()
 		revBytes := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: rev}, kv.NewRevBytes())
-		wtx.UnsafePut(schema.BucketMeta, schema.KeyCompactScheduled, revBytes)
-		wtx.Commit()
+		if err := wtx.UnsafePut(schema.BucketMeta, schema.KeyCompactionScheduled, revBytes); err != nil {
+			wtx.Unlock()
+			s.logger.Warn("compaction error: failed to persist compaction revisions", "error", err)
+			return nil, err
+		}
+		if _, err := wtx.Commit(); err != nil {
+			wtx.Unlock()
+			s.logger.Warn("compaction error: failed to persist compaction revisions", "error", err)
+			return nil, err
+		}
 		wtx.Unlock()
 	}
 
@@ -262,7 +273,9 @@ func (s *KvStore) doCompact(rev int64) {
 		if done {
 			// persist meta
 			revBytes := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: rev}, kv.NewRevBytes())
-			wtx.UnsafePut(schema.BucketMeta, schema.KeyCompactFinished, revBytes)
+			if err := wtx.UnsafePut(schema.BucketMeta, schema.KeyCompactionFinished, revBytes); err != nil {
+				s.logger.Error("compaction error: failed to persist KeyCompactionFinished to meta bucket", "error", err)
+			}
 		}
 
 		if _, err := wtx.Commit(); err != nil {

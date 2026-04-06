@@ -135,6 +135,7 @@ func Test_KeyIndexPutRejectsOlderRevision(t *testing.T) {
 }
 
 // Helper: build a keyIndex with a known lifecycle:
+//
 //	PUT at {2,0}, PUT at {4,0}, PUT at {6,0}  — generation 0
 //	DEL at {8,0}                               — tombstone, starts generation 1
 //	PUT at {10,0}, PUT at {12,0}               — generation 1
@@ -408,7 +409,6 @@ func Test_KeyIndexSince(t *testing.T) {
 		}
 	}
 }
-
 
 func Test_KeyIndexCompact(t *testing.T) {
 	t.Parallel()

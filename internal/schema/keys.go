@@ -16,11 +16,11 @@ var (
 
 	// Stores the last requested compaction revision.
 	// Stored at request, before compaction is actually run
-	KeyCompactScheduled NamedKey = []byte("scheduled_compaction")
+	KeyCompactionScheduled NamedKey = []byte("scheduled_compaction")
 
 	// Stores the last finished compaction revision.
 	// Stored after compaction is finished
-	KeyCompactFinished NamedKey = []byte("finished_compaction")
+	KeyCompactionFinished NamedKey = []byte("finished_compaction")
 )
 
 // keys in BucketOT

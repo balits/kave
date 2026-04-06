@@ -18,7 +18,6 @@ const (
 	errMsgProxyLeader     string = "proxying to leader failed"
 )
 
-
 func (s *HttpServer) readMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	limiter := s.readLimiter.Middleware(s, next)
 
@@ -105,7 +104,10 @@ func (s *HttpServer) proxyToLeader(w http.ResponseWriter, r *http.Request, leade
 }
 
 func drainBody(oldBody io.ReadCloser) (read []byte, err error) {
-	defer oldBody.Close()
+	defer func() {
+		_ = oldBody.Close()
+	}()
+
 	read, err = io.ReadAll(oldBody)
 	if err != nil {
 		return nil, fmt.Errorf("draining body failed: %w", err)
