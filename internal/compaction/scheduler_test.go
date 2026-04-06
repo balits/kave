@@ -178,7 +178,7 @@ func Test_CompactionScheduler_DoesntRegress(t *testing.T) {
 	threshold := int64(10)
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	cs := newTestScheduler(t, threshold, ft, true, nil)
-	loop(t, cs)
+	cs.ctx = t.Context()
 
 	for i := range threshold {
 		mustPut(t, cs.propose, fmt.Sprintf("key-%d", i), "bar")
