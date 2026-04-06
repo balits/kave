@@ -52,10 +52,4 @@ helm-lint: ## Lint for mistakes
 helm-install: ## Install to the cluster
 	helm install kave ./charts/kave
 
-helm-upgrade: ## Upgrade after changes
-	helm upgrade kave ./charts/kave
-
-helm-uninstall: ## Unintstal
-	helm uninstall kave 
-
-.PHONY: build build-img up3 down3 up3build test test-race kluster-create, kluster-verify helm-validate helm-lint helm-install helm-upgrade helm-uninstall
+.PHONY: build build-img up3 down3 up3build test test-race kluster-create, kluster-verify helm-validate helm-lint helm-uninstall
