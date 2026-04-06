@@ -101,7 +101,7 @@ func Test_CompactionScheduler_ThresholdNotMet(t *testing.T) {
 	threshold := int64(10)
 	ft := util.NewFakeTicker()
 	cs := newTestScheduler(t, threshold, ft, true, nil)
-	loop(t, cs)
+	cs.ctx = t.Context()
 
 	for i := range threshold - 1 {
 		mustPut(t, cs.propose, fmt.Sprintf("foo%d", i), "bar")
@@ -119,7 +119,7 @@ func Test_CompactionScheduler_ThresholdMet(t *testing.T) {
 	threshold := int64(10)
 	ft := util.NewFakeTicker()
 	cs := newTestScheduler(t, threshold, ft, true, nil)
-	loop(t, cs)
+	cs.ctx = t.Context()
 
 	var lastCompactedRev int64
 	for i := range threshold {
@@ -156,7 +156,7 @@ func Test_CompactionScheduler_DoesntDeleteMoreThanThreshold(t *testing.T) {
 	threshold := int64(10)
 	ft := util.NewFakeTicker()
 	cs := newTestScheduler(t, threshold, ft, true, nil)
-	go cs.Run(t.Context())
+	cs.ctx = t.Context()
 
 	N := 10
 	x := 10
@@ -327,7 +327,7 @@ func Test_CompactionScheduler_CompactsToCorrectRevision(t *testing.T) {
 	t.Parallel()
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	cs := newTestScheduler(t, 3, ft, true, nil)
-	loop(t, cs)
+	cs.ctx = t.Context()
 
 	mustPut(t, cs.propose, "a", "v1") // rev 1
 	mustPut(t, cs.propose, "a", "v2") // rev 2 — supersedes rev 1
@@ -335,7 +335,6 @@ func Test_CompactionScheduler_CompactsToCorrectRevision(t *testing.T) {
 	mustPut(t, cs.propose, "c", "v1") // rev 4
 
 	// tick 1: candidateRev = 4, nothing compacted yet
-	ft.FakeTick()
 	cs.tick(false)
 	_, compacted := cs.store.Revisions()
 	require.Equal(t, int64(0), compacted, "no compaction on first tick")
@@ -343,7 +342,6 @@ func Test_CompactionScheduler_CompactsToCorrectRevision(t *testing.T) {
 	mustPut(t, cs.propose, "d", "v1") // rev 5 — enough to exceed threshold from rev 4
 
 	// tick 2: compacts to rev 4 (the previous candidate)
-	ft.FakeTick()
 	cs.tick(false)
 	_, compacted = cs.store.Revisions()
 	require.Equal(t, int64(4), compacted)
@@ -353,7 +351,7 @@ func Test_CompactionScheduler_OldRevisionBecomesUnreadable(t *testing.T) {
 	t.Parallel()
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	cs := newTestScheduler(t, 2, ft, true, nil)
-	loop(t, cs)
+	cs.ctx = t.Context()
 
 	mustPut(t, cs.propose, "key", "v1") // rev 1
 	mustPut(t, cs.propose, "key", "v2") // rev 2
@@ -377,7 +375,7 @@ func Test_CompactionScheduler_SupersededRevisionGone_LatestRetained(t *testing.T
 	t.Parallel()
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	cs := newTestScheduler(t, 2, ft, true, nil)
-	loop(t, cs)
+	cs.ctx = t.Context()
 
 	mustPut(t, cs.propose, "a", "v1") // rev 1
 	mustPut(t, cs.propose, "a", "v2") // rev 2 supersedes v1
@@ -415,6 +413,7 @@ func Test_CompactionScheduler_ThresholdNotMet_NoCompaction(t *testing.T) {
 	t.Parallel()
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	cs := newTestScheduler(t, 100, ft, true, nil)
+	cs.ctx = t.Context()
 
 	mustPut(t, cs.propose, "a", "1")
 	mustPut(t, cs.propose, "b", "2")
