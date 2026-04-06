@@ -97,7 +97,7 @@ func loop(t *testing.T, cs *CompactionScheduler) {
 }
 
 func Test_CompactionScheduler_ThresholdNotMet(t *testing.T) {
-	t.Parallel()
+
 	threshold := int64(10)
 	ft := util.NewFakeTicker()
 	cs := newTestScheduler(t, threshold, ft, true, nil)
@@ -115,7 +115,7 @@ func Test_CompactionScheduler_ThresholdNotMet(t *testing.T) {
 }
 
 func Test_CompactionScheduler_ThresholdMet(t *testing.T) {
-	t.Parallel()
+
 	threshold := int64(10)
 	ft := util.NewFakeTicker()
 	cs := newTestScheduler(t, threshold, ft, true, nil)
@@ -152,7 +152,7 @@ func Test_CompactionScheduler_ThresholdMet(t *testing.T) {
 }
 
 func Test_CompactionScheduler_DoesntDeleteMoreThanThreshold(t *testing.T) {
-	t.Parallel()
+
 	threshold := int64(10)
 	ft := util.NewFakeTicker()
 	cs := newTestScheduler(t, threshold, ft, true, nil)
@@ -174,7 +174,7 @@ func Test_CompactionScheduler_DoesntDeleteMoreThanThreshold(t *testing.T) {
 }
 
 func Test_CompactionScheduler_DoesntRegress(t *testing.T) {
-	t.Parallel()
+
 	threshold := int64(10)
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	cs := newTestScheduler(t, threshold, ft, true, nil)
@@ -197,7 +197,7 @@ func Test_CompactionScheduler_DoesntRegress(t *testing.T) {
 }
 
 func Test_CompactionScheduler_LeadershipLost_NoCompaction(t *testing.T) {
-	t.Parallel()
+
 	threshold := int64(10)
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	cs := newTestScheduler(t, threshold, ft, true, nil)
@@ -228,7 +228,7 @@ func Test_CompactionScheduler_LeadershipLost_NoCompaction(t *testing.T) {
 }
 
 func Test_CompactionScheduler_LeadershipRegained_ResumeCompaction(t *testing.T) {
-	t.Parallel()
+
 	threshold := int64(10)
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	cs := newTestScheduler(t, threshold, ft, true, nil)
@@ -273,7 +273,7 @@ func Test_CompactionScheduler_LeadershipRegained_ResumeCompaction(t *testing.T) 
 }
 
 func Test_CompactionScheduler_CancelledContext_DoesntHang(t *testing.T) {
-	t.Parallel()
+
 	threshold := int64(10)
 	ft := util.NewFakeTicker()
 	cs := newTestScheduler(t, threshold, ft, true, nil)
@@ -298,7 +298,7 @@ func Test_CompactionScheduler_CancelledContext_DoesntHang(t *testing.T) {
 }
 
 func Test_CompactionScheduler_StopDuringActiveCompaction(t *testing.T) {
-	t.Parallel()
+
 	threshold := int64(10)
 	ft := util.NewFakeTicker()
 	cs := newTestScheduler(t, threshold, ft, true, nil)
@@ -324,7 +324,7 @@ func Test_CompactionScheduler_StopDuringActiveCompaction(t *testing.T) {
 // real compaction tests
 
 func Test_CompactionScheduler_CompactsToCorrectRevision(t *testing.T) {
-	t.Parallel()
+
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	cs := newTestScheduler(t, 3, ft, true, nil)
 	cs.ctx = t.Context()
@@ -348,7 +348,7 @@ func Test_CompactionScheduler_CompactsToCorrectRevision(t *testing.T) {
 }
 
 func Test_CompactionScheduler_OldRevisionBecomesUnreadable(t *testing.T) {
-	t.Parallel()
+
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	cs := newTestScheduler(t, 2, ft, true, nil)
 	cs.ctx = t.Context()
@@ -372,7 +372,7 @@ func Test_CompactionScheduler_OldRevisionBecomesUnreadable(t *testing.T) {
 }
 
 func Test_CompactionScheduler_SupersededRevisionGone_LatestRetained(t *testing.T) {
-	t.Parallel()
+
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	cs := newTestScheduler(t, 2, ft, true, nil)
 	cs.ctx = t.Context()
@@ -410,7 +410,7 @@ func Test_CompactionScheduler_SupersededRevisionGone_LatestRetained(t *testing.T
 }
 
 func Test_CompactionScheduler_ThresholdNotMet_NoCompaction(t *testing.T) {
-	t.Parallel()
+
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	cs := newTestScheduler(t, 100, ft, true, nil)
 	cs.ctx = t.Context()
@@ -429,7 +429,7 @@ func Test_CompactionScheduler_ThresholdNotMet_NoCompaction(t *testing.T) {
 // test cases to check write pressure works correclty
 
 func Test_CompactionScheduler_WritePressure_TriggerFires(t *testing.T) {
-	t.Parallel()
+
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	cs := newTestScheduler(t, 0, ft, true, &CompactionOptions{
 		IntervalMin: 30,
@@ -464,7 +464,7 @@ func Test_CompactionScheduler_WritePressure_TriggerFires(t *testing.T) {
 }
 
 func Test_CompactionScheduler_WritePressure_IgnoredAsNonLeader(t *testing.T) {
-	t.Parallel()
+
 	ft := util.NewFakeTicker().(*util.FakeTicker)
 	cs := newTestScheduler(t, 0, ft, true, &CompactionOptions{
 		IntervalMin: 30,
@@ -498,7 +498,7 @@ func Test_CompactionScheduler_WritePressure_IgnoredAsNonLeader(t *testing.T) {
 }
 
 func Test_CompactionScheduler_WritePressure_NoDuplicateSignals(t *testing.T) {
-	t.Parallel()
+
 	opts := CompactionOptions{
 		Threshold:   2,
 		IntervalMin: 30,
@@ -515,7 +515,7 @@ func Test_CompactionScheduler_WritePressure_NoDuplicateSignals(t *testing.T) {
 }
 
 func Test_CompactionScheduler_NormalInterval_WhenGapIsSmall(t *testing.T) {
-	t.Parallel()
+
 	opts := CompactionOptions{
 		Threshold:   2,
 		IntervalMin: 30,
@@ -545,7 +545,6 @@ func Test_CompactionScheduler_NormalInterval_WhenGapIsSmall(t *testing.T) {
 }
 
 func Test_CompactionScheduler_BothIntervalAndBackpressure_WorkTogether(t *testing.T) {
-	t.Parallel()
 	opts := CompactionOptions{
 		Threshold:   2,
 		IntervalMin: 30,
