@@ -28,7 +28,7 @@ type boltStore struct {
 
 func NewStore(opts storage.StorageOptions) (bytestore.ByteStore, error) {
 	if opts.Kind != storage.StorageKindBoltdb {
-		panic("failed to create boltdb store: option 'Kind' was not StorageKindBoltdb")
+		return nil, fmt.Errorf("failed to create boltdb store: option 'Kind' was not StorageKindBoltdb")
 	}
 
 	dbpath := filepath.Join(opts.Dir, dbFileName)
@@ -44,7 +44,9 @@ func NewStore(opts storage.StorageOptions) (bytestore.ByteStore, error) {
 
 	bucketMap := make(map[storage.Bucket][]byte, len(opts.InitialBuckets))
 	for _, bucket := range opts.InitialBuckets {
-		tx.CreateBucket([]byte(bucket))
+		if _, err := tx.CreateBucket([]byte(bucket)); err != nil {
+			return nil, fmt.Errorf("failed to create boltdb store: %v", err)
+		}
 		bucketMap[bucket] = []byte(bucket)
 	}
 
@@ -267,15 +269,15 @@ func (s *boltStore) Defragment() error {
 	if syncErr := f.Sync(); syncErr != nil && err == nil {
 		err = syncErr
 	}
-	f.Close()
+	_ = f.Close()
 
 	if err != nil {
-		os.Remove(newpath)
+		_ = os.Remove(newpath)
 		return fmt.Errorf("writeTo/fsync failed: %w", err)
 	}
 
 	if err := s.db.Close(); err != nil {
-		os.Remove(newpath)
+		_ = os.Remove(newpath)
 		return fmt.Errorf("close failed: %w", err)
 	}
 

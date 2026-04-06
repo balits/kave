@@ -133,7 +133,6 @@ func (ts *testOTService) mustWriteAll(blob []byte) *api.OTWriteAllResponse {
 	return res
 }
 
-
 func Test_OTService_Init_ReturnsPointAAndToken(t *testing.T) {
 	t.Parallel()
 	ts, _ := newTestOTService(t)

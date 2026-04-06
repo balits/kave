@@ -129,13 +129,22 @@ func (lm *LeaseManager) Revoke(id int64) (found, revoked bool) {
 
 	if len(toDelete) > 0 {
 		w := lm.store.NewWriter()
+		actuallyDeleted := 0
 		for _, k := range toDelete {
-			w.DeleteKey(k)
+			if _, _, err := w.DeleteKey(k); err != nil {
+				lm.logger.Info("failed to delete key",
+					"key", k,
+					"error", err,
+				)
+			} else {
+				actuallyDeleted++
+			}
 		}
 		w.End()
 		lm.logger.Info("lease revoke: removed attached keys",
 			"id", lease.ID,
-			"key_count", len(toDelete),
+			"all_key_count", len(toDelete),
+			"deleted_key_count", actuallyDeleted,
 		)
 
 		lm.metrics.KeysPerRevoke.Observe(float64(len(toDelete)))

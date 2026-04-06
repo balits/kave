@@ -187,7 +187,8 @@ func (s *HttpServer) Shutdown(ctx context.Context) error {
 	s.logger.Info("Stopping HTTP server")
 	s.server.SetKeepAlivesEnabled(false)
 	if err := s.server.Shutdown(ctx); err != nil {
-		s.server.Close()
+		err := s.server.Close()
+		s.logger.Error("closing server failed", "error", err)
 		return err
 	}
 	return nil
@@ -559,12 +560,16 @@ func (s *HttpServer) writeJSON(w http.ResponseWriter, response any, status int) 
 	if err != nil {
 		s.logger.Error("Failed to marshal JSON response", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(jsonEncodeErrMsg + ": " + err.Error()))
+		if _, err = w.Write([]byte(jsonEncodeErrMsg + ": " + err.Error())); err != nil {
+			s.logger.Error("Failed to write JSON response", "error", err)
+		}
 		return
 	}
 
 	w.WriteHeader(status)
-	w.Write(bytes)
+	if _, err := w.Write(bytes); err != nil {
+		s.logger.Error("Failed to write JSON response", "error", err)
+	}
 }
 
 // writeError logs the message with the provided error then composes them
@@ -577,5 +582,7 @@ func (s *HttpServer) writeError(w http.ResponseWriter, msg string, err error, st
 	w.Header().Set("Content-Type", "application/json")
 	bytes, _ := json.Marshal(map[string]string{"error": jsonMessage})
 	w.WriteHeader(status)
-	w.Write(bytes)
+	if _, err := w.Write(bytes); err != nil {
+		s.logger.Error("Failed to write error response", "error", err)
+	}
 }

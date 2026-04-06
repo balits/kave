@@ -126,5 +126,5 @@ func (b *durableBatch) Abort() {
 
 	b.closed = true
 	b.wc.Reset()
-	b.tx.Rollback()
+	_ = b.tx.Rollback() // TODO: maybe put a logger on the store?
 }

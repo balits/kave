@@ -26,8 +26,8 @@ func NewLeaseService(logger *slog.Logger, propose util.ProposeFunc) LeaseService
 }
 
 type leaseSvc struct {
-	propse   util.ProposeFunc
-	logger   *slog.Logger
+	propse util.ProposeFunc
+	logger *slog.Logger
 }
 
 func (ls *leaseSvc) Grant(ctx context.Context, req api.LeaseGrantRequest) (*api.LeaseGrantResponse, error) {
