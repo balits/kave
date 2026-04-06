@@ -147,15 +147,12 @@ func getEnv(key string) string {
 func LoadConfig() *Config {
 	fs := flag.NewFlagSet("kave", flag.ExitOnError)
 
-	bootstrapMaybe, _ := os.LookupEnv("BOOTSTRAP")
-	bootstrapDefault := bootstrapMaybe == "TRUE" || bootstrapMaybe == "true"
-
 	var (
 		configPath = fs.String("config", "", "path to config file (required)")
-		bootstrap  = fs.Bool("bootstrap", bootstrapDefault, "flag to start bootstrap process")
-		nodeID     = fs.String("nodeID", getEnv("NODE_ID"), "id of the raft node")
+		nodeID     = fs.String("nodeID", getEnv("POD_NAME"), "id of the raft node")
 		raftPort   = fs.String("raft_port", getEnv("RAFT_PORT"), "raft port of the raft node")
 		httpPort   = fs.String("http_port", getEnv("HTTP_PORT"), "http port of the raft node")
+		// role       = fs.String("role", getEnv("NDOE_ROLE"), "role of the node (voter | learner)")
 	)
 
 	err := fs.Parse(os.Args[1:])
@@ -183,7 +180,7 @@ func LoadConfig() *Config {
 	check(err)
 
 	cfg.Me = me
-	cfg.Bootstrap = *bootstrap
+	cfg.Bootstrap = strings.HasSuffix(*nodeID, "-0")
 
 	return cfg
 }
