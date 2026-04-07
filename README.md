@@ -1,3 +1,5 @@
+[![CI](https://github.com/balits/kave/actions/workflows/ci.yaml/badge.svg)](https://github.com/balits/kave/actions/workflows/ci.yaml)
+
 Hello world
 //elmelteti leiras + felhasznali doku + fejlesztesi doku (tesztelesi doksi + vhol template)
 
