@@ -101,8 +101,15 @@ jobs:
           echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > ~/.kube/config
           chmod 600 ~/.kube/config
 
-      - name: Recreate StatefulSet only if spec changed
+      - name: Helm upgrade
         run: |
+          # reset any previous pending release state 
+          STATUS=$(helm status kave --namespace kave -o json 2>/dev/null | jq -r '.info.status' || echo "not-found")
+          if [[ "$STATUS" == "pending-install" || "$STATUS" == "pending-upgrade" ]]; then
+            helm rollback kave --namespace kave || helm uninstall kave --namespace kave
+          fi
+
+          # upgrade, delete StatefulSet on immutable field error and retry
           helm upgrade kave ./charts/kave \
             --install \
             --namespace kave \
