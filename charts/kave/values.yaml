@@ -13,7 +13,7 @@ ports:
 config:
   logLevel: "debug"
   checkpointIntervalMinutes: 5
-  peerDiscoverye:
+  peerDiscovery:
     mode: "dns"
   kv:
     maxKeySize: 512
