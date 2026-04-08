@@ -14,7 +14,7 @@ config:
   logLevel: "debug"
   checkpointIntervalMinutes: 5
   peerDiscovery:
-    mode: "dns"
+    mode: "dynamic"
   kv:
     maxKeySize: 512
     maxValueSize: 1024
@@ -28,7 +28,7 @@ config:
   ot:
     slotCount: 32
     slotSize: 64
-    tokenTTL: 60
+    tokenTTLSec: 60
 
 storage:
   size: 10Gi

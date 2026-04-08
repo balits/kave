@@ -1,5 +1,5 @@
 services:
-  node1:
+  node-voter-0:
     image: kave:latest
     command: "--config=/config/clusterConfig.json"
     ports:
@@ -9,13 +9,13 @@ services:
       - node1_volume:/data
       - ./config/clusterConfig3.json:/config/clusterConfig.json
     environment:
-      - NODE_ID=node1
+      - POD_NAME=node-voter-0
       - RAFT_PORT=7000
       - HTTP_PORT=8000
       - BOOTSTRAP=TRUE
       - PUBLIC_HTTP_HOST=localhost
 
-  node2:
+  node-voter-1:
     image: kave:latest
     command: "--config=/config/clusterConfig.json"
     ports:
@@ -25,12 +25,12 @@ services:
       - node2_volume:/data
       - ./config/clusterConfig3.json:/config/clusterConfig.json
     environment:
-      - NODE_ID=node2
+      - POD_NAME=node-voter-1
       - RAFT_PORT=7000
       - HTTP_PORT=8000
       - PUBLIC_HTTP_HOST=localhost
 
-  node3:
+  node-voter-2:
     image: kave:latest
     command: "--config=/config/clusterConfig.json"
     ports:
@@ -40,25 +40,25 @@ services:
       - node3_volume:/data
       - ./config/clusterConfig3.json:/config/clusterConfig.json
     environment:
-      - NODE_ID=node3
+      - POD_NAME=node-voter-2
       - RAFT_PORT=7000
       - HTTP_PORT=8000
       - PUBLIC_HTTP_HOST=localhost
 
-  prometheus:
-    image: prom/prometheus
-    ports:
-      - "9090:9090"
-    networks: ["raftnetwork"]
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-  grafana:
-    image: grafana/grafana
-    ports:
-      - "3000:3000"
-    networks: ["raftnetwork"]
-    depends_on:
-      - prometheus
+  # prometheus:
+  #   image: prom/prometheus
+  #   ports:
+  #     - "9090:9090"
+  #   networks: ["raftnetwork"]
+  #   volumes:
+  #     - ./prometheus.yml:/etc/prometheus/prometheus.yml
+  # grafana:
+  #   image: grafana/grafana
+  #   ports:
+  #     - "3000:3000"
+  #   networks: ["raftnetwork"]
+  #   depends_on:
+  #     - prometheus
 
 networks:
   raftnetwork:

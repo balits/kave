@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sort"
@@ -49,9 +50,13 @@ func NewDiscoveryService(me Peer, opts DiscoveryOptions) (d DiscoveryService, er
 	case DiscoveryModeStatic:
 		d, err = newStaticDiscovery(me, opts.Peers)
 	case DiscoveryModeDynamic:
-		d = newDynamicDiscovery(me, opts.ExpectedCount)
+		d, err = newDynamicDiscovery(me, opts.ExpectedCount)
 	default:
-		return nil, fmt.Errorf("unexpected discovery mode: %s", opts.Mode)
+		err = fmt.Errorf("unexpected discovery mode: %s (expected %s or %s)", opts.Mode, DiscoveryModeStatic, DiscoveryModeDynamic)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("discoverService: %w", err)
 	}
 
 	return d, err
@@ -148,14 +153,17 @@ type dnsDiscovery struct {
 	PollInterval time.Duration
 }
 
-func newDynamicDiscovery(me Peer, expectedCount int) *dnsDiscovery {
+func newDynamicDiscovery(me Peer, expectedCount int) (*dnsDiscovery, error) {
+	if expectedCount < 1 {
+		return nil, errors.New("expected_count cannot be negative")
+	}
 	return &dnsDiscovery{
 		me:            me,
 		ServiceName:   k8sHeadlessServiceName,
 		RaftPortName:  "raft",
 		ExpectedCount: expectedCount,
 		PollInterval:  time.Millisecond * 210,
-	}
+	}, nil
 }
 
 func (d *dnsDiscovery) GetPeers(ctx context.Context) ([]Peer, error) {

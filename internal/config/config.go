@@ -84,6 +84,8 @@ func (cj *ConfigJson) ToConfig() (*Config, error) {
 	c := &Config{
 		LogLevel:                  logLevel,
 		CheckpointIntervalMinutes: cj.CheckpointIntervalMinutes,
+		PeerDiscoveryOptions:      cj.DiscoveryOptions,
+		KvOptions:                 cj.KvOptions,
 		CompactionOpts:            cj.CompactionOpts,
 		OtOpts:                    cj.OtOpts,
 		StorageOpts: storage.StorageOptions{
@@ -158,6 +160,7 @@ func LoadConfig() *Config {
 	cfg.Bootstrap = strings.HasSuffix(*nodeID, "-0")
 	cfg.Me = me
 
+	fmt.Printf("Loaded config successfully:\n%+v\n", cfg)
 	return cfg
 }
 
