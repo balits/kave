@@ -15,7 +15,7 @@ import (
 
 func Test_WriteMiddleware_UnknownLeader_Returns503(t *testing.T) {
 	fix := newTestServer(t, true)
-	fix.peerSvc.ErrLeader = fmt.Errorf("no quorum")
+	fix.raftService.ErrLeader = fmt.Errorf("no quorum")
 
 	resp := fix.do(http.MethodPost, RouteKvPut,
 		api.PutRequest{Key: []byte("k"), Value: []byte("v")})
@@ -89,8 +89,8 @@ func Test_ReadMiddleware_Serializable_StaysLocal(t *testing.T) {
 func Test_ReadMiddleware_NonSerializable_RequiresLeader(t *testing.T) {
 	ts := newTestServer(t, true)
 
-	ts.peerSvc.State_ = raft.Follower
-	ts.peerSvc.ErrLeader = errors.New("no leader")
+	ts.raftService.State_ = raft.Follower
+	ts.raftService.ErrLeader = errors.New("no leader")
 
 	resp := ts.do(http.MethodGet, RouteKvRange, api.RangeRequest{
 		Key:          []byte("k"),
@@ -123,7 +123,7 @@ func Test_ReadMiddleware_NonSerializable_ProxiesToLeader_AsFollower(t *testing.T
 func Test_ReadMiddleware_NonSerializable_VerifyLeaderFails_Returns503(t *testing.T) {
 	ts := newTestServer(t, true)
 	// if we believe we are the leader but VerifyLeader() fails (partitioned) we refuse to serve the read
-	ts.peerSvc.ErrVerifyLeader = errors.New("lost quorum")
+	ts.raftService.ErrVerifyLeader = errors.New("lost quorum")
 
 	resp := ts.do(http.MethodGet, RouteKvRange, api.RangeRequest{
 		Key:          []byte("k"),

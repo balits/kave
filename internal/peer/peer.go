@@ -1,4 +1,4 @@
-package config
+package peer
 
 import (
 	"errors"
@@ -10,7 +10,7 @@ import (
 // Peer represents information about a node in the cluster
 type Peer struct {
 	NodeID   string `json:"node_id"`   // raft server id
-	Hostname string `json:"-"`         // optional hostname: in test we use localhost, in prod leave it empty, so we can use the advertised hostname (NodeID)
+	Hostname string `json:"hostname"`  // optional hostname: in test we use localhost, in prod leave it empty, so we can use the advertised hostname (NodeID)
 	RaftPort string `json:"raft_port"` // raft port of the node
 	HttpPort string `json:"http_port"` // http port of the node
 }
@@ -46,7 +46,7 @@ func (p *Peer) HttpURL() string {
 	return p.HttpScheme() + "://" + p.GetHttpAdvertisedAddress()
 }
 
-func (p *Peer) check() error {
+func (p *Peer) Check() error {
 	if p.NodeID == "" {
 		return errors.New("node ID is required")
 	}
