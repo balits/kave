@@ -52,4 +52,7 @@ helm-lint: ## Lint for mistakes
 helm-install: ## Install to the cluster
 	helm install kave ./charts/kave
 
-.PHONY: build build-img up3 down3 up3build test test-race kluster-create, kluster-verify helm-validate helm-lint helm-uninstall
+gh-ci:
+	gh workflow run ci.yaml --ref feature/ci
+
+.PHONY: build build-img up3 down3 up3build test test-race kluster-create, kluster-verify helm-validate helm-lint helm-uninstall gh-ci
