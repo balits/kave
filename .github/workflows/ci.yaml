@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "feature/ci"]
   pull_request:
     branches: ["main"]
   # after many empty ci pushes, use `gh workflow run` to fix civo cluster
