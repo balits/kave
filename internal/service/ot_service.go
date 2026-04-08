@@ -9,6 +9,7 @@ import (
 	"github.com/balits/kave/internal/fsm"
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/ot"
+	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/types/api"
 	"github.com/balits/kave/internal/util"
 )
@@ -20,18 +21,20 @@ type OTService interface {
 }
 
 type otSvc struct {
+	me       peer.Peer
 	store    mvcc.StoreMetaReader
 	otReader ot.ReadOnlyOT
-	peerSvc  PeerService
+	raftSvc  RaftService
 	propose  util.ProposeFunc
 	logger   *slog.Logger
 }
 
-func NewOTService(logger *slog.Logger, store mvcc.StoreMetaReader, otReader ot.ReadOnlyOT, peerSvc PeerService, propose util.ProposeFunc) OTService {
+func NewOTService(logger *slog.Logger, me peer.Peer, store mvcc.StoreMetaReader, otReader ot.ReadOnlyOT, raftSvc RaftService, propose util.ProposeFunc) OTService {
 	return &otSvc{
+		me:       me,
 		store:    store,
 		otReader: otReader,
-		peerSvc:  peerSvc,
+		raftSvc:  raftSvc,
 		propose:  propose,
 		logger:   logger.With("component", "ot_service"),
 	}
@@ -54,7 +57,7 @@ func (s *otSvc) Init(ctx context.Context, _ api.OTInitRequest) (*api.OTInitRespo
 		Revision:  currRev.Main,
 		RaftTerm:  raftTerm,
 		RaftIndex: raftIndex,
-		NodeID:    s.peerSvc.Me().NodeID,
+		NodeID:    s.me.NodeID,
 	}
 
 	res := api.OTInitResponseNoHeader{
@@ -72,7 +75,7 @@ func (s *otSvc) Transfer(ctx context.Context, req api.OTTransferRequest) (*api.O
 	s.logger.Info("Transfer request received")
 
 	if !req.Serializable {
-		if err := s.peerSvc.VerifyLeader(ctx); err != nil {
+		if err := s.raftSvc.VerifyLeader(ctx); err != nil {
 			return nil, fmt.Errorf("transfer failed: failed to verify leader: %v", err)
 		}
 	}
@@ -91,7 +94,7 @@ func (s *otSvc) Transfer(ctx context.Context, req api.OTTransferRequest) (*api.O
 		Revision:  currRev.Main,
 		RaftTerm:  raftTerm,
 		RaftIndex: raftIndex,
-		NodeID:    s.peerSvc.Me().NodeID,
+		NodeID:    s.me.NodeID,
 	}
 
 	res := api.OTTransferResponseNoHeader{

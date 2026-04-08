@@ -9,7 +9,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 
-	"github.com/balits/kave/internal/config"
+	"github.com/balits/kave/internal/peer"
 )
 
 const (
@@ -43,18 +43,18 @@ func (s *HttpServer) readMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		leader, err := s.peerSvc.GetLeader()
+		leader, err := s.raftSvc.Leader()
 		if err != nil {
 			s.writeError(w, errMsgReadMiddleware, err, http.StatusServiceUnavailable)
 			return
 		}
 
-		if leader.NodeID != s.peerSvc.Me().NodeID {
+		if leader.NodeID != s.me.NodeID {
 			s.proxyToLeader(w, r, leader)
 			return
 		}
 
-		if err := s.peerSvc.VerifyLeader(r.Context()); err != nil {
+		if err := s.raftSvc.VerifyLeader(r.Context()); err != nil {
 			s.writeError(w, errMsgReadMiddleware, err, http.StatusServiceUnavailable)
 			return
 		}
@@ -67,13 +67,14 @@ func (s *HttpServer) writeMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	limiter := s.writeLimiter.Middleware(s, next)
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		leader, err := s.peerSvc.GetLeader()
+		leader, err := s.raftSvc.Leader()
 		if err != nil {
 			s.writeError(w, errMsgWriteMiddleware, err, http.StatusServiceUnavailable)
 			return
 		}
+		fmt.Printf("LEADER: %+v\n", leader)
 
-		if leader.NodeID != s.peerSvc.Me().NodeID {
+		if leader.NodeID != s.me.NodeID {
 			s.proxyToLeader(w, r, leader)
 			return
 		}
@@ -82,7 +83,7 @@ func (s *HttpServer) writeMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func (s *HttpServer) proxyToLeader(w http.ResponseWriter, r *http.Request, leader config.Peer) {
+func (s *HttpServer) proxyToLeader(w http.ResponseWriter, r *http.Request, leader peer.Peer) {
 	target := &url.URL{
 		Scheme: "http",
 		Host:   leader.GetHttpAdvertisedAddress(),

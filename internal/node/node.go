@@ -14,10 +14,11 @@ import (
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/ot"
+	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/service"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
-	transport "github.com/balits/kave/internal/transport/http"
+	"github.com/balits/kave/internal/transport/http"
 	"github.com/balits/kave/internal/util"
 	"github.com/balits/kave/internal/util/logutil"
 	"github.com/balits/kave/internal/watch"
@@ -25,6 +26,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sync/errgroup"
 )
+
+// Used to determine if the apply index lags behind
+// the commit index.
+// TODO: make this configurable or just leave it as is?
+const APPLY_LAG_THRESHOLD = 20
 
 type Node struct {
 	bootstrap bool
@@ -46,14 +52,14 @@ type Node struct {
 	raftDeps     *config.RaftDependencies // stored bcs raft.HasExistingState() upon Bootstrap requires it
 
 	// services
-	kvService      service.KVService
-	leaseService   service.LeaseService
-	otService      service.OTService
-	peerService    service.PeerService
-	clusterService service.ClusterService
+	discoveryService peer.DiscoveryService
+	kvService        service.KVService
+	leaseService     service.LeaseService
+	otService        service.OTService
+	raftService      service.RaftService
 
 	// transport
-	httpServer *transport.HttpServer
+	httpServer *http.HttpServer
 
 	// background routines
 	observer            *raft.Observer
@@ -92,19 +98,22 @@ func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*No
 		return nil, fmt.Errorf("failed to register observers: %v", err)
 	}
 
-	n.httpServer = transport.NewHTTPServer(
+	// TODO(ratelimiter): run benches to figure out real R and B
+	readLimit := http.NewRateLimiterConfig(1000, 200)
+	writeLimit := http.NewRateLimiterConfig(100, 20)
+
+	n.httpServer = http.NewHTTPServer(
 		logger,
-		cfg.Me.GetHttpAdvertisedAddress(),
+		cfg.Me,
+		n.discoveryService,
 		n.kvService,
 		n.leaseService,
 		n.otService,
-		n.clusterService,
-		n.peerService,
+		n.raftService,
 		n.hub,
 		reg,
-		// TODO(ratelimiter): run benches to figure out real R and B
-		transport.NewRateLimiterConfig(1000, 200),
-		transport.NewRateLimiterConfig(100, 20),
+		readLimit,
+		writeLimit,
 	)
 	return n, nil
 }
@@ -113,8 +122,22 @@ func (n *Node) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	me := n.discoveryService.Me()
+	peerList, err := n.discoveryService.GetPeers(ctx)
+	if err != nil {
+		n.logger.Error("Failed to start cluster: peer discovery failed", "error", err)
+		return fmt.Errorf("peer discovery failed: %w", err)
+	}
+
+	err = n.raftService.RegisterPeers(peerList)
+	// this normally shouldnt happen, but check it still
+	if err != nil {
+		n.logger.Error("Failed to start cluster: peer registration failed", "error", err)
+		return fmt.Errorf("peer registration failed: %w", err)
+	}
+
 	// bootstrap, restore state or block on joining the cluster
-	err := n.BootstrapOrJoin(ctx)
+	err = n.BootstrapOrJoin(ctx, me)
 	if err != nil {
 		n.logger.Error("Failed to bootstrap or join cluster", "error", err)
 		return err
@@ -159,7 +182,7 @@ func (n *Node) Run(ctx context.Context) error {
 	return nil
 }
 
-func (n *Node) BootstrapOrJoin(ctx context.Context) error {
+func (n *Node) BootstrapOrJoin(ctx context.Context, me peer.Peer) error {
 	hasState, err := raft.HasExistingState(
 		n.raftDeps.LogStore,
 		n.raftDeps.StableStore,
@@ -179,14 +202,14 @@ func (n *Node) BootstrapOrJoin(ctx context.Context) error {
 
 	if n.bootstrap {
 		n.logger.Info("Bootstrapping new cluster")
-		return n.clusterService.Bootstrap(ctx)
+		return n.raftService.Bootstrap(ctx, me)
 	}
 
-	timeout := 5 * time.Second
+	timeout := 2 * time.Second
 	n.logger.Info("No existing Raft state found; waiting for cluster to be bootstrapped", "timeout", timeout)
 	<-time.After(timeout)
 	n.logger.Info("Joining existing cluster")
-	return n.clusterService.JoinCluster(ctx, n.peerService.GetPeers())
+	return n.raftService.JoinCluster(ctx, me)
 }
 
 func (n *Node) Shutdown(ctx context.Context) error {
@@ -235,8 +258,7 @@ func (n *Node) initStorage(reg prometheus.Registerer, storageOpts storage.Storag
 }
 
 func (n *Node) initRaft(reg prometheus.Registerer, cfg *config.Config) error {
-	n.leaseManager = lease.NewManager(reg, n.logger, n.kvstore, n.backend)
-	n.fsm = fsm.NewWithEngine(n.logger, n.kvstore, n.leaseManager, n.otManager, n.engine, cfg.Me.NodeID)
+	n.fsm = fsm.New(n.logger, cfg.Me, n.kvstore, n.leaseManager, n.otManager)
 
 	hclogger := logutil.NewHcLogAdapter(n.logger, cfg.LogLevel)
 	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, hclogger, cfg.LogLevel)
@@ -270,11 +292,15 @@ func (n *Node) initBackgroundRoutines(intervalMinutes time.Duration, opts *compa
 }
 
 func (n *Node) initServices(cfg *config.Config) error {
-	n.peerService = service.NewPeerService(n.raft, cfg)
+	discoveryService, err := peer.NewDiscoveryService(cfg.Me, cfg.PeerDiscoveryOptions)
+	if err != nil {
+		return err
+	}
+	n.discoveryService = discoveryService
+	n.raftService = service.NewRaftService(n.logger, n.raft, APPLY_LAG_THRESHOLD)
 	n.leaseService = service.NewLeaseService(n.logger, n.proposeFunc)
-	n.otService = service.NewOTService(n.logger, n.kvstore, n.otManager, n.peerService, n.proposeFunc)
-	n.kvService = service.NewKVService(n.logger, n.kvstore, n.peerService, n.proposeFunc)
-	n.clusterService = service.NewClusterService(n.raft, cfg, n.logger)
+	n.otService = service.NewOTService(n.logger, cfg.Me, n.kvstore, n.otManager, n.raftService, n.proposeFunc)
+	n.kvService = service.NewKVService(n.logger, cfg.Me, n.kvstore, n.raftService, cfg.KvOptions, n.proposeFunc)
 	return nil
 }
 

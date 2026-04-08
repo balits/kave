@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/service"
 	"github.com/balits/kave/internal/transport"
 	"github.com/balits/kave/internal/types/api"
@@ -65,28 +66,16 @@ const (
 	jsonDecodeErrMsg string = "failed to decode JSON body"
 
 	readyzErrMsg string = "readyz check failed"
-	statsErrMsg  string = "stats check failed"
-	livezErrMsg  string = "livez check failed"
+	// statsErrMsg  string = "stats check failed"
+	livezErrMsg string = "livez check failed"
 )
 
 var (
 	errRaftShutdown = errors.New("raft is shutdown")
-	// errMsgMap       = map[string]string{
-	// 	RouteKvRange:        kvRangeErrMsg,
-	// 	RouteKvPut:          kvPutErrMsg,
-	// 	RouteKvDelete:       kvDeleteErrMsg,
-	// 	RouteKvTxn:          kvTxnErrMsg,
-	// 	RouteLeaseGrant:     leaseGrantErrMsg,
-	// 	RouteLeaseRevoke:    leaseRevokeErrMsg,
-	// 	RouteLeaseKeepAlive: leaseKeepAliveErrMsg,
-	// 	RouteLeaseLookup:    leaseLookupErrMsg,
-	// 	RouteOtInit:         otInitErrMsg,
-	// 	RouteOtTransfer:     otTransferErrMsg,
-	// 	RouteOtWriteAll:     otWriteAllErrMsg,
-	// }
 )
 
 type HttpServer struct {
+<<<<<<< HEAD
 <<<<<<< HEAD
 	kvSvc      service.KVService
 	leaseSvc   service.LeaseService
@@ -98,11 +87,13 @@ type HttpServer struct {
 	logger     *slog.Logger
 	rootLogger *slog.Logger // handle to the original logger without "component" -> "http_server" set: passed to the watch.Session instance
 =======
+=======
+	me           peer.Peer
+>>>>>>> 958bbce (add: peerDiscovery for initial peer map, merge PeerService+ClusterService into RaftService)
 	kvSvc        service.KVService
 	leaseSvc     service.LeaseService
 	otSvc        service.OTService
-	clusterSvc   service.ClusterService
-	peerSvc      service.PeerService
+	raftSvc      service.RaftService
 	readLimiter  *rateLimiter
 	writeLimiter *rateLimiter
 	logger       *slog.Logger
@@ -112,19 +103,26 @@ type HttpServer struct {
 
 func NewHTTPServer(
 	logger *slog.Logger,
-	addr string,
+	me peer.Peer,
+	discoveryService peer.DiscoveryService,
 	kvService service.KVService,
 	leaseService service.LeaseService,
 	otService service.OTService,
+<<<<<<< HEAD
 	clusterService service.ClusterService,
 	peerService service.PeerService,
 	hub *watch.WatchHub,
+=======
+	raftService service.RaftService,
+>>>>>>> 958bbce (add: peerDiscovery for initial peer map, merge PeerService+ClusterService into RaftService)
 	reg *prometheus.Registry,
 	readLimitConfig RateLimiterConfig,
 	writeLimitConfig RateLimiterConfig,
 ) *HttpServer {
+	addr := me.GetHttpAdvertisedAddress()
 	mux := http.NewServeMux()
 	s := &HttpServer{
+<<<<<<< HEAD
 		kvSvc:      kvService,
 		leaseSvc:   leaseService,
 		otSvc:      otService,
@@ -133,6 +131,14 @@ func NewHTTPServer(
 		watchHub:   hub,
 		logger:     logger.With("component", "http_server", "addr", addr),
 		rootLogger: logger,
+=======
+		me:       me,
+		kvSvc:    kvService,
+		leaseSvc: leaseService,
+		otSvc:    otService,
+		raftSvc:  raftService,
+		logger:   logger.With("component", "http_server", "addr", addr),
+>>>>>>> 958bbce (add: peerDiscovery for initial peer map, merge PeerService+ClusterService into RaftService)
 		server: &http.Server{
 			Addr:    addr,
 			Handler: mux,
@@ -298,7 +304,7 @@ func (s *HttpServer) handleJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := s.clusterSvc.AddToCluster(r.Context(), req)
+	err := s.raftSvc.AddToCluster(r.Context(), req)
 	if err != nil {
 		s.writeError(w, clusterJoinErrMsg, err, http.StatusInternalServerError)
 		return
@@ -474,18 +480,13 @@ func (s *HttpServer) handleOTWriteAll(w http.ResponseWriter, r *http.Request) {
 
 func (s *HttpServer) handleStats(w http.ResponseWriter, r *http.Request) {
 	s.logger.Debug("Received STATS request")
-	stats, err := s.clusterSvc.Stats()
-	if err != nil {
-		s.writeError(w, statsErrMsg, err, http.StatusInternalServerError)
-		return
-	}
-
+	stats := s.raftSvc.Stats()
 	s.writeJSON(w, stats, http.StatusOK)
 }
 
 func (s *HttpServer) handleLivez(w http.ResponseWriter, r *http.Request) {
 	s.logger.Debug("Received READYZ request")
-	if s.peerSvc.State() == raft.Shutdown {
+	if s.raftSvc.RaftState() == raft.Shutdown {
 		s.writeError(w, livezErrMsg, errRaftShutdown, http.StatusServiceUnavailable)
 		return
 	}
@@ -500,19 +501,19 @@ func (s *HttpServer) handleLivez(w http.ResponseWriter, r *http.Request) {
 
 func (s *HttpServer) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	s.logger.Debug("Received LIVEZ request")
-	if s.peerSvc.State() == raft.Shutdown {
+	if s.raftSvc.RaftState() == raft.Shutdown {
 		s.writeError(w, readyzErrMsg, errRaftShutdown, http.StatusServiceUnavailable)
 		return
 	}
 
-	_, err := s.peerSvc.GetLeader()
+	_, err := s.raftSvc.Leader()
 	if err != nil {
 		msg := readyzErrMsg + ": failed to get leader info"
 		s.writeError(w, msg, err, http.StatusServiceUnavailable)
 		return
 	}
 
-	if err := s.peerSvc.LaggingBehind(); err != nil {
+	if err := s.raftSvc.LaggingBehind(); err != nil {
 		msg := readyzErrMsg + ": raft is lagging behind"
 		s.writeError(w, msg, err, http.StatusServiceUnavailable)
 		return

@@ -12,15 +12,23 @@ ports:
 
 config:
   logLevel: debug
-  storageKind: boltdb
-  storageDataDir: /data
   checkpointIntervalMinutes: 5
-  compactionThreshold: 5
-  compactionIntervalMinutes: 10
-  compactionMaxRevGap: 10
-  otSlotCount: 32
-  otSlotSize: 64
-  otTokenTTL: 60
+  peerDiscoverye:
+    mode: "dns"
+  kv:
+    maxKeySize: 512
+    maxValueSize: 1024
+  storage:
+  key  kind: boltdb
+    dataDir: /data
+  compaction:
+    threshold: 5
+    intervalMinutes: 10
+    maxRevGap: 10
+  ot:
+    slotCount: 32
+    slotSize: 64
+    tokenTTL: 60
 
 storage:
   size: 1Gi

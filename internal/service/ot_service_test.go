@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/balits/kave/internal/command"
-	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/fsm"
 	"github.com/balits/kave/internal/lease"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/ot"
+	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
@@ -33,6 +33,7 @@ type testOTService struct {
 func newTestOTService(t *testing.T) (*testOTService, ot.MockOTClient) {
 	t.Helper()
 	logger := slog.Default()
+	me := peer.TestPeer()
 	reg := metrics.InitTestPrometheus()
 	be := backend.New(reg, storage.StorageOptions{
 		Kind:           storage.StorageKindInMemory,
@@ -45,7 +46,7 @@ func newTestOTService(t *testing.T) (*testOTService, ot.MockOTClient) {
 	om, err := ot.NewOTManager(reg, logger, be, ot.DefaultOptions)
 	require.NoError(t, err)
 
-	f := fsm.New(logger, kvstore, lm, om, "test-ot")
+	f := fsm.New(logger, me, kvstore, lm, om)
 
 	var logIndex atomic.Uint64
 	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {
@@ -78,12 +79,12 @@ func newTestOTService(t *testing.T) (*testOTService, ot.MockOTClient) {
 
 	require.NoError(t, om.InitTokenCodec())
 
-	peerSvc := &MockPeerService{
-		Me_:    testPeer(),
-		Leader: testPeer(),
-		State_: raft.Leader,
+	peerSvc := &MockRaftService{
+		Me_:     me,
+		Leader_: me,
+		State_:  raft.Leader,
 	}
-	svc := NewOTService(logger, kvstore, om, peerSvc, propose)
+	svc := NewOTService(logger, me, kvstore, om, peerSvc, propose)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	t.Cleanup(cancel)
@@ -94,15 +95,6 @@ func newTestOTService(t *testing.T) (*testOTService, ot.MockOTClient) {
 		ctx:       ctx,
 		om:        om,
 	}, ot.MockOTClient{T: t}
-}
-
-func testPeer() config.Peer {
-	return config.Peer{
-		NodeID:   "test-ot",
-		Hostname: "0.0.0.0",
-		HttpPort: "8000",
-		RaftPort: "7000",
-	}
 }
 
 func makeTestBlob(slotCount, slotSize int) []byte {
@@ -293,7 +285,7 @@ func Test_OTService_Init_HeaderContainsNodeID(t *testing.T) {
 	t.Parallel()
 	ts, _ := newTestOTService(t)
 	res := ts.mustInit()
-	require.Equal(t, "test-ot", res.Header.NodeID)
+	require.Equal(t, peer.TestPeer().NodeID, res.Header.NodeID)
 }
 
 func Test_OTService_WriteAll_HeaderHasRaftMeta(t *testing.T) {
@@ -304,5 +296,5 @@ func Test_OTService_WriteAll_HeaderHasRaftMeta(t *testing.T) {
 
 	require.NotZero(t, res.Header.RaftIndex)
 	require.NotZero(t, res.Header.RaftTerm)
-	require.Equal(t, "test-ot", res.Header.NodeID)
+	require.Equal(t, peer.TestPeer().NodeID, res.Header.NodeID)
 }

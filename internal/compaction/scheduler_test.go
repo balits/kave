@@ -14,6 +14,7 @@ import (
 	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
+	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
@@ -35,7 +36,7 @@ func newTestScheduler(t *testing.T, threshold int64, ticker util.Ticker, isLeade
 	store := mvcc.NewKvStore(reg, logger, backend)
 	t.Cleanup(func() { backend.Close() })
 
-	fsm := fsm.New(logger, store, nil, nil, "testnode")
+	fsm := fsm.New(logger, peer.TestPeer(), store, nil, nil)
 	var logIndex atomic.Uint64
 	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {
 		bs, err := command.Encode(cmd)

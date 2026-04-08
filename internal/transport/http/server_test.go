@@ -17,13 +17,13 @@ import (
 	"time"
 
 	"github.com/balits/kave/internal/command"
-	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/fsm"
 	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/lease"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/ot"
+	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/service"
 	"github.com/balits/kave/internal/storage"
@@ -37,34 +37,41 @@ import (
 )
 
 type testServer struct {
-	t          *testing.T
-	srv        *httptest.Server
-	httpServer *HttpServer
-	store      *mvcc.KvStore
-	lm         *lease.LeaseManager
-	peerSvc    *service.MockPeerService
-	om         *ot.OTManager
-	otClient   ot.MockOTClient
+	t           *testing.T
+	srv         *httptest.Server
+	httpServer  *HttpServer
+	store       *mvcc.KvStore
+	lm          *lease.LeaseManager
+	raftService *service.MockRaftService
+	om          *ot.OTManager
+	otClient    ot.MockOTClient
+}
+
+type mockDiscoveryService struct {
+	me peer.Peer
+}
+
+func (m *mockDiscoveryService) Me() peer.Peer { return m.me }
+func (m *mockDiscoveryService) GetPeers(context.Context) ([]peer.Peer, error) {
+	return make([]peer.Peer, 0), nil
 }
 
 func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 	t.Helper()
-	me := config.Peer{
-		NodeID:   "test",
-		Hostname: "0.0.0.0",
-		HttpPort: "8000",
-		RaftPort: "7000",
-	}
+	me := peer.TestPeer()
 	state := raft.Leader
 	if !isLeaderValue {
 		state = raft.Follower
 	}
-	peerSvc := &service.MockPeerService{
-		Me_:    me,
-		Leader: me,
-		State_: state,
+	raftService := &service.MockRaftService{
+		Me_:     me,
+		Leader_: me,
+		State_:  state,
 	}
-
+	kvOpts := kv.Options{
+		MaxKeySize:   256,
+		MaxValueSize: 2048,
+	}
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}))
@@ -79,7 +86,7 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 	om, err := ot.NewOTManager(reg, logger, backend, ot.DefaultOptions)
 	require.NoError(t, err)
 	t.Cleanup(func() { backend.Close() })
-	fsm := fsm.New(logger, kvstore, lm, om, me.NodeID)
+	fsm := fsm.New(logger, me, kvstore, lm, om)
 
 	var logIndex atomic.Uint64
 	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {
@@ -110,30 +117,26 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 
 	require.NoError(t, om.InitTokenCodec())
 
-	kvSvc := service.NewKVService(logger, kvstore, peerSvc, propose)
+	discoverySvc := &mockDiscoveryService{me}
+	kvSvc := service.NewKVService(logger, me, kvstore, raftService, kvOpts, propose)
 	leaseSvc := service.NewLeaseService(logger, propose)
 	otService := service.NewOTService(logger, kvstore, om, peerSvc, propose)
 	clusterSvc := &service.MockClusterService{}
-<<<<<<< HEAD
-
-	httpServer := NewHTTPServer(logger, me.GetHttpListenAddress(), kvSvc, leaseSvc, otService, clusterSvc, peerSvc, hub, reg)
-=======
 	rateLimiterConfig := NewRateLimiterConfig(1000, 200) // set to a gorbillion so tests can run in parallel
 	httpServer := NewHTTPServer(logger, me.GetHttpListenAddress(), kvSvc, leaseSvc, otService, clusterSvc, peerSvc, reg, rateLimiterConfig, rateLimiterConfig)
->>>>>>> 8081303 (add(testing): parallelize testing to speed up CI)
 
 	ts := httptest.NewServer(httpServer.server.Handler)
 	t.Cleanup(ts.Close)
 
 	return &testServer{
-		t:          t,
-		srv:        ts,
-		httpServer: httpServer,
-		store:      kvstore,
-		lm:         lm,
-		peerSvc:    peerSvc,
-		otClient:   ot.MockOTClient{T: t},
-		om:         om,
+		t:           t,
+		srv:         ts,
+		httpServer:  httpServer,
+		store:       kvstore,
+		lm:          lm,
+		raftService: raftService,
+		otClient:    ot.MockOTClient{T: t},
+		om:          om,
 	}
 }
 
@@ -171,8 +174,8 @@ func (ts *testServer) overrideLeader(leader *httptest.Server) {
 	url, err := url.Parse(leader.URL)
 	require.NoError(ts.t, err)
 
-	ts.peerSvc.State_ = raft.Follower
-	ts.peerSvc.Leader = config.Peer{
+	ts.raftService.State_ = raft.Follower
+	ts.raftService.Leader_ = peer.Peer{
 		NodeID:   url.Host,
 		Hostname: url.Hostname(),
 		HttpPort: url.Port(),
@@ -644,7 +647,7 @@ func Test_Livez_OK(t *testing.T) {
 func Test_Livez_RaftShutdown_Returns503(t *testing.T) {
 	t.Parallel()
 	ts := newTestServer(t, true)
-	ts.peerSvc.State_ = raft.Shutdown
+	ts.raftService.State_ = raft.Shutdown
 	resp := ts.do(http.MethodGet, "/livez", nil)
 	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 }
@@ -659,7 +662,7 @@ func Test_Readyz_OK(t *testing.T) {
 func Test_Readyz_NoLeader_Returns503(t *testing.T) {
 	t.Parallel()
 	ts := newTestServer(t, true)
-	ts.peerSvc.ErrLeader = fmt.Errorf("election in progress")
+	ts.raftService.ErrLeader = fmt.Errorf("election in progress")
 	resp := ts.do(http.MethodGet, "/readyz", nil)
 	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 }
@@ -667,7 +670,7 @@ func Test_Readyz_NoLeader_Returns503(t *testing.T) {
 func Test_Readyz_Lagging_Returns503(t *testing.T) {
 	t.Parallel()
 	ts := newTestServer(t, true)
-	ts.peerSvc.ErrLag = fmt.Errorf("15 entries behind")
+	ts.raftService.ErrLag = fmt.Errorf("15 entries behind")
 	resp := ts.do(http.MethodGet, "/readyz", nil)
 	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 }
@@ -903,8 +906,8 @@ func Test_OTInit_ServedLocally_NoLeaderMiddleware(t *testing.T) {
 	// Init is NOT behind leaderMiddleware, so even a follower with no leader
 	// should serve it locally (not return 503)
 	ts := newTestServer(t, true)
-	ts.peerSvc.ErrLeader = fmt.Errorf("no quorum")
-	ts.peerSvc.State_ = raft.Follower
+	ts.raftService.ErrLeader = fmt.Errorf("no quorum")
+	ts.raftService.State_ = raft.Follower
 
 	resp := ts.do(http.MethodGet, RouteOtInit, api.OTInitRequest{})
 	require.Equal(t, http.StatusOK, resp.StatusCode,
@@ -919,8 +922,8 @@ func Test_OTTransfer_SerializableRead_ServedLocally_NoLeaderMiddleware(t *testin
 	ts.do(http.MethodPost, RouteOtWriteAll,
 		api.OTWriteAllRequest{Blob: blob})
 
-	ts.peerSvc.ErrLeader = fmt.Errorf("election in progress")
-	ts.peerSvc.State_ = raft.Follower
+	ts.raftService.ErrLeader = fmt.Errorf("election in progress")
+	ts.raftService.State_ = raft.Follower
 
 	initResp := ts.do(http.MethodGet, RouteOtInit, api.OTInitRequest{})
 	var initRes api.OTInitResponse
@@ -936,7 +939,7 @@ func Test_OTTransfer_SerializableRead_ServedLocally_NoLeaderMiddleware(t *testin
 func Test_OTWriteAll_RequiresLeader(t *testing.T) {
 	t.Parallel()
 	ts := newTestServer(t, true)
-	ts.peerSvc.ErrLeader = fmt.Errorf("no quorum")
+	ts.raftService.ErrLeader = fmt.Errorf("no quorum")
 
 	blob := ot.FakeBlob(t, ts.om)
 	resp := ts.do(http.MethodPost, RouteOtWriteAll,

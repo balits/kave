@@ -12,6 +12,7 @@ import (
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/ot"
+	"github.com/balits/kave/internal/peer"
 	"github.com/hashicorp/raft"
 )
 
@@ -22,7 +23,7 @@ var (
 )
 
 type Fsm struct {
-	myID           string // hack to set Result.Header.NodeID
+	me             peer.Peer
 	store          *mvcc.KvStore
 	engine         *mvcc.Engine
 	lm             *lease.LeaseManager
@@ -32,14 +33,14 @@ type Fsm struct {
 	logger         *slog.Logger
 }
 
-func NewWithEngine(logger *slog.Logger, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager, engine *mvcc.Engine, nodeID string) *Fsm {
+func New(logger *slog.Logger, me peer.Peer, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager) *Fsm {
 	f := &Fsm{
-		engine: engine,
+		me:     me,
+		engine: mvcc.NewEngine(store, lm),
 		lm:     lm,
 		store:  store,
 		om:     om,
 		logger: logger.With("component", "fsm"),
-		myID:   nodeID,
 	}
 	return f
 }
@@ -99,7 +100,7 @@ func (f *Fsm) Apply(log *raft.Log) interface{} {
 	// set fields that apply could touch
 	res.Header.RaftTerm = log.Term
 	res.Header.RaftIndex = log.Index
-	res.Header.NodeID = f.myID
+	res.Header.NodeID = f.me.NodeID
 
 	if res.Error == nil {
 		for _, o := range f.writeObservers {
