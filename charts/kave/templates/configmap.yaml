@@ -7,10 +7,10 @@ metadata:
 data:
   clusterConfig.json: |
     {
-      "log_level": {{  .Values.config.logLevel | quote }},
+      "log_level": {{  .Values.config.logLeve }},
       "checkpoint_interval_minutes": {{  .Values.config.checkpointIntervalMinutes }},
       "peer_discovery": {
-        "mode": {{ .Values.config.peerDiscovery.mode | quote }},
+        "mode": {{ .Values.config.peerDiscovery.mode }},
         "expected_count": {{ .Values.voters.replicas }}
       },
       "kv": {
@@ -18,8 +18,8 @@ data:
         "kv_max_value_size": {{ .Values.config.kv.maxValueSize }}
       },
       "storage": {
-          "storage_kind": {{  .Values.config.storage.kind | quote }},
-          "storage_data_dir": {{  .Values.config.storage.dataDir | quote }}
+          "storage_kind": {{  .Values.config.storage.kind }},
+          "storage_data_dir": {{  .Values.config.storage.dataDir }}
       },
       "compaction": {
         "compaction_threshold": {{  .Values.config.compaction.threshold }},
