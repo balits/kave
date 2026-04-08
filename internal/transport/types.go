@@ -1,5 +1,7 @@
 package transport
 
+import "github.com/balits/kave/internal/peer"
+
 const (
 	ApiVersion   = "/v1"
 	RouteKv      = ApiVersion + "/kv"
@@ -9,6 +11,5 @@ const (
 )
 
 type JoinRequest struct {
-	NodeID   string `json:"node_id"`
-	RaftAddr string `json:"raft_addr"`
+	Peer peer.Peer `json:"peer"`
 }

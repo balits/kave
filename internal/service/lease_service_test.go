@@ -13,6 +13,7 @@ import (
 	"github.com/balits/kave/internal/lease"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
+	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
@@ -38,7 +39,7 @@ func newTestLeaseService(t *testing.T) *testLeaseService {
 	kvstore := mvcc.NewKvStore(reg, logger, backend)
 	t.Cleanup(func() { backend.Close() })
 	lm := lease.NewManager(reg, logger, kvstore, backend)
-	fsm := fsm.New(logger, kvstore, lm, nil, "test")
+	fsm := fsm.New(logger, peer.TestPeer(), kvstore, lm, nil)
 
 	var logIndex atomic.Uint64
 	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {

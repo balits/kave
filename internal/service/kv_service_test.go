@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/balits/kave/internal/command"
-	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/fsm"
 	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/lease"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
+	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
@@ -33,9 +33,7 @@ type testKVService struct {
 
 func newTestKVService(t *testing.T) *testKVService {
 	t.Helper()
-	me := config.Peer{
-		NodeID: "test",
-	}
+	me := peer.TestPeer()
 	logger := slog.Default()
 	reg := metrics.InitTestPrometheus()
 	backend := backend.New(reg, storage.StorageOptions{
@@ -45,7 +43,7 @@ func newTestKVService(t *testing.T) *testKVService {
 	kvstore := mvcc.NewKvStore(reg, logger, backend)
 	lm := lease.NewManager(reg, logger, kvstore, backend)
 	t.Cleanup(func() { backend.Close() })
-	fsm := fsm.New(logger, kvstore, lm, nil, me.NodeID)
+	fsm := fsm.New(logger, me, kvstore, lm, nil)
 
 	var logIndex atomic.Uint64
 	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {
@@ -67,12 +65,16 @@ func newTestKVService(t *testing.T) *testKVService {
 		return &result, nil
 	}
 
-	peersvc := &MockPeerService{
-		Me_:    testPeer(),
-		Leader: testPeer(),
-		State_: raft.Leader,
+	raftSvc := &MockRaftService{
+		Me_:     me,
+		Leader_: me,
+		State_:  raft.Leader,
 	}
-	svc := NewKVService(logger, kvstore, peersvc, propose)
+	kvOpts := kv.Options{
+		MaxKeySize:   256,
+		MaxValueSize: 2048,
+	}
+	svc := NewKVService(logger, me, kvstore, raftSvc, kvOpts, propose)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	t.Cleanup(cancel)
 
@@ -217,18 +219,55 @@ func Test_KVService_Put_RevisionMonotonicallyIncreases(t *testing.T) {
 	}
 }
 
-func Test_KVService_Put_LargeValue(t *testing.T) {
-	ts := newTestKVService(t)
+func Test_KVService_Put_LargeKey(t *testing.T) {
+	ts := newTestKVService(t) // opts.MaxKeySize is something normal like 256
 
-	largeVal := make([]byte, 64*1024) // 64KB
+	largeSize := 2 * 1024 // 2KB
+	largeKey := make([]byte, largeSize)
+	for i := range largeKey {
+		largeKey[i] = byte(i % 256)
+	}
+	req := command.CmdPut{
+		Key:   largeKey,
+		Value: []byte("bar"),
+	}
+
+	result, err := ts.Put(ts.ctx, req)
+	require.Error(t, err, "expected value sizes to be under the max value size, therefore an error")
+	require.Nil(t, result)
+
+	ts.KVService.(*kvSvc).opts.MaxKeySize = largeSize + 1
+	result, err = ts.Put(ts.ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	rangeResult := ts.mustRange(command.CmdRange{Key: largeKey})
+	require.Len(t, rangeResult.Entries, 1)
+	require.Equal(t, []byte("bar"), rangeResult.Entries[0].Value)
+}
+
+
+func Test_KVService_Put_LargeValue(t *testing.T) {
+	ts := newTestKVService(t) // opts.MaxValueSize is something normal like 2KB
+
+	largeSize := 64 * 1024 // 64KB
+	largeVal := make([]byte, largeSize)
 	for i := range largeVal {
 		largeVal[i] = byte(i % 256)
 	}
-
-	result, err := ts.Put(ts.ctx, command.CmdPut{
+	req := command.CmdPut{
 		Key:   []byte("bigkey"),
 		Value: largeVal,
-	})
+	}
+
+	result, err := ts.Put(ts.ctx, req)
+	require.Error(t, err, "expected value sizes to be under the max value size, therefore an error")
+	require.Nil(t, result)
+
+	ts.KVService.(*kvSvc).opts.MaxValueSize = largeSize + 1
+	result, err = ts.Put(ts.ctx, req)
+
 	require.NoError(t, err)
 	require.NotNil(t, result)
 

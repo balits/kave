@@ -9,6 +9,7 @@ import (
 	"github.com/balits/kave/internal/fsm"
 	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/mvcc"
+	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/types/api"
 	"github.com/balits/kave/internal/util"
 )
@@ -23,17 +24,21 @@ type KVService interface {
 }
 
 type kvSvc struct {
+	me      peer.Peer
+	opts    kv.Options
 	store   mvcc.ReadOnlyStore
 	propose util.ProposeFunc
-	peerSvc PeerService
+	raftSvc RaftService
 	logger  *slog.Logger
 }
 
-func NewKVService(logger *slog.Logger, store mvcc.ReadOnlyStore, peerSvc PeerService, proposeFunc util.ProposeFunc) KVService {
+func NewKVService(logger *slog.Logger, me peer.Peer, store mvcc.ReadOnlyStore, peerSvc RaftService, opts kv.Options, proposeFunc util.ProposeFunc) KVService {
 	return &kvSvc{
+		me:      me,
+		opts:    opts,
 		store:   store,
 		propose: proposeFunc,
-		peerSvc: peerSvc,
+		raftSvc: peerSvc,
 		logger:  logger.With("component", "kv_service"),
 	}
 }
@@ -55,7 +60,7 @@ func (s *kvSvc) Range(ctx context.Context, req api.RangeRequest) (*api.RangeResp
 	}
 
 	if !req.Serializable {
-		if err := s.peerSvc.VerifyLeader(ctx); err != nil {
+		if err := s.raftSvc.VerifyLeader(ctx); err != nil {
 			return nil, fmt.Errorf("range failed: failed to verify leader: %v", err)
 		}
 	}
@@ -83,12 +88,13 @@ func (s *kvSvc) Range(ctx context.Context, req api.RangeRequest) (*api.RangeResp
 		Revision:  currRev.Main,
 		RaftTerm:  raftTerm,
 		RaftIndex: raftIndex,
-		NodeID:    s.peerSvc.Me().NodeID,
+		NodeID:    s.me.NodeID,
 	}
 	return res, nil
 }
 
 func (s *kvSvc) Put(ctx context.Context, req api.PutRequest) (*api.PutResponse, error) {
+	// TODO: how to debug key, value if they can be kilobytes big?
 	s.logger.WithGroup("request").
 		Info("Put request received",
 			"key", req.Key,
@@ -100,6 +106,14 @@ func (s *kvSvc) Put(ctx context.Context, req api.PutRequest) (*api.PutResponse, 
 		)
 
 	if err := req.Check(); err != nil {
+		return nil, fmt.Errorf("put failed: malformed request: %w", err)
+	}
+
+	if err := s.opts.CheckKey(req.Key); err != nil {
+		return nil, fmt.Errorf("put failed: malformed request: %w", err)
+	}
+
+	if err := s.opts.CheckValue(req.Value); err != nil {
 		return nil, fmt.Errorf("put failed: malformed request: %w", err)
 	}
 

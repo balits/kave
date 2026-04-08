@@ -7,14 +7,28 @@ metadata:
 data:
   clusterConfig.json: |
     {
-        "log_level": {{  .Values.config.logLevel | quote }},
-        "checkpoint_interval_minutes": {{  .Values.config.checkpointIntervalMinutes }},
-        "storage_kind": {{  .Values.config.storageKind | quote }},
-        "storage_data_dir": {{  .Values.config.storageDataDir | quote }},
-        "compaction_threshold": {{  .Values.config.compactionThreshold }},
-        "compaction_interval_minutes": {{  .Values.config.compactionIntervalMinutes }},
-        "compaction_max_rev_gap": {{  .Values.config.compactionMaxRevGap }},
-        "ot_slot_count": {{ .Values.config.otSlotCount }},
-        "ot_slot_size": {{  .Values.config.otSlotSize }},
-        "ot_token_ttl": {{  .Values.config.otTokenTTL }}
+      "log_level": {{  .Values.config.logLevel | quote }},
+      "checkpoint_interval_minutes": {{  .Values.config.checkpointIntervalMinutes }},
+      "peer_discovery": {
+        "mode": {{ .Values.config.peerDiscovery.mode | quote }},
+        "expected_count": {{ .Values.voters.replicas }}
+      },
+      "kv": {
+        "kv_max_key_size": {{ .Values.config.kv.maxKeySize }},
+        "kv_max_value_size": {{ .Values.config.kv.maxValueSize }}
+      },
+      "storage": {
+          "storage_kind": {{  .Values.config.storage.kind | quote }},
+          "storage_data_dir": {{  .Values.config.storage.dataDir | quote }}
+      },
+      "compaction": {
+        "compaction_threshold": {{  .Values.config.compaction.threshold }},
+        "compaction_interval_minutes": {{  .Values.config.compaction.intervalMinutes }},
+        "compaction_max_rev_gap": {{  .Values.config.compaction.maxRevGap }}
+      },
+      "ot": {
+        "ot_slot_count": {{ .Values.config.ot.slotCount }},
+        "ot_slot_size": {{  .Values.config.ot.slotSize }},
+        "ot_token_ttl": {{  .Values.config.ot.tokenTTL }}
+      }
     }
