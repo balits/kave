@@ -31,7 +31,7 @@ config:
     tokenTTL: 60
 
 storage:
-  size: 1Gi
+  size: 10Gi
   storageClassName: "" # todo: might need to change on different platform
 
 healthcheck:
