@@ -100,8 +100,8 @@ jobs:
           mkdir -p ~/.kube
           echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > ~/.kube/config
           chmod 600 ~/.kube/config
-      
-      - name: Helm upgrade
+
+      - name: Recreate StatefulSet only if spec changed
         run: |
           helm upgrade kave ./charts/kave \
             --install \
@@ -109,7 +109,15 @@ jobs:
             --create-namespace \
             --set image.tag=${{ needs.build.outputs.image_tag }} \
             --wait \
-            --timeout 5m
+            --timeout 5m \
+          || (kubectl delete statefulset kave-voter --namespace kave --ignore-not-found \
+              && helm upgrade kave ./charts/kave \
+                --install \
+                --namespace kave \
+                --create-namespace \
+                --set image.tag=${{ needs.build.outputs.image_tag }} \
+                --wait \
+                --timeout 5m)
 
       - name: Verify deployment
         run: |
