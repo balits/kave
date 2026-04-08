@@ -11,7 +11,7 @@ ports:
   http: 8000
 
 config:
-  logLevel: debug
+  logLevel: "debug"
   checkpointIntervalMinutes: 5
   peerDiscoverye:
     mode: "dns"
@@ -19,8 +19,8 @@ config:
     maxKeySize: 512
     maxValueSize: 1024
   storage:
-  key  kind: boltdb
-    dataDir: /data
+    kind: "boltdb"
+    dataDir: "/data"
   compaction:
     threshold: 5
     intervalMinutes: 10
