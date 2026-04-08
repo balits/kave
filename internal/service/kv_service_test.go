@@ -247,7 +247,6 @@ func Test_KVService_Put_LargeKey(t *testing.T) {
 	require.Equal(t, []byte("bar"), rangeResult.Entries[0].Value)
 }
 
-
 func Test_KVService_Put_LargeValue(t *testing.T) {
 	ts := newTestKVService(t) // opts.MaxValueSize is something normal like 2KB
 
