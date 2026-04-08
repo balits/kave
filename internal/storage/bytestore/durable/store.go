@@ -47,7 +47,7 @@ func NewStore(opts storage.StorageOptions) (bytestore.ByteStore, error) {
 	bucketMap := make(map[storage.Bucket][]byte, len(opts.InitialBuckets))
 	for _, bucket := range opts.InitialBuckets {
 		_, err := tx.CreateBucket([]byte(bucket))
-		if !errors.Is(err, bolterrors.ErrBucketExists) {
+		if err != nil && !errors.Is(err, bolterrors.ErrBucketExists) {
 			return nil, fmt.Errorf("failed to create boltdb store: %v", err)
 		}
 		bucketMap[bucket] = []byte(bucket)
