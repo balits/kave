@@ -4,9 +4,10 @@ kind: Middleware
 metadata:
     name: kave-ratelimiter
 spec:
+    # todo:   
     ratelimit:
-        average: 100
-        burst: 50
+        average: 200
+        burst: 100
 ---
 apiVersion: traefik.io/v1alpha1
 kind: Middleware

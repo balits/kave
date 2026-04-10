@@ -115,7 +115,7 @@ func NewLeaseMetrics(reg prometheus.Registerer, activeLeasesFunc func() int) *Le
 			Subsystem: "lease",
 			Name:      "restore_latency_seconds",
 			Help:      "Latency of Restoring the LeaseManager.",
-			Buckets:   []float64{0.005, .010, .025, .05, .1, .25, .5, 1, 2, 5}, // TODO buckets
+			Buckets:   []float64{0.005, .010, .025, .05, .1, .25, .5, 1, 2, 5},
 		}),
 
 		LeaseTTLAtExpirySec: factory.NewHistogram(prometheus.HistogramOpts{

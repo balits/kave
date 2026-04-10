@@ -93,8 +93,6 @@ func NewOTManager(reg prometheus.Registerer, logger *slog.Logger, backend backen
 	}, nil
 }
 
-// TODO: figure out the bootstrap/join sequence
-//
 // InitTokenCodec initializes the token codec, setting its key to the cluster key stored in the backend
 // and its maxTTL to the provided ttl (in seconds).
 //

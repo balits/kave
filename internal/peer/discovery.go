@@ -2,14 +2,13 @@ package peer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sort"
 	"strings"
 	"time"
 )
-
-const k8sHeadlessServiceName = "kave-headless.default.svc.cluster.local"
 
 type DiscoveryMode string
 
@@ -44,14 +43,18 @@ type DiscoveryService interface {
 	Me() Peer
 }
 
-func NewDiscoveryService(me Peer, opts DiscoveryOptions) (d DiscoveryService, err error) {
+func NewDiscoveryService(me Peer, namespace string, opts DiscoveryOptions) (d DiscoveryService, err error) {
 	switch opts.Mode {
 	case DiscoveryModeStatic:
 		d, err = newStaticDiscovery(me, opts.Peers)
 	case DiscoveryModeDynamic:
-		d = newDynamicDiscovery(me, opts.ExpectedCount)
+		d, err = newDynamicDiscovery(me, namespace, me.HttpPort, opts.ExpectedCount)
 	default:
-		return nil, fmt.Errorf("unexpected discovery mode: %s", opts.Mode)
+		err = fmt.Errorf("unexpected discovery mode: %s (expected %s or %s)", opts.Mode, DiscoveryModeStatic, DiscoveryModeDynamic)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("discoverService: %w", err)
 	}
 
 	return d, err
@@ -140,7 +143,6 @@ type dnsDiscovery struct {
 	HttpPort string
 
 	// ExpectedCount is how many peers to wait for before proceeding.
-	// TODO: set somehow through values.yaml.
 	ExpectedCount int
 
 	// PollInterval controls how often we retry the DNS lookup while waiting
@@ -148,14 +150,25 @@ type dnsDiscovery struct {
 	PollInterval time.Duration
 }
 
-func newDynamicDiscovery(me Peer, expectedCount int) *dnsDiscovery {
+func newDynamicDiscovery(me Peer, namespace string, httpPort string, expectedCount int) (*dnsDiscovery, error) {
+	if expectedCount < 1 {
+		return nil, errors.New("expected_count cannot be negative")
+	}
+
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	k8sHeadlessServiceName := fmt.Sprintf("kave-headless.%s.svc.cluster.local", namespace)
+
 	return &dnsDiscovery{
 		me:            me,
 		ServiceName:   k8sHeadlessServiceName,
 		RaftPortName:  "raft",
 		ExpectedCount: expectedCount,
 		PollInterval:  time.Millisecond * 210,
-	}
+		HttpPort:      httpPort,
+	}, nil
 }
 
 func (d *dnsDiscovery) GetPeers(ctx context.Context) ([]Peer, error) {

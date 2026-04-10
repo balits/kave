@@ -6,8 +6,6 @@ import (
 )
 
 type KVMetrics struct {
-	// TODO: somehow we need keep track of keys, but we cannot do it easily
-	// cuz we batch writes deep inside the storage layer, maybe use observers ???
 	KeyCount      prometheus.Gauge
 	LeaseCount    prometheus.Gauge
 	WatchersCount prometheus.Gauge
@@ -27,8 +25,8 @@ type KVMetrics struct {
 	PutsTotal    prometheus.Counter
 	DeletesTotal prometheus.Counter
 
-	TxnsTotal        prometheus.Counter // count of committed transactions
-	CompactionsTotal prometheus.Counter // count of compactions
+	CommitedWritesTotal prometheus.Counter // count of committed transactions
+	CompactionsTotal    prometheus.Counter // count of compactions
 
 	ReadDurationSec prometheus.Histogram
 	// PutDurationSec    prometheus.Histogram
@@ -119,11 +117,11 @@ func NewKVMetrics(
 			Name:      "reads_total",
 			Help:      "Total Read operations.",
 		}),
-		TxnsTotal: factory.NewCounter(prometheus.CounterOpts{
+		CommitedWritesTotal: factory.NewCounter(prometheus.CounterOpts{
 			Namespace: "kave",
 			Subsystem: "kv",
-			Name:      "txns_total",
-			Help:      "Total TXN operations.",
+			Name:      "commited_writes_total",
+			Help:      "Total commited writes operations (put | del | txn).",
 		}),
 		CompactionsTotal: factory.NewCounter(prometheus.CounterOpts{
 			Namespace: "kave",

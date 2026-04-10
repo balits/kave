@@ -150,27 +150,27 @@ func NewHTTPServer(
 	s.readLimiter = newRateLimiter(writeLimitConfig)
 
 	// kv
-	mux.HandleFunc("GET "+RouteKvRange, s.readMiddleware(s.handleKvRange)) // optional leader if we want the latest data
-	mux.HandleFunc("POST "+RouteKvPut, s.writeMiddleware(s.handleKvPut))
-	mux.HandleFunc("DELETE "+RouteKvDelete, s.writeMiddleware(s.handleKvDelete))
-	mux.HandleFunc("POST "+RouteKvTxn, s.writeMiddleware(s.handleKvTxn))
+	mux.HandleFunc("GET "+RouteKvRange, s.readChain(s.handleKvRange)) // optional leader if we want the latest data
+	mux.HandleFunc("POST "+RouteKvPut, s.writeChain(s.handleKvPut))
+	mux.HandleFunc("DELETE "+RouteKvDelete, s.writeChain(s.handleKvDelete))
+	mux.HandleFunc("POST "+RouteKvTxn, s.writeChain(s.handleKvTxn))
 
 	// lease
-	mux.HandleFunc("POST "+RouteLeaseGrant, s.writeMiddleware(s.handleLeaseGrant))
-	mux.HandleFunc("DELETE "+RouteLeaseRevoke, s.writeMiddleware(s.handleLeaseRevoke))
-	mux.HandleFunc("POST "+RouteLeaseKeepAlive, s.writeMiddleware(s.handleLeaseKeepAlive))
-	mux.HandleFunc("GET "+RouteLeaseLookup, s.readMiddleware(s.handleLeaseLookup)) // optional leader if we want the most "up to date" data regarding a lease's ttl
+	mux.HandleFunc("POST "+RouteLeaseGrant, s.writeChain(s.handleLeaseGrant))
+	mux.HandleFunc("DELETE "+RouteLeaseRevoke, s.writeChain(s.handleLeaseRevoke))
+	mux.HandleFunc("POST "+RouteLeaseKeepAlive, s.writeChain(s.handleLeaseKeepAlive))
+	mux.HandleFunc("GET "+RouteLeaseLookup, s.readChain(s.handleLeaseLookup)) // optional leader if we want the most "up to date" data regarding a lease's ttl
 
 	// ot
-	mux.HandleFunc("GET "+RouteOtInit, s.handleOTInit)                             // Init does not read anything from the backend, no middleware need
-	mux.HandleFunc("GET "+RouteOtTransfer, s.readMiddleware(s.handleOTTransfer))   // optional leader if we want the latest data
-	mux.HandleFunc("POST "+RouteOtWriteAll, s.writeMiddleware(s.handleOTWriteAll)) // write must go through raft
+	mux.HandleFunc("GET "+RouteOtInit, s.handleOTInit)                        // Init does not read anything from the backend, no middleware need
+	mux.HandleFunc("GET "+RouteOtTransfer, s.readChain(s.handleOTTransfer))   // optional leader if we want the latest data
+	mux.HandleFunc("POST "+RouteOtWriteAll, s.writeChain(s.handleOTWriteAll)) // write must go through raft
 
 	// watch
 	mux.HandleFunc("GET "+RouteWatchWS, s.handleWatch)
 
 	// cluster
-	mux.HandleFunc("POST "+RouteClusterJoin, s.writeMiddleware(s.handleJoin))
+	mux.HandleFunc("POST "+RouteClusterJoin, s.writeChain(s.handleJoin))
 
 	// health / debug
 	mux.HandleFunc("GET "+RouteStats, s.handleStats)                                  // stats
@@ -201,8 +201,6 @@ func (s *HttpServer) Shutdown(ctx context.Context) error {
 }
 
 func (s *HttpServer) handleKvRange(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("received KV_GET request")
-
 	var req api.RangeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, jsonDecodeErrMsg, err, http.StatusBadRequest)
@@ -225,8 +223,6 @@ func (s *HttpServer) handleKvRange(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HttpServer) handleKvPut(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("received KV_PUT request")
-
 	var req api.PutRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, jsonDecodeErrMsg, err, http.StatusBadRequest)
@@ -248,8 +244,6 @@ func (s *HttpServer) handleKvPut(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HttpServer) handleKvDelete(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("received KV_DELETE request")
-
 	var req api.DeleteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, jsonDecodeErrMsg, err, http.StatusBadRequest)
@@ -272,8 +266,6 @@ func (s *HttpServer) handleKvDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HttpServer) handleKvTxn(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("received KV_TXN request")
-
 	var req api.TxnRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, jsonDecodeErrMsg, err, http.StatusBadRequest)
@@ -296,8 +288,6 @@ func (s *HttpServer) handleKvTxn(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HttpServer) handleJoin(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("Received CLUSTER_JOIN request")
-
 	var req transport.JoinRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, jsonDecodeErrMsg, err, http.StatusBadRequest)
@@ -316,8 +306,6 @@ func (s *HttpServer) handleJoin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HttpServer) handleLeaseGrant(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("received LEASE_GRANT request")
-
 	var req api.LeaseGrantRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, jsonDecodeErrMsg, err, http.StatusBadRequest)
@@ -338,8 +326,6 @@ func (s *HttpServer) handleLeaseGrant(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, response, status)
 }
 func (s *HttpServer) handleLeaseRevoke(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("received LEASE_REVOKE request")
-
 	var req api.LeaseRevokeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, jsonDecodeErrMsg, err, http.StatusBadRequest)
@@ -361,8 +347,6 @@ func (s *HttpServer) handleLeaseRevoke(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HttpServer) handleLeaseKeepAlive(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("received LEASE_KEEP_ALIVE request")
-
 	var req api.LeaseKeepAliveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, jsonDecodeErrMsg, err, http.StatusBadRequest)
@@ -384,8 +368,6 @@ func (s *HttpServer) handleLeaseKeepAlive(w http.ResponseWriter, r *http.Request
 }
 
 func (s *HttpServer) handleLeaseLookup(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("received LEASE_LOOKUP request")
-
 	var req api.LeaseLookupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, jsonDecodeErrMsg, err, http.StatusBadRequest)
@@ -407,8 +389,6 @@ func (s *HttpServer) handleLeaseLookup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HttpServer) handleOTInit(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("Recieved OT_INIT request")
-
 	// req is empty by desing as of yet, still
 	// an empty body is the valid one,
 	// we dont want to get sent random json
@@ -433,8 +413,6 @@ func (s *HttpServer) handleOTInit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HttpServer) handleOTTransfer(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("Recieved OT_TRANSFER request")
-
 	var req api.OTTransferRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, jsonDecodeErrMsg, err, http.StatusBadRequest)
@@ -456,8 +434,6 @@ func (s *HttpServer) handleOTTransfer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HttpServer) handleOTWriteAll(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("Recieved OT_WRITE_ALL request")
-
 	var req api.OTWriteAllRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, jsonDecodeErrMsg, err, http.StatusBadRequest)
@@ -479,13 +455,11 @@ func (s *HttpServer) handleOTWriteAll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HttpServer) handleStats(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("Received STATS request")
 	stats := s.raftSvc.Stats()
 	s.writeJSON(w, stats, http.StatusOK)
 }
 
 func (s *HttpServer) handleLivez(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("Received READYZ request")
 	if s.raftSvc.RaftState() == raft.Shutdown {
 		s.writeError(w, livezErrMsg, errRaftShutdown, http.StatusServiceUnavailable)
 		return
@@ -500,7 +474,6 @@ func (s *HttpServer) handleLivez(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HttpServer) handleReadyz(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("Received LIVEZ request")
 	if s.raftSvc.RaftState() == raft.Shutdown {
 		s.writeError(w, readyzErrMsg, errRaftShutdown, http.StatusServiceUnavailable)
 		return
@@ -586,4 +559,34 @@ func (s *HttpServer) writeError(w http.ResponseWriter, msg string, err error, st
 	if _, err := w.Write(bytes); err != nil {
 		s.logger.Error("Failed to write error response", "error", err)
 	}
+}
+
+// readLimitMiddleware is a wrapper around the internal read rate limiters in the [HttpServer]
+// that fits the type definition of [middleware] functions.
+func (s *HttpServer) readLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		l := s.readLimiter.Limiter(r.URL.Path)
+
+		if !l.Allow() {
+			s.writeError(w, "read limit exceeded", errMsgRateLimiter, http.StatusTooManyRequests)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// writeMiddleware is a wrapper around the internal write rate limiters in the [HttpServer]
+// that fits the type definition of [middleware] functions.
+func (s *HttpServer) writeLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		l := s.writeLimiter.Limiter(r.URL.Path)
+
+		if !l.Allow() {
+			s.writeError(w, "write limit exceeded", errMsgRateLimiter, http.StatusTooManyRequests)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }

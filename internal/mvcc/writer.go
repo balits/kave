@@ -15,9 +15,6 @@ type Writer interface {
 	// but the write transaction does not end at reading, so callers should still call w.End() or w.Abort().
 	Reader
 
-	// StartRev returns the writers start revision,
-	// and it gets updated when the writer commits a transaction.
-
 	// Put writes a key-value pair with the given lease ID.
 	// The caller should call End() to commit the transaction and update the store's current revision.
 	Put(key, value []byte, leaseID int64) error
@@ -265,7 +262,7 @@ func (w *writer) End() error {
 		w.store.logger.Error(msg, "error", err)
 		return fmt.Errorf("%s: %w", msg, err)
 	} else {
-		w.store.metrics.TxnsTotal.Add(1) // TODO: count failed txns?
+		w.store.metrics.CommitedWritesTotal.Add(1)
 		w.store.metrics.TxnDurationSec.Observe(time.Since(w.startTime).Seconds())
 		w.store.metrics.PutsTotal.Add(float64(info.NewKeys))
 		w.store.metrics.DeletesTotal.Add(float64(info.DeletedKeys))

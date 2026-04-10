@@ -128,8 +128,6 @@ func (s *InmemStore) SizeBytes() int64 {
 	return s.sz.Load()
 }
 
-// TODO: super slow defragmentation....
-// IDEA: maybe use redises double dict solution?
 func (s *InmemStore) Defragment() error {
 	s.rwlock.Lock()
 	defer s.rwlock.Unlock()

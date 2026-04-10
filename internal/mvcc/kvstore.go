@@ -215,7 +215,6 @@ func (s *KvStore) Compact(rev int64) (<-chan struct{}, error) {
 		s.doCompact(rev)
 	}()
 
-	// TODO: return real errors from .doCompact()
 	return c, nil
 }
 
