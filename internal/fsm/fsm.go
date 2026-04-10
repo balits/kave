@@ -121,7 +121,6 @@ func (f *Fsm) applyKv(cmd command.Command) command.Result {
 	return res
 }
 
-// TODO: should we create more meaningful return type for lease commands?
 func (f *Fsm) applyLease(cmd command.Command) (res command.Result) {
 	switch cmd.Kind {
 	case command.KindLeaseGrant, command.KindLeaseRevoke, command.KindLeaseKeepAlive, command.KindLeaseLookup, command.KindLeaseCheckpoint:
@@ -188,9 +187,6 @@ func (f *Fsm) applyLease(cmd command.Command) (res command.Result) {
 		panic(fmt.Sprintf("Unsupported lease command type: %v", cmd.Kind))
 	}
 
-	// Lease resultoknál legyen mind az error, mind a result kitölrve
-	// igy jóbban látható mi történt
-	// TODO: gondoljuk át, talán ez lenne a jobb megoldást a kv parancsoknál is?
 	if err != nil {
 		res.Error = err
 	}

@@ -1,5 +1,8 @@
 {
-    "log_level": "debug",
+    "logger": {
+        "kind": "text",
+        "level": "debug"
+    },
     "checkpoint_interval_minutes": 5,
     "peer_discovery": {
         "mode": "static",

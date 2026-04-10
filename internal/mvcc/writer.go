@@ -20,9 +20,6 @@ type Writer interface {
 	DeleteRange(key, end []byte) (count int64, rev kv.Revision, err error)
 	DeleteKey(key []byte) (count int64, rev kv.Revision, err error)
 
-	// TODO: support rev.sub++ for txp ops
-	// TxnMode() bool
-
 	// End commits the transaction and releases locks.
 	// It updates the store's current revision and raft metadata, so it should be called after all changes are made.
 	// It should be called if the caller decides to commit the transaction.
@@ -270,7 +267,7 @@ func (w *writer) End() {
 	if err != nil {
 		w.store.logger.Error("failed to commit write tx", "error", err)
 	} else {
-		w.store.metrics.TxnsTotal.Add(1) // TODO: count failed txns?
+		w.store.metrics.CommitedWritesTotal.Add(1)
 		w.store.metrics.TxnDurationSec.Observe(time.Since(w.startTime).Seconds())
 		w.store.metrics.PutsTotal.Add(float64(info.NewKeys))
 		w.store.metrics.DeletesTotal.Add(float64(info.DeletedKeys))

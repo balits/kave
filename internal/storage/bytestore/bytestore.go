@@ -33,7 +33,6 @@ type ByteStore interface {
 	// If the bucket is not found, it returns an error.
 	Put(bucket storage.Bucket, key, value []byte) (old []byte, err error)
 
-	// TODO: remove return value
 	Delete(bucket storage.Bucket, key []byte) (old []byte, err error)
 
 	Scan(bucket storage.Bucket, f func(key, value []byte) bool) error

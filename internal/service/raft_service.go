@@ -110,10 +110,10 @@ func (rs *raftSvc) AddToCluster(ctx context.Context, req transport.JoinRequest) 
 			"raft_addr", req.Peer.GetRaftAddress(),
 		)
 
-	// TODO: do we need a round trip here? AddVoter already fails with Not Leader
-	if err := util.WaitFuture(ctx, rs.r.VerifyLeader()); err != nil {
-		return fmt.Errorf("failed to add peer to cluster: %v", err)
-	}
+	// fix todo: do we need a round trip here? AddVoter already fails with Not Leader
+	// if err := util.WaitFuture(ctx, rs.r.VerifyLeader()); err != nil {
+	// 	return fmt.Errorf("failed to add peer to cluster: %v", err)
+	// }
 
 	configFut := rs.r.GetConfiguration()
 	if err := util.WaitFuture(ctx, configFut); err != nil {
@@ -167,9 +167,9 @@ func (rs *raftSvc) JoinCluster(ctx context.Context, me peer.Peer) error {
 		return fmt.Errorf("failed to serialize request body: %v", body)
 	}
 
-	initialTimeout := time.Second * 1
+	initialTimeout := time.Second * 4 // slightly higher in k8s than in compose
 	jitter := time.Duration(rand.Int64N(int64(initialTimeout)))
-	time.Sleep(initialTimeout + jitter/2) //sleep so that bootstrapping node has some time to elect itself
+	time.Sleep(initialTimeout + jitter) //sleep so that bootstrapping node has some time to elect itself
 	if err := rs.joinWithBackoff(ctx, urls, 4, jsonBody); err != nil {
 		return err
 	}
@@ -182,6 +182,7 @@ func (rs *raftSvc) JoinCluster(ctx context.Context, me peer.Peer) error {
 func (rs *raftSvc) joinWithBackoff(ctx context.Context, urls []string, attempts int, jsonBody []byte) error {
 	var lastError error
 	for a := range attempts {
+		l := rs.logger.With("attempt", a)
 		for _, url := range urls {
 			err := join(ctx, url, jsonBody)
 			if err == nil {
@@ -189,9 +190,10 @@ func (rs *raftSvc) joinWithBackoff(ctx context.Context, urls []string, attempts 
 			} else {
 				lastError = err
 			}
-			rs.logger.Debug("Attempting to join cluster", "url", url, "attempt", a, "error", err)
+			l.Debug("Attempting to join cluster", "url", url, "attempt", a, "error", err)
 		}
 
+		l.Info("taking a random sleep between join attempts")
 		backoff := (2 << a) * time.Second
 		jitter := time.Duration(rand.Int64N(1000)) * time.Millisecond
 		time.Sleep(backoff + time.Duration(jitter)/2)
@@ -245,7 +247,6 @@ func (rs *raftSvc) Stats() map[string]string {
 	return s
 }
 
-// TODO: rename to RaftState
 func (rs *raftSvc) RaftState() raft.RaftState {
 	return rs.r.State()
 }

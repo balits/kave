@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"time"
 
 	"github.com/balits/kave/internal/peer"
 )
@@ -18,9 +19,24 @@ const (
 	errMsgProxyLeader     string = "proxying to leader failed"
 )
 
-func (s *HttpServer) readMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	limiter := s.readLimiter.Middleware(s, next)
+type middleware = func(http.HandlerFunc) http.HandlerFunc
 
+func chain(base http.HandlerFunc, ms ...middleware) http.HandlerFunc {
+	for i := range len(ms) {
+		base = ms[len(ms)-i-1](base)
+	}
+	return base
+}
+
+// func (s *HttpServer) statusChain(base http.HandlerFunc) http.HandlerFunc {
+// 	return chain(base, s.requestLoggingMiddleware)
+// }
+
+func (s *HttpServer) readChain(base http.HandlerFunc) http.HandlerFunc {
+	return chain(base, s.requestLoggingMiddleware, s.readLimitMiddleware, s.consitencyMiddleware)
+}
+
+func (s *HttpServer) consitencyMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		drainedBytes, err := drainBody(r.Body)
 		if err != nil {
@@ -39,7 +55,7 @@ func (s *HttpServer) readMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		if peek.Serializable {
-			limiter(w, r)
+			next(w, r)
 			return
 		}
 
@@ -59,27 +75,40 @@ func (s *HttpServer) readMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		limiter(w, r)
+		next(w, r)
 	}
 }
 
-func (s *HttpServer) writeMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	limiter := s.writeLimiter.Middleware(s, next)
+func drainBody(oldBody io.ReadCloser) (read []byte, err error) {
+	defer func() {
+		_ = oldBody.Close()
+	}()
 
+	read, err = io.ReadAll(oldBody)
+	if err != nil {
+		return nil, fmt.Errorf("draining body failed: %w", err)
+	}
+	return
+}
+
+func (s *HttpServer) writeChain(base http.HandlerFunc) http.HandlerFunc {
+	return chain(base, s.requestLoggingMiddleware, s.writeLimitMiddleware, s.leaderMiddleware)
+}
+
+func (s *HttpServer) leaderMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		leader, err := s.raftSvc.Leader()
 		if err != nil {
 			s.writeError(w, errMsgWriteMiddleware, err, http.StatusServiceUnavailable)
 			return
 		}
-		fmt.Printf("LEADER: %+v\n", leader)
 
 		if leader.NodeID != s.me.NodeID {
 			s.proxyToLeader(w, r, leader)
 			return
 		}
 
-		limiter(w, r)
+		next(w, r)
 	}
 }
 
@@ -95,23 +124,58 @@ func (s *HttpServer) proxyToLeader(w http.ResponseWriter, r *http.Request, leade
 			"leader_addr", leader.GetHttpAdvertisedAddress(),
 		)
 	}
-	limiter := s.writeLimiter.Middleware(s, proxy.ServeHTTP)
 
 	s.logger.Debug("proxying request to leader",
 		"leader_id", leader.NodeID,
 		"path", r.URL.Path,
 	)
-	limiter(w, r)
+	proxy.ServeHTTP(w, r)
 }
 
-func drainBody(oldBody io.ReadCloser) (read []byte, err error) {
-	defer func() {
-		_ = oldBody.Close()
-	}()
+func (s *HttpServer) requestLoggingMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		s.logger.WithGroup("request").
+			Debug("new request",
+				"method", r.Method,
+				"url", r.URL.Path,
+				"start_time", start,
+			)
 
-	read, err = io.ReadAll(oldBody)
-	if err != nil {
-		return nil, fmt.Errorf("draining body failed: %w", err)
+		i := newStatusCodeInterceptor(w)
+		next.ServeHTTP(i, r)
+
+		s.logger.WithGroup("request").
+			Debug("request finished",
+				"method", r.Method,
+				"url", r.URL.Path,
+				"elapsed_time", time.Since(start),
+				"status_code", i.statusCode,
+			)
 	}
-	return
+}
+
+type statusCodeInterceptor struct {
+	w          http.ResponseWriter
+	statusCode int
+}
+
+func newStatusCodeInterceptor(w http.ResponseWriter) *statusCodeInterceptor {
+	return &statusCodeInterceptor{
+		w:          w,
+		statusCode: http.StatusOK,
+	}
+}
+
+func (i *statusCodeInterceptor) Header() http.Header {
+	return i.w.Header()
+}
+
+func (i *statusCodeInterceptor) Write(bb []byte) (int, error) {
+	return i.w.Write(bb)
+}
+
+func (i *statusCodeInterceptor) WriteHeader(statusCode int) {
+	i.statusCode = statusCode
+	i.w.WriteHeader(statusCode)
 }

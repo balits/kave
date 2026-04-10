@@ -1,7 +1,7 @@
 image:
   repository: ghcr.io/balits/kave
-  tag: ""
-  pullPolicy: IfNotPresent
+  tag: "latest"
+  pullPolicy: Always
 
 voters:
   replicas: 3
@@ -11,7 +11,9 @@ ports:
   http: 8000
 
 config:
-  logLevel: "debug"
+  logger: 
+    kind: "text" # text | json | discard
+    level: "debug" # debug | info | warn | error
   checkpointIntervalMinutes: 5
   peerDiscovery:
     mode: "dynamic"
@@ -31,7 +33,7 @@ config:
     tokenTTLSec: 60
 
 storage:
-  size: 10Gi
+  size: 20Gi #out of 40 on a small civo vm
   storageClassName: "" # todo: might need to change on different platform
 
 healthcheck:

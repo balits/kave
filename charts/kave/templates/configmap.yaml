@@ -7,7 +7,10 @@ metadata:
 data:
   clusterConfig.json: |
     {
-      "log_level": {{  .Values.config.logLevel | quote }},
+      "logger": {
+        "kind": {{  .Values.config.logger.kind | quote }},
+        "level": {{  .Values.config.logger.level | quote }}
+      },
       "checkpoint_interval_minutes": {{  .Values.config.checkpointIntervalMinutes }},
       "peer_discovery": {
         "mode": {{ .Values.config.peerDiscovery.mode | quote }},
