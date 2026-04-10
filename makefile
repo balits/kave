@@ -50,10 +50,10 @@ test:
 test-race:
 	go test -v -race -count=3 ./internal/... 
 
-kluster-create: ## Creates a k8s cluster with kind
+kind-cluster-create: ## Creates a k8s cluster with kind
 	kind create cluster --name kave
 
-kluster-verify: ## Verifyies kind cluster
+kind-verify: ## Verifyies kind cluster
 	kubectl get nodes
 
 helm-validate: ## validate template
@@ -62,12 +62,20 @@ helm-validate: ## validate template
 helm-lint: ## Lint for mistakes
 	helm lint ./charts/kave
 
-
-local-helm-recreate:
+helm-uninstall:
 	@echo ">> uninstalling chart: ${APP_NAME}..."
 	helm uninstall kave -n kave --ignore-not-found --kubeconfig .kube/config
-	@echo ">> installing chart: ${APP_NAME}..."
-	helm upgrade kave ./charts/kave --install --namespace kave --kubeconfig .kube/config 
+
+helm-upgrade-install:
+	@echo ">> upgrading/installing chart: ${APP_NAME}..."
+	helm upgrade $(APP_NAME) $(CHART) --install --namespace $(NAMESPACE)
+		--create-namespace \
+		--wait \
+		--timeout 3m
+
+local-helm-recreate:
+	$(MAKE) helm-uninstall
+	$(MAKE) helm-upgrade-install
 
 gh-ci:
 	gh workflow run ci.yaml --ref feature/ci
@@ -82,19 +90,22 @@ local-kube-restart-rollout:
 	@echo ">> rollout/restart kave-voter statefulset..."
 	kubectl rollout restart statefulset/kave-voter -n $(NAMESPACE) --kubeconfig .kube/config
 
-recreate-cluster: ## Wipe and redeploy helm chart
-	@echo ">> 1) uninstalling chart ${APP_NAME}..."
-	helm uninstall $(APP_NAME) -n $(NAMESPACE) --ignore-not-found --kubeconfig $(KUBECONFIG)
+wipe-recreate-cluster: ## Wipe and redeploy helm chart
+	@echo ">> 1. step: uninstall any chart"
+	$(MAKE) helm-uninstall
+	@echo ">> 1. step: ok"
 
-	@echo ">> 2) deleting k8s persistentVolumeClaims..."
+	@echo ">> 2. step: deleting k8s persistentVolumeClaims..."
 	kubectl delete pvc --all -n $(NAMESPACE) --ignore-not-found --kubeconfig $(KUBECONFIG)
 	kubectl wait --for=delete pvc --all -n kave --timeout=1m || true
+	@echo ">> 2. step: ok"
 
-	@echo ">> 3) insalling/upgrading chart ${APP_NAME}..."
-	helm upgrade $(APP_NAME) $(CHART) --install --namespace $(NAMESPACE)
-		--create-namespace \
-		--wait \
-		--timeout 3m
+	@echo ">> 3. step: insalling/upgrading chart ${APP_NAME}..."
+	$(MAKE) helm-upgrade-install
+	@echo ">> 3. step: ok"
 	@echo ">> DONE"
+
+k9s:
+	./bin/k9s --kubeconfig .kube/config 
 
 .PHONY: build build-img up3 down3 up3build test test-race kluster-create, kluster-verify helm-validate helm-lint helm-uninstall gh-ci

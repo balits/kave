@@ -1,11 +1,8 @@
-name: CI
+name: Wipe and Recreate Cluster
 
 on:
-  push:
-    branches: ["main", "feature/ci"]
-  pull_request:
-    branches: ["main"]
-  # after many empty ci pushes, use `gh workflow run` to fix civo/k8s cluster
+  # only wipe cluster if really really needed,
+  # only through manual dispatch
   workflow_dispatch:
 
 env:
@@ -37,8 +34,7 @@ jobs:
     name: Build & Push Image
     runs-on: ubuntu-latest
     needs: test 
-    # dont spam main with fix(ci): ..., instead squash commits on feature/ci and merge to main
-    if:  github.event_name == 'workflow_dispatch' || github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'feature/ci')
+    if:  github.event_name == 'workflow_dispatch' && (github.ref_name == 'main' || github.ref_name == 'feature/ci')
     permissions:
       contents: read
       packages: write
@@ -84,23 +80,14 @@ jobs:
     name: Deploy to Kubernetes
     runs-on: ubuntu-latest
     needs: build
-    # dont spam main with fix(ci): ..., instead squash commits on feature/ci and merge to main
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'feature/ci') 
+    if: github.event_name == 'workflow_dispatch' && (github.ref_name == 'main' || github.ref_name == 'feature/ci') 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Helm
-        uses: azure/setup-helm@v4
+      # - name: Setup K8s + Helm
+      - uses: ./.github/actions/setup-k8s
         with:
-          version: v3.14.0
-      
-      - name: Configugre kube config
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > ~/.kube/config
-          chmod 600 ~/.kube/config
-          echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
+          kubeconfig_b64: ${{ secrets.KUBECONFIG_B64 }}
 
-
-      - name: Helm upgrade
-        run: make recreate-cluster
+      - name: Wipe cluster
+        run: make wipe-recreate-cluster
