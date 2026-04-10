@@ -20,7 +20,6 @@ type readtx struct {
 	b *backend
 }
 
-// TODO: maybe skip locks on reading from an inmem store (double rlock)
 func (r *readtx) RLock()   { r.b.rwlock.RLock() }
 func (r *readtx) RUnlock() { r.b.rwlock.RUnlock() }
 
@@ -28,7 +27,6 @@ func (r *readtx) UnsafeGet(bucket storage.Bucket, key []byte) ([]byte, error) {
 	return r.b.store.Get(bucket, key)
 }
 
-// TODO: dedup, cleanup = ????
 func (r *readtx) UnsafeRange(bucket storage.Bucket, start, end []byte, f func(k, v []byte) error) (res [][]byte, err error) {
 	var fErr error
 	err = r.b.store.Scan(bucket, func(k, v []byte) bool {
@@ -52,7 +50,6 @@ func (r *readtx) UnsafeRange(bucket storage.Bucket, start, end []byte, f func(k,
 	return
 }
 
-// TODO: dedup, cleanup
 func (r *readtx) UnsafeScan(bucket storage.Bucket, start, end []byte, f func(k, v []byte) error) error {
 	var err error
 	scanErr := r.b.store.Scan(bucket, func(k, v []byte) bool {

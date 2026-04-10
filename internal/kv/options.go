@@ -10,8 +10,8 @@ var (
 )
 
 type Options struct {
-	MaxKeySize   int `json:"kv_max_key_size"`
-	MaxValueSize int `json:"kv_max_value_size"`
+	MaxKeySize   int `json:"max_key_size"`
+	MaxValueSize int `json:"max_value_size"`
 }
 
 func (o *Options) Check() error {

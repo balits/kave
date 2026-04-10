@@ -1,26 +1,29 @@
 {
-    "log_level": "debug",
+    "logger": {
+        "kind": "text",
+        "level": "debug"
+    },
     "checkpoint_interval_minutes": 5,
-    "kv": {
-        "kv_max_key_size": "512",
-        "kv_max_value_size": "1024"
-    },
-    "storage": {
-        "storage_kind": "boltdb",
-        "storage_data_dir": "data"
-    },
-    "compaction": {
-        "compaction_threshold": 5,
-        "compaction_interval_minutes": 2,
-        "compaction_max_rev_gap": 10
-    },
-    "ot": {
-        "ot_slot_count": 32,
-        "ot_slot_size": 64,
-        "ot_token_ttl": 30
-    },
     "peer_discovery": {
         "mode": "static",
-        "peers": "node1:7000:8000,node2:7000:8000,node3:7000:8000"
+        "peers": "node-voter-0:7000:8000,node-voter-1:7000:8000,node-voter-2:7000:8000"
+    },
+    "kv": {
+        "max_key_size": 512,
+        "max_value_size": 1024
+    },
+    "storage": {
+        "kind": "boltdb",
+        "data_dir": "data"
+    },
+    "compaction": {
+        "threshold": 5,
+        "interval_minutes": 2,
+        "max_rev_gap": 10
+    },
+    "ot": {
+        "slot_count": 32,
+        "slot_size": 64,
+        "token_ttl_sec": 30
     }
 }

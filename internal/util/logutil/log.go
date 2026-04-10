@@ -3,6 +3,7 @@ package logutil
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"log/slog"
@@ -14,28 +15,72 @@ import (
 
 //TODO: batch or disable logs in prod???
 
+type Options struct {
+	Kind  LoggerKind  `json:"kind"`
+	Level LoggerLevel `json:"level"`
+}
+
+func (o *Options) Check() error {
+	switch o.Kind {
+	case LoggerKindJson, LoggerKindText, LoggerKindDiscard:
+	default:
+		return fmt.Errorf("invalid logger kind: '%s' (exptected %s | %s | %s) ", o.Kind, LoggerKindText, LoggerKindJson, LoggerKindDiscard)
+	}
+
+	switch o.Level {
+	case LevelDebug, LevelInfo, LevelWarn, LevelError:
+	default:
+		return fmt.Errorf("invalid log level: '%s' (exptected %s | %s | %s | %s) ", o.Level, LevelDebug, LevelInfo, LevelWarn, LevelError)
+	}
+
+	return nil
+}
+
+func (l LoggerLevel) ToSlogLevel() (out slog.Level) {
+	switch l {
+	case LevelDebug:
+		out = slog.LevelDebug
+	case LevelInfo:
+		out = slog.LevelInfo
+	case LevelWarn:
+		out = slog.LevelWarn
+	case LevelError:
+		out = slog.LevelError
+	}
+	return // 0 -> info
+}
+
 type LoggerKind string
 
 const (
-	JsonLoggerKind    LoggerKind = "json"
-	TextLoggerKind    LoggerKind = "text"
-	DiscardLoggerKind LoggerKind = "discard"
+	LoggerKindJson    LoggerKind = "json"
+	LoggerKindText    LoggerKind = "text"
+	LoggerKindDiscard LoggerKind = "discard"
 )
 
-func NewLoggerWithKind(level slog.Level, out io.Writer, loggerType LoggerKind) *slog.Logger {
+type LoggerLevel string
+
+const (
+	LevelDebug LoggerLevel = "debug"
+	LevelInfo  LoggerLevel = "info"
+	LevelWarn  LoggerLevel = "warn"
+	LevelError LoggerLevel = "error"
+)
+
+func NewLogger(out io.Writer, opts Options) *slog.Logger {
 	var handler slog.Handler
-	opts := &slog.HandlerOptions{
-		Level: level,
+	handlerOpts := &slog.HandlerOptions{
+		Level: opts.Level.ToSlogLevel(),
 	}
 
-	switch loggerType {
-	case JsonLoggerKind:
-		handler = slog.NewJSONHandler(out, opts)
-	case TextLoggerKind:
-		handler = slog.NewTextHandler(out, opts)
-	case DiscardLoggerKind:
+	switch opts.Kind {
+	case LoggerKindJson:
+		handler = slog.NewJSONHandler(out, handlerOpts)
+	case LoggerKindText:
+		handler = slog.NewTextHandler(out, handlerOpts)
+	case LoggerKindDiscard:
 		//TODO: instead of Writer discarding things, create a handler that discards things
-		handler = slog.NewTextHandler(NullWriter{}, opts)
+		handler = slog.NewTextHandler(NullWriter{}, handlerOpts)
 	}
 	return slog.New(handler)
 }

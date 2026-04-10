@@ -16,7 +16,8 @@ metadata:
 spec:
   serviceName: {{ include "kave.headlessServiceName" . }}
   replicas: {{ .Values.voters.replicas }}
-  podManagementPolicy: OrderedReady
+  # podManagementPolicy: OrderedReady
+  podManagementPolicy: Parallel # needed otherwise kave-voter-0 will not see any other nodes during peer discovery
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "kave.name" . }}
@@ -48,6 +49,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            - name: POD_FQDN
+              value: $(POD_NAME).{{ include "kave.headlessServiceName" . }}.$(POD_NAMESPACE).svc.cluster.local
             - name: RAFT_PORT
               value: {{ .Values.ports.raft | quote }}
             - name: HTTP_PORT

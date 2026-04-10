@@ -2,10 +2,8 @@ package config
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -16,6 +14,7 @@ import (
 	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
+	"github.com/balits/kave/internal/util/logutil"
 )
 
 const ApplyLagReadinessThreshold uint = 10
@@ -23,33 +22,26 @@ const ApplyLagReadinessThreshold uint = 10
 type Config struct {
 	Bootstrap                 bool
 	Me                        peer.Peer
+	PodNamespace              string
+	LoggerOptions             logutil.Options
 	KvOptions                 kv.Options
 	PeerDiscoveryOptions      peer.DiscoveryOptions
 	StorageOpts               storage.StorageOptions
 	CompactionOpts            compaction.CompactionOptions
 	OtOpts                    ot.Options
 	CheckpointIntervalMinutes time.Duration
-	LogLevel                  slog.Level
 }
 
+// TODO: move away from Config <-> ConfigJson, just use a single config file
 type ConfigJson struct {
+	LoggerOptions             logutil.Options              `json:"logger"`
 	KvOptions                 kv.Options                   `json:"kv"`
-	DiscoveryOptions          peer.DiscoveryOptions        `json:"peer_discovery"`
+	PeerDiscoveryOptions      peer.DiscoveryOptions        `json:"peer_discovery"`
 	StorageOpts               storage.StorageOptions       `json:"storage"`
 	CompactionOpts            compaction.CompactionOptions `json:"compaction"`
 	OtOpts                    ot.Options                   `json:"ot"`
 	CheckpointIntervalMinutes time.Duration                `json:"checkpoint_interval_minutes"`
-	LogLevel                  configLogLevel               `json:"log_level"`
 }
-
-type configLogLevel = string
-
-const (
-	levelDebug configLogLevel = "debug"
-	levelInfo  configLogLevel = "info"
-	levelWarn  configLogLevel = "warn"
-	levelError configLogLevel = "error"
-)
 
 func (cj *ConfigJson) check() error {
 	if err := cj.StorageOpts.Check(); err != nil {
@@ -61,10 +53,13 @@ func (cj *ConfigJson) check() error {
 	if err := cj.OtOpts.Check(); err != nil {
 		return err
 	}
-	if err := cj.DiscoveryOptions.Check(); err != nil {
+	if err := cj.PeerDiscoveryOptions.Check(); err != nil {
 		return err
 	}
 	if err := cj.KvOptions.Check(); err != nil {
+		return err
+	}
+	if err := cj.LoggerOptions.Check(); err != nil {
 		return err
 	}
 
@@ -79,68 +74,48 @@ func (cj *ConfigJson) ToConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to validate config json: %v", err)
 	}
 
-	logLevel := configLogLevelToSlogLogLevel(cj.LogLevel)
-
 	c := &Config{
-		LogLevel:                  logLevel,
+		LoggerOptions:             cj.LoggerOptions,
 		CheckpointIntervalMinutes: cj.CheckpointIntervalMinutes,
+		PeerDiscoveryOptions:      cj.PeerDiscoveryOptions,
+		KvOptions:                 cj.KvOptions,
 		CompactionOpts:            cj.CompactionOpts,
 		OtOpts:                    cj.OtOpts,
-		StorageOpts: storage.StorageOptions{
-			Kind:           cj.StorageOpts.Kind,
-			Dir:            cj.StorageOpts.Dir,
-			InitialBuckets: schema.AllBuckets,
-		},
+		StorageOpts:               cj.StorageOpts,
 	}
+
+	c.StorageOpts.InitialBuckets = schema.AllBuckets
 
 	return c, nil
-}
-
-func configLogLevelToSlogLogLevel(in configLogLevel) (out slog.Level) {
-	switch in {
-	case levelDebug:
-		out = slog.LevelDebug
-	case levelInfo:
-		out = slog.LevelInfo
-	case levelWarn:
-		out = slog.LevelWarn
-	case levelError:
-		out = slog.LevelError
-	}
-	return
-}
-
-func getEnvOrPanic(key string) string {
-	v, ok := os.LookupEnv(key)
-	v = strings.TrimSpace(v)
-	if !ok || v == "" {
-		panic(fmt.Sprintf("env var %s not set", key))
-	}
-	return v
 }
 
 func LoadConfig() *Config {
 	fs := flag.NewFlagSet("kave", flag.ExitOnError)
 
+	// TODO: refactor env vars into config.env.<env-var>?
 	var (
-		configPath = fs.String("config", "", "path to config file (required)")
-		nodeID     = fs.String("nodeID", getEnvOrPanic("POD_NAME"), "id of the raft node")
-		raftPort   = fs.String("raft_port", getEnvOrPanic("RAFT_PORT"), "raft port of the raft node")
-		httpPort   = fs.String("http_port", getEnvOrPanic("HTTP_PORT"), "http port of the raft node")
-		// role       = fs.String("role", getEnv("NDOE_ROLE"), "role of the node (voter | learner)")
+		configPath   = fs.String("config", "", "path to config file (required)")
+		nodeID       = fs.String("node_id", os.Getenv("POD_NAME"), "id of the raft node")
+		podNamespace = fs.String("namespace", os.Getenv("POD_NAMESPACE"), "namespace of the pod, when using k8s")
+		podFqdn      = fs.String("fqdn", os.Getenv("POD_FQDN"), "fully qualified domain name of the pod, when using k8s")
+		raftPort     = fs.String("raft_port", os.Getenv("RAFT_PORT"), "raft port of the raft node")
+		httpPort     = fs.String("http_port", os.Getenv("HTTP_PORT"), "http port of the raft node")
+		// role       = fs.String("role", os.Getenv("NODE_ROLE"), "role of the node (voter | learner)")
 	)
 
 	err := fs.Parse(os.Args[1:])
 	check("parsing flagset", err)
 
-	if *configPath == "" {
-		check("config file", errors.New("no config file found"))
-	}
+	checkRequiredField("config", configPath)
+	checkRequiredField("node_id", configPath)
+	checkRequiredField("raft_port", raftPort)
+	checkRequiredField("http_port", httpPort)
 
 	me := peer.Peer{
 		NodeID:   *nodeID,
 		RaftPort: *raftPort,
 		HttpPort: *httpPort,
+		Hostname: optionalString(podFqdn),
 	}
 	check("peer info about me", me.Check())
 
@@ -149,16 +124,38 @@ func LoadConfig() *Config {
 	check("config file", err)
 
 	d := json.NewDecoder(file)
-	d.DisallowUnknownFields()
-	check("config file: decoding: ", d.Decode(&cj))
+
+	check("config file: decoding failed:", d.Decode(&cj))
 
 	cfg, err := cj.ToConfig()
 	check("config file: converting json to config object", err)
 
 	cfg.Bootstrap = strings.HasSuffix(*nodeID, "-0")
 	cfg.Me = me
+	cfg.PodNamespace = optionalString(podNamespace)
 
+	s, _ := json.MarshalIndent(cfg, "", "    ")
+	fmt.Printf("Loaded config successfully:\n%s\n", string(s))
 	return cfg
+}
+
+func optionalString(s *string) string {
+	if s == nil {
+		return ""
+	} else {
+		return *s
+	}
+}
+
+func emptyString(field string, val *string) error {
+	if val == nil || len(*val) == 0 {
+		return fmt.Errorf("field %s is empty", field)
+	}
+	return nil
+}
+
+func checkRequiredField(field string, val *string) {
+	check("expected value for field, got nil/empty: ", emptyString(field, val))
 }
 
 func check(msg string, err error) {

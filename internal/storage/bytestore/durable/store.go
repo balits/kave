@@ -2,6 +2,7 @@ package durable
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/bytestore"
 	bolt "go.etcd.io/bbolt"
+	bolterrors "go.etcd.io/bbolt/errors"
 )
 
 const dbFileName = "bolt.db"
@@ -44,7 +46,8 @@ func NewStore(opts storage.StorageOptions) (bytestore.ByteStore, error) {
 
 	bucketMap := make(map[storage.Bucket][]byte, len(opts.InitialBuckets))
 	for _, bucket := range opts.InitialBuckets {
-		if _, err := tx.CreateBucket([]byte(bucket)); err != nil {
+		_, err := tx.CreateBucket([]byte(bucket))
+		if err != nil && !errors.Is(err, bolterrors.ErrBucketExists) {
 			return nil, fmt.Errorf("failed to create boltdb store: %v", err)
 		}
 		bucketMap[bucket] = []byte(bucket)

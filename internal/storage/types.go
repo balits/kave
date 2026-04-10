@@ -48,10 +48,10 @@ const (
 
 type StorageOptions struct {
 	// A mappa, ahol megnyílik majd az adatbázis, inmem tárolónál figyelmen kívül van hagyva
-	Dir string `json:"storage_data_dir"`
+	Dir string `json:"data_dir"`
 
 	// Milyen típusú tárolót használjon
-	Kind StorageKind `json:"storage_kind"`
+	Kind StorageKind `json:"kind"`
 
 	// Induláskor létrehozott bucket-ek listája.
 	// Ha egy bucket nincs benne ebben a listában, később már nem lehet létrehozni

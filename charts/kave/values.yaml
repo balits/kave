@@ -1,7 +1,7 @@
 image:
   repository: ghcr.io/balits/kave
-  tag: ""
-  pullPolicy: IfNotPresent
+  tag: "latest"
+  pullPolicy: Always
 
 voters:
   replicas: 3
@@ -11,10 +11,12 @@ ports:
   http: 8000
 
 config:
-  logLevel: "debug"
+  logger: 
+    kind: "text" # text | json | discard
+    level: "debug" # debug | info | warn | error
   checkpointIntervalMinutes: 5
-  peerDiscoverye:
-    mode: "dns"
+  peerDiscovery:
+    mode: "dynamic"
   kv:
     maxKeySize: 512
     maxValueSize: 1024
@@ -28,10 +30,10 @@ config:
   ot:
     slotCount: 32
     slotSize: 64
-    tokenTTL: 60
+    tokenTTLSec: 60
 
 storage:
-  size: 1Gi
+  size: 20Gi #out of 40 on a small civo vm
   storageClassName: "" # todo: might need to change on different platform
 
 healthcheck:

@@ -245,9 +245,9 @@ func (n *Node) initStorage(reg prometheus.Registerer, storageOpts storage.Storag
 
 func (n *Node) initRaft(reg prometheus.Registerer, cfg *config.Config) error {
 	n.fsm = fsm.New(n.logger, cfg.Me, n.kvstore, n.leaseManager, n.otManager)
-
-	hclogger := logutil.NewHcLogAdapter(n.logger, cfg.LogLevel)
-	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, hclogger, cfg.LogLevel)
+	slogLevel := cfg.LoggerOptions.Level.ToSlogLevel()
+	hclogger := logutil.NewHcLogAdapter(n.logger, slogLevel)
+	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, hclogger, slogLevel)
 	raftDeps, err := config.NewRaftDependencies(cfg.Me.GetRaftAddress(), cfg.Me.GetRaftListenAddress(), cfg.StorageOpts.Dir, hclogger)
 	if err != nil {
 		return err
@@ -278,7 +278,7 @@ func (n *Node) initBackgroundRoutines(intervalMinutes time.Duration, opts *compa
 }
 
 func (n *Node) initServices(cfg *config.Config) error {
-	discoveryService, err := peer.NewDiscoveryService(cfg.Me, cfg.PeerDiscoveryOptions)
+	discoveryService, err := peer.NewDiscoveryService(cfg.Me, cfg.PodNamespace, cfg.PeerDiscoveryOptions)
 	if err != nil {
 		return err
 	}

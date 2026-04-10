@@ -2,7 +2,6 @@ package http
 
 import (
 	"errors"
-	"net/http"
 	"sync"
 
 	"golang.org/x/time/rate"
@@ -37,28 +36,13 @@ func newRateLimiter(cfg RateLimiterConfig) *rateLimiter {
 
 // Limiter retrieves a rate limitier instance for the given path,
 // or creates it if its not already registered.
-func (m *rateLimiter) Limiter(path string) *rate.Limiter {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if l, ok := m.limiters[path]; ok {
+func (rl *rateLimiter) Limiter(path string) *rate.Limiter {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	if l, ok := rl.limiters[path]; ok {
 		return l
 	}
-	l := rate.NewLimiter(rate.Limit(m.cfg.rps), int(m.cfg.burst))
-	m.limiters[path] = l
+	l := rate.NewLimiter(rate.Limit(rl.cfg.rps), int(rl.cfg.burst))
+	rl.limiters[path] = l
 	return l
-}
-
-// Middleware wraps a handler function around the rate limiter,
-// returning 429 if the limit is exceeded.
-func (m *rateLimiter) Middleware(s *HttpServer, next http.HandlerFunc) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		l := m.Limiter(r.URL.Path)
-
-		if !l.Allow() {
-			s.writeError(w, "limit exceeded", errMsgRateLimiter, http.StatusTooManyRequests)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
 }

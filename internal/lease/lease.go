@@ -104,14 +104,11 @@ func DecodeLease(src []byte) (*Lease, error) {
 	return l, nil
 }
 
-// nextID új ID-t generál
-// TODO: ID collision panics
 func nextID() int64 {
 	var buf [8]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		err = fmt.Errorf("%w: failed to generate ID: %v", errLease, err)
-		panic(err)
-	}
+	// it rand.Read fails, the program is crashed unrecoverably,
+	// its ok to ignore, err
+	_, _ = rand.Read(buf[:])
 	id := int64(binary.BigEndian.Uint64(buf[:]))
 	// 0 is reserved as "no lease"
 	if id <= 0 {

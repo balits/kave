@@ -7,28 +7,31 @@ metadata:
 data:
   clusterConfig.json: |
     {
-      "log_level": {{  .Values.config.logLeve }},
+      "logger": {
+        "kind": {{  .Values.config.logger.kind | quote }},
+        "level": {{  .Values.config.logger.level | quote }}
+      },
       "checkpoint_interval_minutes": {{  .Values.config.checkpointIntervalMinutes }},
       "peer_discovery": {
-        "mode": {{ .Values.config.peerDiscovery.mode }},
+        "mode": {{ .Values.config.peerDiscovery.mode | quote }},
         "expected_count": {{ .Values.voters.replicas }}
       },
       "kv": {
-        "kv_max_key_size": {{ .Values.config.kv.maxKeySize }},
-        "kv_max_value_size": {{ .Values.config.kv.maxValueSize }}
+        "max_key_size": {{ .Values.config.kv.maxKeySize }},
+        "max_value_size": {{ .Values.config.kv.maxValueSize }}
       },
       "storage": {
-          "storage_kind": {{  .Values.config.storage.kind }},
-          "storage_data_dir": {{  .Values.config.storage.dataDir }}
+          "kind": {{  .Values.config.storage.kind | quote }},
+          "data_dir": {{  .Values.config.storage.dataDir | quote }}
       },
       "compaction": {
-        "compaction_threshold": {{  .Values.config.compaction.threshold }},
-        "compaction_interval_minutes": {{  .Values.config.compaction.intervalMinutes }},
-        "compaction_max_rev_gap": {{  .Values.config.compaction.maxRevGap }}
+        "threshold": {{  .Values.config.compaction.threshold }},
+        "interval_minutes": {{  .Values.config.compaction.intervalMinutes }},
+        "max_rev_gap": {{  .Values.config.compaction.maxRevGap }}
       },
       "ot": {
-        "ot_slot_count": {{ .Values.config.ot.slotCount }},
-        "ot_slot_size": {{  .Values.config.ot.slotSize }},
-        "ot_token_ttl": {{  .Values.config.ot.tokenTTL }}
+        "slot_count": {{ .Values.config.ot.slotCount }},
+        "slot_size": {{  .Values.config.ot.slotSize }},
+        "token_ttl_sec": {{  .Values.config.ot.tokenTTLSec }}
       }
     }

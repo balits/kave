@@ -19,9 +19,9 @@ const (
 )
 
 type CompactionOptions struct {
-	Threshold   int64 `json:"compaction_threshold"`
-	IntervalMin int64 `json:"compaction_interval_minutes"`
-	MaxRevGap   int64 `json:"compaction_max_rev_gap"`
+	Threshold   int64 `json:"threshold"`
+	IntervalMin int64 `json:"interval_minutes"`
+	MaxRevGap   int64 `json:"max_rev_gap"`
 }
 
 var DefaultOptions = CompactionOptions{
