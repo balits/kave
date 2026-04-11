@@ -16,7 +16,6 @@ func Test_Reader_RangeSingleKey(t *testing.T) {
 
 	r := s.NewReader()
 	entries, total, lastRev, err := r.Range([]byte("foo"), nil, 0, 0)
-	entries, total, lastRev, err := r.Range([]byte("foo"), nil, 0, 0)
 	if err != nil {
 		t.Fatalf("Range: %v", err)
 	}
@@ -25,14 +24,15 @@ func Test_Reader_RangeSingleKey(t *testing.T) {
 	}
 	if lastRev != 1 {
 		t.Errorf("curRev = %d, want 1", lastRev)
-	if lastRev != 1 {
-		t.Errorf("curRev = %d, want 1", lastRev)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("entries = %d, want 1", len(entries))
-	}
-	if !bytes.Equal(entries[0].Value, []byte("bar")) {
-		t.Errorf("value = %q, want %q", entries[0].Value, "bar")
+		if lastRev != 1 {
+			t.Errorf("curRev = %d, want 1", lastRev)
+		}
+		if len(entries) != 1 {
+			t.Fatalf("entries = %d, want 1", len(entries))
+		}
+		if !bytes.Equal(entries[0].Value, []byte("bar")) {
+			t.Errorf("value = %q, want %q", entries[0].Value, "bar")
+		}
 	}
 }
 

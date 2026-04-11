@@ -6,11 +6,11 @@ import (
 
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/util"
-	"github.com/balits/kave/internal/util"
 	"github.com/stretchr/testify/require"
 )
 
 func Test_Writer_ReaderImpl_RangeSingleKey(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -39,6 +39,7 @@ func Test_Writer_ReaderImpl_RangeSingleKey(t *testing.T) {
 }
 
 func Test_Writer_ReaderImpl_RangeAtSpecificRev(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -73,6 +74,7 @@ func Test_Writer_ReaderImpl_RangeAtSpecificRev(t *testing.T) {
 }
 
 func Test_Writer_ReaderImpl_RangeRevZeroUsesCurrentRev(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -96,6 +98,7 @@ func Test_Writer_ReaderImpl_RangeRevZeroUsesCurrentRev(t *testing.T) {
 }
 
 func Test_Writer_ReaderImpl_RangeFutureRevError(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -112,6 +115,7 @@ func Test_Writer_ReaderImpl_RangeFutureRevError(t *testing.T) {
 }
 
 func Test_Writer_ReaderImpl_RangeMultipleKeys(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -137,6 +141,7 @@ func Test_Writer_ReaderImpl_RangeMultipleKeys(t *testing.T) {
 }
 
 func Test_Writer_ReaderImpl_RangeWithLimit(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -161,6 +166,7 @@ func Test_Writer_ReaderImpl_RangeWithLimit(t *testing.T) {
 }
 
 func Test_Writer_ReaderImpl_RangeNonExistentKey(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -180,6 +186,7 @@ func Test_Writer_ReaderImpl_RangeNonExistentKey(t *testing.T) {
 }
 
 func Test_Writer_ReaderImpl_RangeDeletedKey(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -203,6 +210,7 @@ func Test_Writer_ReaderImpl_RangeDeletedKey(t *testing.T) {
 }
 
 func Test_Writer_ReaderImpl_RangeDeletedKeyAtOldRev(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -226,6 +234,7 @@ func Test_Writer_ReaderImpl_RangeDeletedKeyAtOldRev(t *testing.T) {
 }
 
 func Test_Writer_ReaderImpl_RangeEmptyStore(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -242,7 +251,6 @@ func Test_Writer_ReaderImpl_RangeEmptyStore(t *testing.T) {
 
 func Test_Writer_PutSingleKey(t *testing.T) {
 	t.Parallel()
->>>>>>> 8081303 (add(testing): parallelize testing to speed up CI)
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -257,15 +265,14 @@ func Test_Writer_PutSingleKey(t *testing.T) {
 }
 
 func Test_Writer_PutMultipleKeys(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
 	w := s.NewWriter()
-	w.Put([]byte("foo"), []byte("v1"), 0)
-	w.End()
-
-	w = s.NewWriter()
-	w.Put([]byte("foo"), []byte("v2"), 0)
+	w.Put([]byte("a"), []byte("1"), 0)
+	w.Put([]byte("b"), []byte("2"), 0)
+	w.Put([]byte("c"), []byte("3"), 0)
 	w.End()
 
 	rev, changes := w.UnsafeExpectedChanges()
@@ -274,6 +281,7 @@ func Test_Writer_PutMultipleKeys(t *testing.T) {
 }
 
 func Test_Writer_PutSameKeyTwice(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -289,34 +297,8 @@ func Test_Writer_PutSameKeyTwice(t *testing.T) {
 	require.Equal(t, rev, int64(2), "revision = %d, want 2", rev)
 }
 
-<<<<<<< HEAD
-func Test_Writer_ReaderImpl_RangeNonExistentKey(t *testing.T) {
-=======
-func Test_Writer_PutSameKeyTwice(t *testing.T) {
-	t.Parallel()
->>>>>>> 8081303 (add(testing): parallelize testing to speed up CI)
-	s := newTestKVStore(t)
-	defer s.backend.Close()
-
-	w := s.NewWriter()
-	w.Put([]byte("foo"), []byte("bar"), 0)
-	w.End()
-
-	r := s.NewWriter()
-	defer r.End()
-	entries, total, _, err := r.Range([]byte("zzz"), nil, 0, 0)
-	if err != nil {
-		t.Fatalf("Range: %v", err)
-	}
-	if len(entries) != 0 || total != 0 {
-		t.Errorf("entries=%d total=%d, want 0 0", len(entries), total)
-	}
-}
-
-<<<<<<< HEAD
-func Test_Writer_ReaderImpl_RangeDeletedKey(t *testing.T) {
-=======
 func Test_Writer_PutPreservesCreateRev(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -335,6 +317,7 @@ func Test_Writer_PutPreservesCreateRev(t *testing.T) {
 }
 
 func Test_Writer_PutEntryFields(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -353,6 +336,7 @@ func Test_Writer_PutEntryFields(t *testing.T) {
 }
 
 func Test_Writer_Expected_Changes_ReturnsEndRev(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -365,6 +349,7 @@ func Test_Writer_Expected_Changes_ReturnsEndRev(t *testing.T) {
 }
 
 func Test_Writer_DeleteKey(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -384,10 +369,8 @@ func Test_Writer_DeleteKey(t *testing.T) {
 	require.True(t, changes[0].Tombstone(), "deleted entry should be a tombstone")
 }
 
-<<<<<<< HEAD
-func Test_Writer_ReaderImpl_RangeDeletedKeyAtOldRev(t *testing.T) {
-=======
 func Test_Writer_DeleteKeyNonExistent(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -402,6 +385,7 @@ func Test_Writer_DeleteKeyNonExistent(t *testing.T) {
 }
 
 func Test_Writer_DeleteKeyThenReCreate(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -422,14 +406,10 @@ func Test_Writer_DeleteKeyThenReCreate(t *testing.T) {
 	require.Len(t, changes, 1, "changes = %d, want 1", len(changes))
 	require.Equal(t, int64(3), changes[0].CreateRev, "re-created key CreateRev = %d, want 3", changes[0].CreateRev)
 	require.Equal(t, int64(1), changes[0].Version, "re-created key Version = %d, want 1", changes[0].Version)
-	rev, changes := w.UnsafeExpectedChanges()
-	require.Equal(t, int64(3), rev, "rev = %d, want 3", rev)
-	require.Len(t, changes, 1, "changes = %d, want 1", len(changes))
-	require.Equal(t, int64(3), changes[0].CreateRev, "re-created key CreateRev = %d, want 3", changes[0].CreateRev)
-	require.Equal(t, int64(1), changes[0].Version, "re-created key Version = %d, want 1", changes[0].Version)
 }
 
 func Test_Writer_DeleteRange(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -442,18 +422,15 @@ func Test_Writer_DeleteRange(t *testing.T) {
 
 	w = s.NewWriter()
 	err := w.DeleteRange([]byte("b"), []byte("d"))
-	err := w.DeleteRange([]byte("b"), []byte("d"))
 	require.NoError(t, err, "unexpected error from DeleteRange()")
 	w.End()
-	rev, ch := w.UnsafeExpectedChanges()
-	require.Equal(t, int64(2), rev, "rev = %d, want 2", rev)
-	require.Len(t, ch, 2, "deleted = %d, want 2", len(ch))
 	rev, ch := w.UnsafeExpectedChanges()
 	require.Equal(t, int64(2), rev, "rev = %d, want 2", rev)
 	require.Len(t, ch, 2, "deleted = %d, want 2", len(ch))
 }
 
 func Test_Writer_DeleteRangeEmpty(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -463,7 +440,6 @@ func Test_Writer_DeleteRangeEmpty(t *testing.T) {
 
 	w = s.NewWriter()
 	err := w.DeleteRange([]byte("x"), []byte("z"))
-	err := w.DeleteRange([]byte("x"), []byte("z"))
 	require.NoError(t, err, "unexpected error from DeleteRange()")
 	w.End()
 	_, ch := w.UnsafeExpectedChanges()
@@ -471,6 +447,7 @@ func Test_Writer_DeleteRangeEmpty(t *testing.T) {
 }
 
 func Test_Writer_UnsafeExpectedChanges_Empty_After_EmptyWrite(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -483,6 +460,7 @@ func Test_Writer_UnsafeExpectedChanges_Empty_After_EmptyWrite(t *testing.T) {
 }
 
 func Test_Writer_UnsafeExpectedChanges_IncludesTombstones(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -495,7 +473,6 @@ func Test_Writer_UnsafeExpectedChanges_IncludesTombstones(t *testing.T) {
 	w.End()
 
 	_, changes := w.UnsafeExpectedChanges()
-	_, changes := w.UnsafeExpectedChanges()
 	if len(changes) != 1 {
 		t.Fatalf("changes = %d, want 1", len(changes))
 	}
@@ -505,6 +482,7 @@ func Test_Writer_UnsafeExpectedChanges_IncludesTombstones(t *testing.T) {
 }
 
 func Test_Writer_End_NoChangesNoRevBump(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -518,6 +496,7 @@ func Test_Writer_End_NoChangesNoRevBump(t *testing.T) {
 }
 
 func Test_Writer_End_BumpsRevisionOnce(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -534,6 +513,7 @@ func Test_Writer_End_BumpsRevisionOnce(t *testing.T) {
 }
 
 func Test_Writer_End_PersistsRaftMeta(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
@@ -551,8 +531,6 @@ func Test_Writer_End_PersistsRaftMeta(t *testing.T) {
 
 	idx, _ := util.DecodeUint64(indexBytes)
 	term, _ := util.DecodeUint64(termBytes)
-	idx, _ := util.DecodeUint64(indexBytes)
-	term, _ := util.DecodeUint64(termBytes)
 
 	if idx != 42 {
 		t.Errorf("raft index = %d, want 42", idx)
@@ -563,6 +541,7 @@ func Test_Writer_End_PersistsRaftMeta(t *testing.T) {
 }
 
 func Test_Writer_End_NoRaftMetaWhenZero(t *testing.T) {
+	t.Parallel()
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 

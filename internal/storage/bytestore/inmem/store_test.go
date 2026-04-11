@@ -21,6 +21,7 @@ func newTestStore() *InmemStore {
 }
 
 func Test_Get_MissingKey(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	val, err := s.Get(testBucket, []byte("nope"))
 	if err != nil {
@@ -32,6 +33,7 @@ func Test_Get_MissingKey(t *testing.T) {
 }
 
 func Test_Get_WrongBucket(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	_, err := s.Get("nonexistent", []byte("key"))
 	if err == nil {
@@ -40,6 +42,7 @@ func Test_Get_WrongBucket(t *testing.T) {
 }
 
 func Test_Get_AfterPut(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	s.Put(testBucket, []byte("k"), []byte("v"))
 
@@ -53,6 +56,7 @@ func Test_Get_AfterPut(t *testing.T) {
 }
 
 func Test_Put_WrongBucket(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	_, err := s.Put("nonexistent", []byte("k"), []byte("v"))
 	if err == nil {
@@ -61,6 +65,7 @@ func Test_Put_WrongBucket(t *testing.T) {
 }
 
 func Test_Put_Overwrite(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	s.Put(testBucket, []byte("k"), []byte("v1"))
 	s.Put(testBucket, []byte("k"), []byte("v2"))
@@ -72,6 +77,7 @@ func Test_Put_Overwrite(t *testing.T) {
 }
 
 func Test_Put_MultipleBuckets(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	s.Put(testBucket, []byte("dk"), []byte("dv"))
 	s.Put(metaBucket, []byte("mk"), []byte("mv"))
@@ -87,6 +93,7 @@ func Test_Put_MultipleBuckets(t *testing.T) {
 }
 
 func Test_DeleteExisting(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	s.Put(testBucket, []byte("k"), []byte("v"))
 
@@ -105,6 +112,7 @@ func Test_DeleteExisting(t *testing.T) {
 }
 
 func Test_DeleteMissing(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	val, err := s.Delete(testBucket, []byte("nope"))
 	if err != nil {
@@ -116,6 +124,7 @@ func Test_DeleteMissing(t *testing.T) {
 }
 
 func Test_DeleteWrongBucket(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	_, err := s.Delete("nonexistent", []byte("k"))
 	if err == nil {
@@ -124,6 +133,7 @@ func Test_DeleteWrongBucket(t *testing.T) {
 }
 
 func Test_Scan_All(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	s.Put(testBucket, []byte("a"), []byte("1"))
 	s.Put(testBucket, []byte("b"), []byte("2"))
@@ -143,6 +153,7 @@ func Test_Scan_All(t *testing.T) {
 }
 
 func Test_Scan_EarlyStop(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	s.Put(testBucket, []byte("a"), []byte("1"))
 	s.Put(testBucket, []byte("b"), []byte("2"))
@@ -159,6 +170,7 @@ func Test_Scan_EarlyStop(t *testing.T) {
 }
 
 func Test_Scan_WrongBucket(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	err := s.Scan("nonexistent", func(k, v []byte) bool { return true })
 	if err == nil {
@@ -167,6 +179,7 @@ func Test_Scan_WrongBucket(t *testing.T) {
 }
 
 func Test_Scan_Order(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	s.Put(testBucket, []byte("c"), []byte("3"))
 	s.Put(testBucket, []byte("a"), []byte("1"))
@@ -183,6 +196,7 @@ func Test_Scan_Order(t *testing.T) {
 }
 
 func Test_PrefixScan(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	s.Put(testBucket, []byte("foo/1"), []byte("a"))
 	s.Put(testBucket, []byte("foo/2"), []byte("b"))
@@ -202,6 +216,7 @@ func Test_PrefixScan(t *testing.T) {
 }
 
 func Test_PrefixScanNoMatch(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	s.Put(testBucket, []byte("abc"), []byte("1"))
 
@@ -216,6 +231,7 @@ func Test_PrefixScanNoMatch(t *testing.T) {
 }
 
 func Test_PrefixScanWrongBucket(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	err := s.PrefixScan("nonexistent", []byte("x"), func(k, v []byte) bool { return true })
 	if err == nil {
@@ -224,6 +240,7 @@ func Test_PrefixScanWrongBucket(t *testing.T) {
 }
 
 func Test_WriteToReadFromRoundTrip(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	s.Put(testBucket, []byte("k1"), []byte("v1"))
 	s.Put(testBucket, []byte("k2"), []byte("v2"))
@@ -257,6 +274,7 @@ func Test_WriteToReadFromRoundTrip(t *testing.T) {
 }
 
 func Test_ReadFromOverwrites(t *testing.T) {
+	t.Parallel()
 	s1 := newTestStore()
 	s1.Put(testBucket, []byte("src"), []byte("from_source"))
 
@@ -278,6 +296,7 @@ func Test_ReadFromOverwrites(t *testing.T) {
 }
 
 func TestClose(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	s.Put(testBucket, []byte("k"), []byte("v"))
 
@@ -288,6 +307,7 @@ func TestClose(t *testing.T) {
 }
 
 func TestConcurrentReadWrite(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	var wg sync.WaitGroup
 
@@ -313,6 +333,7 @@ func TestConcurrentReadWrite(t *testing.T) {
 }
 
 func TestConcurrentScans(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	for i := 0; i < 50; i++ {
 		s.Put(testBucket, []byte(fmt.Sprintf("key_%03d", i)), []byte(fmt.Sprintf("val_%03d", i)))
@@ -337,6 +358,7 @@ func TestConcurrentScans(t *testing.T) {
 }
 
 func TestLargeValue(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	big := make([]byte, 64*1024)
 	for i := range big {
@@ -351,6 +373,7 @@ func TestLargeValue(t *testing.T) {
 }
 
 func TestManyKeys(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 	n := 1000
 	for i := 0; i < n; i++ {
@@ -370,6 +393,7 @@ func TestManyKeys(t *testing.T) {
 // defrag tests
 
 func Test_Defragment_DataSurvives(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 
 	for i := range 100 {
@@ -388,6 +412,7 @@ func Test_Defragment_DataSurvives(t *testing.T) {
 }
 
 func Test_Defragment_StoreRemainsWritable(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 
 	s.Put(testBucket, []byte("before"), []byte("value"))
@@ -403,6 +428,7 @@ func Test_Defragment_StoreRemainsWritable(t *testing.T) {
 }
 
 func Test_Defragment_EmptyStore(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 
 	// defraging empty store should be a no-op not a crash
@@ -414,6 +440,7 @@ func Test_Defragment_EmptyStore(t *testing.T) {
 }
 
 func Test_Defragment_MultipleBuckets(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 
 	s.Put(testBucket, []byte("dk"), []byte("dv"))
@@ -431,6 +458,7 @@ func Test_Defragment_MultipleBuckets(t *testing.T) {
 }
 
 func Test_Defragment_AfterManyDeletes(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 
 	for i := range 1000 {
@@ -458,6 +486,7 @@ func Test_Defragment_AfterManyDeletes(t *testing.T) {
 }
 
 func Test_Defragment_IdempotentMultipleTimes(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 
 	s.Put(testBucket, []byte("k"), []byte("v"))
@@ -472,6 +501,7 @@ func Test_Defragment_IdempotentMultipleTimes(t *testing.T) {
 }
 
 func Test_Defragment_ScanStillWorksAfter(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 
 	for i := range 10 {
@@ -490,6 +520,7 @@ func Test_Defragment_ScanStillWorksAfter(t *testing.T) {
 }
 
 func Test_Defragment_ReducesFileSize(t *testing.T) {
+	t.Parallel()
 	s := newTestStore()
 
 	// write and delete enough data that boltdb's file should have

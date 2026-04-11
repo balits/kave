@@ -77,7 +77,7 @@ func Test_Stream_Watch_RegistersWatcherOnHub(t *testing.T) {
 	res := ws.Watch(t.Context(), watchReq("foo", 5))
 	require.NoError(t, res.Error)
 
-	require.Contains(t, hub.synced, res.WatchID, "expected startRev == storeRev")
+	require.Contains(t, hub.TestSyncedCloned(), res.WatchID, "expected startRev == storeRev")
 }
 
 func Test_Stream_Watch_MultipleDifferentKeys(t *testing.T) {
@@ -90,8 +90,8 @@ func Test_Stream_Watch_MultipleDifferentKeys(t *testing.T) {
 	require.NoError(t, res2.Error)
 
 	require.NotEqual(t, res1.WatchID, res2)
-	require.Contains(t, hub.synced, res1.WatchID)
-	require.Contains(t, hub.synced, res2.WatchID)
+	require.Contains(t, hub.TestSyncedCloned(), res1.WatchID)
+	require.Contains(t, hub.TestSyncedCloned(), res2.WatchID)
 }
 
 func Test_Stream_Watch_UnsyncedPlacement(t *testing.T) {
@@ -100,7 +100,7 @@ func Test_Stream_Watch_UnsyncedPlacement(t *testing.T) {
 	res := ws.Watch(t.Context(), watchReq("foo", 3))
 	require.NoError(t, res.Error)
 
-	require.Contains(t, hub.unsynced, res.WatchID)
+	require.Contains(t, hub.TestUnsyncedCloned(), res.WatchID)
 }
 
 func Test_Stream_Watch_EventsFlowToOutput(t *testing.T) {
@@ -196,14 +196,14 @@ func Test_Stream_Cancel_RemovesWatcher(t *testing.T) {
 
 	res := ws.Watch(t.Context(), watchReq("foo", 5))
 	require.NoError(t, res.Error)
-	require.Contains(t, hub.synced, res.WatchID)
+	require.Contains(t, hub.TestSyncedCloned(), res.WatchID)
 
 	ws.Cancel(api.WatchCancelRequest{WatchID: res.WatchID})
 
 	time.Sleep(50 * time.Millisecond)
 
-	require.NotContains(t, hub.synced, res.WatchID, "cancelled watcher should be removed from hub")
-	require.NotContains(t, hub.unsynced, res.WatchID)
+	require.NotContains(t, hub.TestSyncedCloned(), res.WatchID, "cancelled watcher should be removed from hub")
+	require.NotContains(t, hub.TestUnsyncedCloned(), res.WatchID)
 }
 
 func Test_Stream_Cancel_StopsEventDelivery(t *testing.T) {
@@ -270,8 +270,8 @@ func Test_Stream_Close_DropsAllStreamWatchers(t *testing.T) {
 	ws.Close()
 	time.Sleep(50 * time.Millisecond)
 
-	require.NotContains(t, hub.synced, res1.WatchID)
-	require.NotContains(t, hub.synced, res2.WatchID)
+	require.NotContains(t, hub.TestSyncedCloned(), res1.WatchID)
+	require.NotContains(t, hub.TestSyncedCloned(), res2.WatchID)
 }
 
 func Test_Stream_Close_NoEventsAfterClose(t *testing.T) {
@@ -312,8 +312,8 @@ func Test_Stream_Watch_ContextCancelStopsGoroutine(t *testing.T) {
 	cancel()
 	time.Sleep(100 * time.Millisecond)
 
-	require.NotContains(t, hub.synced, res.WatchID, "cancelled watcher should be removed")
-	require.NotContains(t, hub.unsynced, res.WatchID)
+	require.NotContains(t, hub.TestSyncedCloned(), res.WatchID, "cancelled watcher should be removed")
+	require.NotContains(t, hub.TestUnsyncedCloned(), res.WatchID)
 }
 
 func Test_Stream_Watch_ContextCancelDoesNotAffectOtherWatchers(t *testing.T) {
@@ -327,8 +327,8 @@ func Test_Stream_Watch_ContextCancelDoesNotAffectOtherWatchers(t *testing.T) {
 	cancel1()
 	time.Sleep(100 * time.Millisecond)
 
-	require.NotContains(t, hub.synced, res1.WatchID, "cancelled watcher should be gone")
-	require.Contains(t, hub.synced, res2.WatchID, "other watcher should survive")
+	require.NotContains(t, hub.TestSyncedCloned(), res1.WatchID, "cancelled watcher should be gone")
+	require.Contains(t, hub.TestSyncedCloned(), res2.WatchID, "other watcher should survive")
 
 	hub.OnCommit([]*kv.Entry{putEntry("bar", "v", 6)})
 	got := collectStreamEvents(t, ws, 1)

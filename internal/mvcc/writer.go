@@ -8,12 +8,9 @@ import (
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage/backend"
 	"github.com/balits/kave/internal/util"
-	"github.com/balits/kave/internal/util"
 )
 
 type Writer interface {
-	// writer should implement normal read operations too, since we have the exclusive writelock,
-	// but the write transaction does not end at reading, so callers should still call w.End() or w.Abort().
 	// writer should implement normal read operations too, since we have the exclusive writelock,
 	// but the write transaction does not end at reading, so callers should still call w.End() or w.Abort().
 	Reader
@@ -30,26 +27,8 @@ type Writer interface {
 	// The caller should call End() to commit the transaction and update the store's current revision.
 	DeleteKey(key []byte) error
 
-	// StartRev returns the writers start revision,
-	// and it gets updated when the writer commits a transaction.
-
-	// Put writes a key-value pair with the given lease ID.
-	// The caller should call End() to commit the transaction and update the store's current revision.
-	Put(key, value []byte, leaseID int64) error
-
-	// Delete deletes a [key, end) range if end is provided, or a single key if end is nil.
-	// The caller should call End() to commit the transaction and update the store's current revision.
-	DeleteRange(key, end []byte) error
-
-	// DeleteKey deletes a single key. It's a convenience method that calls DeleteRange with end = nil.
-	// The caller should call End() to commit the transaction and update the store's current revision.
-	DeleteKey(key []byte) error
-
 	// End commits the transaction and releases locks, returning any errors that mightve happened.
-	// End commits the transaction and releases locks, returning any errors that mightve happened.
-	// It updates the store's current revision and raft metadata, so it should be called after all changes are made.
 	// It should be called if the caller decides to commit the transaction.
-	End() error
 	End() error
 
 	// Abort discards all changes and releases locks. It should be called if the caller decides not to commit the transaction.
@@ -107,7 +86,6 @@ func (w *writer) Get(key []byte, rev int64) *kv.Entry {
 		return nil
 	}
 	return entries[0]
-	return entries[0]
 }
 
 func (w *writer) Range(key, end []byte, targetRev int64, limit int64) (entries []*kv.Entry, count int, currentRev int64, err error) {
@@ -127,14 +105,11 @@ func (w *writer) RevisionRange(startRev, endRev int64, limit int64) (entries []*
 }
 
 func (w *writer) Put(key []byte, value []byte, leaseID int64) error {
-func (w *writer) Put(key []byte, value []byte, leaseID int64) error {
 	if err := w.put(key, value, leaseID); err != nil {
 		w.store.logger.Error("mvcc.Writer.Put() failed", "error", err)
 		w.store.metrics.PutErrorsTotal.Inc()
 		return fmt.Errorf("mvcc.Writer.Put() failed: %w", err)
-		return fmt.Errorf("mvcc.Writer.Put() failed: %w", err)
 	}
-	return nil
 	return nil
 }
 
@@ -153,7 +128,6 @@ func (w *writer) put(key, value []byte, leaseID int64) error {
 	idxRevBytes = kv.EncodeRevisionAsBucketKey(idxRev, idxRevBytes)
 
 	entry := &kv.Entry{
-	entry := &kv.Entry{
 		Key:       key,
 		Value:     value,
 		CreateRev: createRev,
@@ -162,7 +136,6 @@ func (w *writer) put(key, value []byte, leaseID int64) error {
 		LeaseID:   leaseID,
 	}
 
-	d, err := kv.EncodeKvEntry(entry)
 	d, err := kv.EncodeKvEntry(entry)
 	if err != nil {
 		return fmt.Errorf("failed to encode entry: %v", err)
@@ -178,22 +151,16 @@ func (w *writer) put(key, value []byte, leaseID int64) error {
 	w.changes = append(w.changes, entry)
 	return nil
 }
-
-func (w *writer) DeleteRange(key []byte, end []byte) error {
-	err := w.deleteRange(key, end)
 func (w *writer) DeleteRange(key []byte, end []byte) error {
 	err := w.deleteRange(key, end)
 	if err != nil {
 		w.store.logger.Error("mvcc.Writer.DeleteRange() failed", "error", err)
 		w.store.metrics.DeleteErrorsTotal.Inc()
 		return fmt.Errorf("mvcc.Writer.DeleteRange() failed: %w", err)
-		return fmt.Errorf("mvcc.Writer.DeleteRange() failed: %w", err)
 	}
-	return nil
 	return nil
 }
 
-func (w *writer) deleteRange(key []byte, end []byte) error {
 func (w *writer) deleteRange(key []byte, end []byte) error {
 	startRev := w.startRev.Main
 	if len(w.changes) > 0 {
@@ -206,21 +173,17 @@ func (w *writer) deleteRange(key []byte, end []byte) error {
 		// we can distinguish these cases by checking if the startRev is less than the compacted rev
 		// for now, leave it as a no-op
 		return nil
-		return nil
 		//return 0, errors.New("mvcc.Writer.DeleteRange() failed: error during index.Range(): no revisions returned")
 	}
 
 	for _, k := range keys {
 		if err := w.deleteKey(k); err != nil {
 			return fmt.Errorf("error during mvcc.Writer.DeleteRange(): error during mvcc.Writer.deleteKey(): %v", err)
-			return fmt.Errorf("error during mvcc.Writer.DeleteRange(): error during mvcc.Writer.deleteKey(): %v", err)
 		}
 	}
 	return nil
-	return nil
 }
 
-func (w *writer) DeleteKey(key []byte) error {
 func (w *writer) DeleteKey(key []byte) error {
 	return w.DeleteRange(key, nil)
 }
@@ -229,11 +192,7 @@ func (w *writer) deleteKey(key []byte) error {
 	nextRev := w.startRev.Main + 1
 	bk := kv.NewKvBucketKey(nextRev, int64(len(w.changes)), true)
 	// TODO: kv.EncodeRevisionAsBucketKey ??
-	nextRev := w.startRev.Main + 1
-	bk := kv.NewKvBucketKey(nextRev, int64(len(w.changes)), true)
-	// TODO: kv.EncodeRevisionAsBucketKey ??
-	bkBytes := kv.NewRevBytes()
-	bkBytes = kv.EncodeKvBucketKey(bk, bkBytes)
+	bkBytes := kv.EncodeKvBucketKey(bk, kv.NewRevBytes())
 
 	// tombstone entry has a key but no value (api layer does not allow nil values)
 	// modRev is bumped, so watchers dont see a sudden modRev == 0 after watching from lets say revs 5->8,
@@ -245,11 +204,9 @@ func (w *writer) deleteKey(key []byte) error {
 	tombstoneEntryBytes, err := kv.EncodeKvEntry(tombstoneEntry)
 	if err != nil {
 		return fmt.Errorf("writer.deleteKey(): %v", err)
-		return fmt.Errorf("writer.deleteKey(): %v", err)
 	}
 
 	// update history
-	err = w.writeTx.UnsafePut(schema.BucketKV, bkBytes, tombstoneEntryBytes)
 	err = w.writeTx.UnsafePut(schema.BucketKV, bkBytes, tombstoneEntryBytes)
 	if err != nil {
 		return fmt.Errorf("writer.deleteKey(): failed to put tombstone entry: %v", err)
@@ -262,7 +219,6 @@ func (w *writer) deleteKey(key []byte) error {
 	}
 
 	w.changes = append(w.changes, tombstoneEntry)
-	w.changes = append(w.changes, tombstoneEntry)
 	return nil
 }
 
@@ -272,12 +228,6 @@ func (w *writer) Abort() {
 	w.writeTx.Unlock()       // release db lock
 	w.store.rwlock.RUnlock() // release store lock
 }
-
-func (w *writer) End() error {
-	defer func() {
-		w.writeTx.Unlock()       // release db lock
-		w.store.rwlock.RUnlock() // release store lock
-	}()
 
 func (w *writer) End() error {
 	defer func() {
@@ -308,9 +258,6 @@ func (w *writer) End() error {
 		msg := "failed to commit write tx"
 		w.store.logger.Error(msg, "error", err)
 		return fmt.Errorf("%s: %w", msg, err)
-		msg := "failed to commit write tx"
-		w.store.logger.Error(msg, "error", err)
-		return fmt.Errorf("%s: %w", msg, err)
 	} else {
 		w.store.metrics.CommitedWritesTotal.Add(1)
 		w.store.metrics.TxnDurationSec.Observe(time.Since(w.startTime).Seconds())
@@ -322,8 +269,6 @@ func (w *writer) End() error {
 	if len(w.changes) != 0 {
 		w.store.revMu.Unlock()
 	}
-
-	return nil
 
 	return nil
 }

@@ -52,18 +52,54 @@ type WatchHub struct {
 	logger   *slog.Logger
 }
 
-func (h *WatchHub) Synced() map[int64]*watcher {
+// func (h *WatchHub) TestUnsafeSynced() map[int64]*watcher {
+// 	if !testing.Testing() {
+// 		panic("watch hub: TestUnsafeSynced() is only allowed in testing")
+// 	}
+// 	return h.synced
+// }
+
+// func (h *WatchHub) TestUnsafeUnsynced() map[int64]*watcher {
+// 	if !testing.Testing() {
+// 		panic("watch hub: TestUnsafeUnsynced() is only allowed in testing")
+// 	}
+// 	return h.unsynced
+// }
+
+func (h *WatchHub) TestSyncedCloned() map[int64]*watcher {
 	if !testing.Testing() {
-		panic("watch hub: Synced() is only allowed in testing")
+		panic("watch hub: TestSyncedCloned() is only allowed in testing")
 	}
-	return h.synced
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	copy := make(map[int64]*watcher, len(h.synced))
+	for k, v := range h.synced {
+		if v == nil {
+			copy[k] = nil
+			continue
+		}
+		val := *v // deref to copy
+		copy[k] = &val
+	}
+	return copy
 }
 
-func (h *WatchHub) Unsynced() map[int64]*watcher {
+func (h *WatchHub) TestUnsyncedCloned() map[int64]*watcher {
 	if !testing.Testing() {
-		panic("watch hub: Unsynced() is only allowed in testing")
+		panic("watch hub: TestUnsyncedCloned() is only allowed in testing")
 	}
-	return h.synced
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	copy := make(map[int64]*watcher, len(h.unsynced))
+	for k, v := range h.unsynced {
+		if v == nil {
+			copy[k] = nil
+			continue
+		}
+		val := *v // deref to copy
+		copy[k] = &val
+	}
+	return copy
 }
 
 func (h *WatchHub) Mu() *sync.Mutex {

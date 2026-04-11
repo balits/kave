@@ -1,10 +1,12 @@
 package http
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -22,8 +24,8 @@ const (
 type middleware = func(http.HandlerFunc) http.HandlerFunc
 
 func chain(base http.HandlerFunc, ms ...middleware) http.HandlerFunc {
-	for i := range len(ms) {
-		base = ms[len(ms)-i-1](base)
+	for _, m := range ms {
+		base = m(base)
 	}
 	return base
 }
@@ -178,4 +180,12 @@ func (i *statusCodeInterceptor) Write(bb []byte) (int, error) {
 func (i *statusCodeInterceptor) WriteHeader(statusCode int) {
 	i.statusCode = statusCode
 	i.w.WriteHeader(statusCode)
+}
+
+func (i *statusCodeInterceptor) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := i.w.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("webserver does not support hijacking")
+	}
+	return h.Hijack()
 }

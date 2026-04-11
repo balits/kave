@@ -2,8 +2,11 @@ package kv
 
 import (
 	"log/slog"
+	"os"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func testLogger() *slog.Logger {
@@ -37,7 +40,6 @@ func Test_TreeIndexPutAndGet(t *testing.T) {
 	}
 
 	// Reading at old revision still returns old value
-	_, modRev, ver, err = ti.Get([]byte("foo"), 1)
 	_, modRev, ver, err = ti.Get([]byte("foo"), 1)
 	if err != nil {
 		t.Fatalf("Get at old rev: %v", err)
@@ -140,7 +142,6 @@ func Test_TreeIndexRange(t *testing.T) {
 	_ = revs
 
 	// Point query (end=nil)
-	keys, _ = ti.Range([]byte("bar"), nil, 5)
 	keys, _ = ti.Range([]byte("bar"), nil, 5)
 	if len(keys) != 1 || string(keys[0]) != "bar" {
 		t.Errorf("point query = %v, want [bar]", keys)
