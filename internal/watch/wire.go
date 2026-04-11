@@ -53,7 +53,7 @@ type ClientMessageKind string
 const (
 	ClientWatchCreate ClientMessageKind = "WATCH_CREATE"
 	ClientWatchCancel ClientMessageKind = "WATCH_CANCEL"
-	ClientClose       ClientMessageKind = "CLOSE"
+	ClientClose       ClientMessageKind = "SESSION_CLOSE"
 )
 
 type ServerMessage struct {
@@ -65,7 +65,7 @@ type ServerMessageKind string
 
 const (
 	ServerError            ServerMessageKind = "ERROR" // some unrecoverable error
-	ServerCloseSession     ServerMessageKind = "CLOSING_SESSION"
+	ServerCloseSession     ServerMessageKind = "SESSION_CLOSE"
 	ServerWatchCreated     ServerMessageKind = "WATCH_CREATED"
 	ServerWatchCanceled    ServerMessageKind = "WATCH_CANCELED"
 	ServerWatchEventPut    ServerMessageKind = ServerMessageKind(StreamWatchPut)
