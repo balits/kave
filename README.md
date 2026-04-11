@@ -151,7 +151,7 @@ Hello world
             - moved raft.Stats() call inside every GaugeFunc
         - [x] WriteTx Commit Observer
         - [ ] Snapshot metrics too
-        - [ ] meaningful grafana
+        - [ ] meaningful grafana dashboards
         - [x] figure out where and how to collect every kind of metric
             - [x] raft
             - [x] kv
@@ -193,9 +193,6 @@ Hello world
         - [x] type OTService
             - [x] impl
             - [x] test
-    - [ ] refactor LeaseService return types
-    - [ ] cluster integration tests
-    - [ ] live workload + web ui for stats, metrics and manual commands
     - [x] watch API
         - [x] watcher
             - store key, end, startRev, currentRev and a buffered channel of events for send/sendAll
@@ -217,7 +214,7 @@ Hello world
             - [x]manages its own subset of watcher, wraps the hub
             - [x] starts a collector go routine for each new watch created, and collects it
                 in an output channel, emitting StreamEvents {watcher_id, event}
-        - [ ] Session: wraps a websocket connection, creates a Stream and handles ws reads/writes
+        - [x] Session: wraps a websocket connection, creates a Stream and handles ws reads/writes
             - [x] collector routine: collects events and messages then writes the json to the client
                 - collects events from the stream
                 - collects control messages from the session
@@ -227,7 +224,15 @@ Hello world
                 - dispatcher blocks on reading from the connection
                 - one a client message arrives for watch create/cancel, it forwards the request to the stream, then sends the result to the collector go routine 
                 - wraps these in ServerMessage and writes them to the collector
-            - [ ] fix _err = json.Marshal() on ServerMessage
+            - [x] fix _err = json.Marshal() on ServerMessage
+
+    - APR. 11:
+    - [ ] cluster integration tests
+    - [ ] live workload + web ui for stats, metrics and manual commands
+    - [ ] BatchingFSM
+    - [ ] kv index
+        - [ ] LICENSE from etcd: http://www.apache.org/licenses/LICENSE-2.0
+        - [ ] batch kvindex updates, rollback on commit failure
 
 # CHORES
 - [ ] use require in every test insteaf of if err != nil ...

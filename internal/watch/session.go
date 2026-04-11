@@ -23,7 +23,9 @@ const (
 var (
 	errInvalidClientMessage       = errors.New("client message error:")
 	errInvalidWatchRequestPayload = fmt.Errorf("%w: invalid request payload", errInvalidClientMessage)
-	closeSessionSignal            = errors.New("client requested closing the session")
+	errStreamEventParse           = errors.New("failed to parse stream event")
+	errServerMessageMarshall      = errors.New("failed to marshal server message")
+	_closeSessionSignal           = errors.New("client requested closing the session")
 )
 
 // Session is a wrapper around a watch websocket connection.
@@ -135,21 +137,36 @@ func (s *Session) writer() (err error) {
 	s.logger.Info("collector started")
 
 	for {
-		var msg ServerMessage
+		var (
+			msg      ServerMessage
+			msgError error
+		)
+
 		select {
 		case <-s.ctx.Done():
 			return s.ctx.Err()
 		case msg = <-s.outC:
 			s.logger.Info("writing control message", "kind", msg.Kind)
 		case ev := <-s.stream.Events():
-			msg = serverStreamEvent(ev)
+			msg, msgError = toServerStreamEvent(ev)
+		}
+
+		if msgError != nil {
+			s.logger.Warn(errStreamEventParse.Error())
+			msg.Kind = ServerError
+			msg, err = toServerErrorMessage(err, "")
+
+			if err != nil {
+
+				return closeSessionSignal(s.logger, "failed to marshal error message", err)
+			}
 		}
 
 		if err = s.write(msg); err != nil {
 			return err
 		}
 		if msg.Kind == ServerMessageKind(ClientClose) {
-			return closeSessionSignal
+			return closeSessionSignal(s.logger, fmt.Sprintf("recieved %s controll message", msg.Kind), nil)
 		}
 	}
 }
@@ -190,19 +207,19 @@ func (s *Session) reader() (err error) {
 				s.logger.Info(errInvalidWatchRequestPayload.Error(),
 					"error", msg,
 				)
-				response = serverErrorMessage(errInvalidWatchRequestPayload, msg)
+				response, err = toServerErrorMessage(errInvalidWatchRequestPayload, msg)
 			} else {
 				res := s.stream.Watch(s.ctx, payload)
-				response = serverWatchCreate(res)
+				response, err = toServerWatchCreate(res)
 			}
 		case ClientWatchCancel:
 			var payload api.WatchCancelRequest
 			if err = json.Unmarshal(req.Payload, &payload); err != nil {
 				msg := fmt.Sprintf("could not decode payload: %v", err)
-				response = serverErrorMessage(errInvalidWatchRequestPayload, msg)
+				response, err = toServerErrorMessage(errInvalidWatchRequestPayload, msg)
 			} else {
 				res := s.stream.Cancel(payload)
-				response = serverWatchCanceled(res)
+				response, err = toServerWatchCanceled(res)
 			}
 		case ClientClose:
 			response = serverCloseSession()
@@ -211,7 +228,13 @@ func (s *Session) reader() (err error) {
 				"error", errInvalidClientMessage,
 				"kind", req.Kind,
 			)
-			response = serverErrorMessage(errInvalidClientMessage, "unknown kind while reading client message")
+			response, err = toServerErrorMessage(errInvalidClientMessage, "unknown kind while reading client message")
+		}
+
+		if err != nil {
+			if response.Kind == ServerError {
+				return closeSessionSignal(s.logger, "failed to marshal error message", err)
+			}
 		}
 
 		s.outC <- response
@@ -253,38 +276,47 @@ func (s *Session) write(msg ServerMessage) error {
 	return nil
 }
 
-// ServerMessage mappers
-
-func serverWatchCreate(res api.WatchCreateResponse) ServerMessage {
-	bs, err := res.MarshalJSON()
+func toServerWatchCreate(res api.WatchCreateResponse) (msg ServerMessage, err error) {
+	var bs []byte
+	bs, err = res.MarshalJSON()
 	if err != nil {
-		panic(err)
+		err = fmt.Errorf("%w: %w", errServerMessageMarshall, err)
+		return
 	}
 
-	var r api.WatchCreateResponse
-	// FIXME !!!
-	_ = r.UnmarshalJSON(bs)
-
-	return ServerMessage{
-		Kind:    ServerWatchCreated,
-		Payload: bs,
+	err = res.UnmarshalJSON(bs)
+	if err != nil {
+		err = fmt.Errorf("%w: %w", errServerMessageMarshall, err)
+		return
 	}
+
+	msg.Kind = ServerWatchCreated
+	msg.Payload = bs
+	return
 }
 
-func serverWatchCanceled(res api.WatchCancelResponse) ServerMessage {
-	bs, err := res.MarshalJSON()
+func toServerWatchCanceled(res api.WatchCancelResponse) (msg ServerMessage, err error) {
+	var bs []byte
+	bs, err = res.MarshalJSON()
 	if err != nil {
-		panic(err)
+		err = fmt.Errorf("%w: %w", errServerMessageMarshall, err)
+		return
 	}
 
-	return ServerMessage{
-		Kind:    ServerWatchCanceled,
-		Payload: bs,
+	err = res.UnmarshalJSON(bs)
+	if err != nil {
+		err = fmt.Errorf("%w: %w", errServerMessageMarshall, err)
+		return
 	}
+
+	msg.Kind = ServerWatchCanceled
+	msg.Payload = bs
+	return
 }
 
-func serverStreamEvent(ev StreamEvent) ServerMessage {
+func toServerStreamEvent(ev StreamEvent) (msg ServerMessage, err error) {
 	var kind ServerMessageKind
+	var bs []byte
 
 	switch ev.Kind {
 	case StreamWatchPut:
@@ -295,35 +327,48 @@ func serverStreamEvent(ev StreamEvent) ServerMessage {
 		kind = ServerError
 	}
 
-	bs, err := json.Marshal(ev)
+	bs, err = json.Marshal(ev)
 	if err != nil {
-		panic(err)
+		err = fmt.Errorf("%w: %w", errStreamEventParse, err)
+		return
 	}
 
-	return ServerMessage{
-		Kind:    kind,
-		Payload: bs,
-	}
+	msg.Kind = kind
+	msg.Payload = bs
+	return
 }
 
-func serverErrorMessage(cause error, msg string) ServerMessage {
-	bs, err := serverErrorPayload{
+func toServerErrorMessage(cause error, msg string) (msgOut ServerMessage, err error) {
+	var bs []byte
+	p := serverErrorPayload{
 		Cause:   cause,
 		Message: msg,
-	}.MarshalJSON()
+	}
 
+	bs, err = p.MarshalJSON()
 	if err != nil {
-		panic(err)
+		err = fmt.Errorf("%w: %w", errServerMessageMarshall, err)
+		return
 	}
 
-	return ServerMessage{
-		Kind:    ServerError,
-		Payload: bs,
-	}
+	msgOut.Kind = ServerError
+	msgOut.Payload = bs
+	return
 }
 
 func serverCloseSession() ServerMessage {
 	return ServerMessage{
 		Kind: ServerCloseSession,
 	}
+}
+
+func closeSessionSignal(l *slog.Logger, msg string, err error) error {
+	if err != nil {
+		l.Error(msg+"; closing connection",
+			"cause", err,
+		)
+	} else {
+		l.Error(msg + "; closing connection")
+	}
+	return _closeSessionSignal
 }
