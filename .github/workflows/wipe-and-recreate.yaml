@@ -91,3 +91,6 @@ jobs:
 
       - name: Wipe cluster
         run: make wipe-recreate-cluster
+      
+      - name: Wait until cluster is ready (statfulset pods are running + all nodes ready + quorom is formed)
+        run: make wait-cluster-ready

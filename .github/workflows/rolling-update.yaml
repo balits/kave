@@ -88,10 +88,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # - name: Setup K8s + Helm
       - uses: ./.github/actions/setup-helm-and-k8s
         with:
           kubeconfig_b64: ${{ secrets.KUBECONFIG_B64 }}
 
       - name: Upgrading helm chart
         run: make helm-upgrade-install
+      
+      - name: Wait until cluster is ready (statfulset pods are running + all nodes ready + quorom is formed)
+        run: make wait-cluster-ready

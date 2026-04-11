@@ -105,6 +105,13 @@ wipe-recreate-cluster: ## Wipe and redeploy helm chart
 	@echo ">> 3. step: ok"
 	@echo ">> DONE"
 
+wait-cluster-ready:
+	@echo ">> 1. waiting on rollout status"
+	kubectl rollout status statefulset/kave-voter -n $(NAMESPACE) --timeout=3m
+
+	@echo ">> 2. printing final pod state"
+	kubectl get pods -n $(NAMESPACE)
+
 k9s:
 	./bin/k9s --kubeconfig .kube/config 
 fmt:
