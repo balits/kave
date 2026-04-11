@@ -85,7 +85,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # - name: Setup K8s + Helm
-      - uses: ./.github/actions/setup-k8s
+      - uses: ./.github/actions/setup-helm-and-k8s
         with:
           kubeconfig_b64: ${{ secrets.KUBECONFIG_B64 }}
 
