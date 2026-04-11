@@ -5,7 +5,6 @@ import (
 
 	"github.com/balits/kave/internal/command"
 	"github.com/balits/kave/internal/kv"
-	"github.com/balits/kave/internal/types"
 )
 
 type LeaseAttacher interface {
@@ -13,38 +12,78 @@ type LeaseAttacher interface {
 	DetachKey(id int64, key []byte)
 }
 
+type CommitObserver interface {
+	OnCommit(changes []*kv.Entry)
+}
+
 type Engine struct {
 	store    *KvStore
 	attacher LeaseAttacher
+	obs      []CommitObserver
 }
 
-func NewEngine(store *KvStore, attacher LeaseAttacher) *Engine {
+func NewEngine(store *KvStore, attacher LeaseAttacher, obs ...CommitObserver) *Engine {
 	return &Engine{
 		store:    store,
 		attacher: attacher,
+		obs:      obs,
 	}
 }
 
-func (e *Engine) ApplyWrite(cmd command.Command) (command.Result, error) {
+func (e *Engine) ApplyWrite(cmd command.Command) (*command.Result, error) {
+	w := e.store.NewWriter()
+
+	res := new(command.Result)
+	var err error
+
 	switch cmd.Kind {
 	case command.KindPut:
-		return e.applyPut(cmd.Put)
+		var resPut *command.ResultPut
+		if resPut, err = e.applyPut(w, cmd.Put); err == nil {
+			res.Put = resPut
+		}
 	case command.KindDelete:
-		return e.applyDelete(cmd.Delete)
+		var resDel *command.ResultDelete
+		if resDel, err = e.applyDelete(w, cmd.Delete); err == nil {
+			res.Delete = resDel
+		}
 	case command.KindTxn:
-		return e.applyTxn(cmd.Txn)
+		var resTxn *command.ResultTxn
+		if resTxn, err = e.applyTxn(w, cmd.Txn); err == nil {
+			res.Txn = resTxn
+		}
 	default:
-		return command.Result{}, fmt.Errorf("unknown command type: %s", cmd.Kind)
+		w.Abort()
+		panic(fmt.Sprintf("unknown command type: %s", cmd.Kind))
 	}
+
+	if err != nil {
+		w.Abort()
+		return nil, err
+	}
+
+	if err = w.End(); err != nil {
+		return nil, err
+	}
+
+	finalRev, changes := w.UnsafeExpectedChanges()
+	for _, obs := range e.obs {
+		obs.OnCommit(changes)
+	}
+
+	if len(changes) != 0 {
+		res.Header.Revision = finalRev
+	} else {
+		res.Header.Revision = w.StartRevision().Main
+	}
+	return res, nil
 }
 
-func (e *Engine) applyPut(cmd *command.CmdPut) (command.Result, error) {
-	prev := e.store.NewReader().Get([]byte(cmd.Key), 0)
+func (e *Engine) applyPut(w Writer, cmd *command.CmdPut) (*command.ResultPut, error) {
+	prev := w.Get([]byte(cmd.Key), 0)
 
 	if prev == nil && (cmd.IgnoreLease || cmd.IgnoreValue) {
-		return command.Result{
-			Error: kv.ErrKeyNotFound,
-		}, nil
+		return nil, kv.ErrKeyNotFound
 	}
 
 	var (
@@ -65,13 +104,10 @@ func (e *Engine) applyPut(cmd *command.CmdPut) (command.Result, error) {
 		leaseID = cmd.LeaseID
 	}
 
-	w := e.store.NewWriter()
-	rev, err := w.Put(key, value, leaseID)
+	err := w.Put(key, value, leaseID)
 	if err != nil {
-		w.Abort()
-		return command.Result{}, fmt.Errorf("applyPut failed: %w", err)
+		return nil, fmt.Errorf("applyPut failed: %w", err)
 	}
-	w.End()
 
 	if prev != nil && prev.LeaseID != 0 && prev.LeaseID != leaseID {
 		e.attacher.DetachKey(prev.LeaseID, cmd.Key) // no-op if no such lease existed
@@ -80,37 +116,29 @@ func (e *Engine) applyPut(cmd *command.CmdPut) (command.Result, error) {
 		e.attacher.AttachKey(cmd.LeaseID, cmd.Key) // no-op if no such lease exists
 	}
 
-	res := command.Result{
-		Header: command.ResultHeader{
-			Revision: rev.Main,
-		},
-		Put: &command.ResultPut{},
-	}
+	res := &command.ResultPut{}
 	if cmd.PrevEntry {
-		res.Put.PrevEntry = prev
+		res.PrevEntry = prev
 	}
 	return res, nil
 }
 
-func (e *Engine) applyDelete(cmd *command.CmdDelete) (command.Result, error) {
+func (e *Engine) applyDelete(w Writer, cmd *command.CmdDelete) (*command.ResultDelete, error) {
 	var (
-		prevs []types.KvEntry
+		prevs []*kv.Entry
 		err   error
 	)
 	if cmd.PrevEntries {
-		prevs, _, _, err = e.store.NewReader().Range(cmd.Key, cmd.End, 0, 0)
+		prevs, _, _, err = w.Range(cmd.Key, cmd.End, 0, 0)
 		if err != nil {
-			return command.Result{}, fmt.Errorf("applyDelete failed: %w", err)
+			return nil, fmt.Errorf("applyDelete failed: %w", err)
 		}
 	}
 
-	w := e.store.NewWriter()
-	cnt, rev, err := w.DeleteRange(cmd.Key, cmd.End)
+	err = w.DeleteRange(cmd.Key, cmd.End)
 	if err != nil {
-		w.Abort()
-		return command.Result{}, fmt.Errorf("applyDelete failed: %w", err)
+		return nil, fmt.Errorf("applyDelete failed: %w", err)
 	}
-	w.End()
 
 	for _, entry := range prevs {
 		if entry.LeaseID != 0 {
@@ -118,21 +146,15 @@ func (e *Engine) applyDelete(cmd *command.CmdDelete) (command.Result, error) {
 		}
 	}
 
-	return command.Result{
-		Header: command.ResultHeader{
-			Revision: rev.Main,
-		},
-		Delete: &command.ResultDelete{
-			NumDeleted:  cnt,
-			PrevEntries: prevs,
-		},
+	_, ch := w.UnsafeExpectedChanges()
+	return &command.ResultDelete{
+		NumDeleted:  int64(len(ch)),
+		PrevEntries: prevs,
 	}, nil
 }
 
-func (e *Engine) applyTxn(cmd *command.CmdTxn) (command.Result, error) {
-	// Txn has two parts: evaluating conditions (read) and applying txn ops (read/write)
-	// since we want this to be atomic, start of by locking the store using a new writer
-	w := e.store.NewWriter()
+// Txn has two parts: evaluating conditions (read) and applying txn ops (read/write)
+func (e *Engine) applyTxn(w Writer, cmd *command.CmdTxn) (*command.ResultTxn, error) {
 
 	cond := e.evalCondition(w, cmd.Comparisons)
 	var ops []command.TxnOp
@@ -144,20 +166,12 @@ func (e *Engine) applyTxn(cmd *command.CmdTxn) (command.Result, error) {
 
 	res, err := e.applyTxnOps(w, ops)
 	if err != nil {
-		w.Abort()
-		return command.Result{}, fmt.Errorf("applyTxn failed: %w", err)
+		return nil, fmt.Errorf("applyTxn failed: %w", err)
 	}
-	w.End()
 
-	finalRev, _ := e.store.Revisions()
-	return command.Result{
-		Header: command.ResultHeader{
-			Revision: finalRev.Main,
-		},
-		Txn: &command.ResultTxn{
-			Success: cond,
-			Results: res,
-		},
+	return &command.ResultTxn{
+		Success: cond,
+		Results: res,
 	}, nil
 }
 
@@ -186,12 +200,12 @@ func (e *Engine) applyTxnOps(w Writer, ops []command.TxnOp) ([]command.TxnOpResu
 		switch op.Type {
 		case command.TxnOpPut:
 			put := op.Put
-			var prev *types.KvEntry
+			var prev *kv.Entry
 			if put.PrevEntry {
 				prev = w.Get(put.Key, 0)
 			}
 
-			_, err := w.Put(put.Key, put.Value, put.LeaseID)
+			err := w.Put(put.Key, put.Value, put.LeaseID)
 			if err != nil {
 				return nil, fmt.Errorf("error during PUT op: %w", err)
 			}
@@ -202,7 +216,8 @@ func (e *Engine) applyTxnOps(w Writer, ops []command.TxnOp) ([]command.TxnOpResu
 			})
 		case command.TxnOpDelete:
 			del := op.Delete
-			var prevs []types.KvEntry
+			var prevs []*kv.Entry
+
 			if del.PrevEntries {
 				var err error
 				prevs, _, _, err = w.Range(del.Key, del.End, 0, 0)
@@ -211,13 +226,14 @@ func (e *Engine) applyTxnOps(w Writer, ops []command.TxnOp) ([]command.TxnOpResu
 				}
 			}
 
-			cnt, _, err := w.DeleteRange(del.Key, del.End)
+			err := w.DeleteRange(del.Key, del.End)
 			if err != nil {
 				return nil, fmt.Errorf("error during DELETE op: %w", err)
 			}
+			_, ch := w.UnsafeExpectedChanges()
 			res = append(res, command.TxnOpResult{
 				Delete: &command.ResultDelete{
-					NumDeleted:  cnt,
+					NumDeleted:  int64(len(ch)),
 					PrevEntries: prevs,
 				},
 			})

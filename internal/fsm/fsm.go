@@ -33,16 +33,20 @@ type Fsm struct {
 	logger         *slog.Logger
 }
 
-func New(logger *slog.Logger, me peer.Peer, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager) *Fsm {
+func NewWithEngine(logger *slog.Logger, me peer.Peer, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager, engine *mvcc.Engine) *Fsm {
 	f := &Fsm{
 		me:     me,
-		engine: mvcc.NewEngine(store, lm),
-		lm:     lm,
 		store:  store,
+		engine: engine,
+		lm:     lm,
 		om:     om,
 		logger: logger.With("component", "fsm"),
 	}
 	return f
+}
+
+func New(logger *slog.Logger, me peer.Peer, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager) *Fsm {
+	return NewWithEngine(logger, me, store, lm, om, mvcc.NewEngine(store, lm))
 }
 
 // SetMetrics is needed for a two phase init of the fsm
@@ -93,7 +97,7 @@ func (f *Fsm) Apply(log *raft.Log) interface{} {
 		panic(fmt.Sprintf("Unsupported command kind: %v", cmd.Kind))
 	}
 
-	// res.Header = &Header{...} would override previous headers revision set by appyling commands
+	// set fields that apply could touch
 	res.Header.RaftTerm = log.Term
 	res.Header.RaftIndex = log.Index
 	res.Header.NodeID = f.me.NodeID
@@ -118,7 +122,7 @@ func (f *Fsm) applyKv(cmd command.Command) command.Result {
 	if err != nil {
 		return command.Result{Error: err}
 	}
-	return res
+	return *res
 }
 
 func (f *Fsm) applyLease(cmd command.Command) (res command.Result) {
@@ -142,10 +146,12 @@ func (f *Fsm) applyLease(cmd command.Command) (res command.Result) {
 
 	case command.KindLeaseRevoke:
 		var found, revoked bool
-		found, revoked = f.lm.Revoke(cmd.LeaseRevoke.LeaseID)
-		res.LeaseRevoke = &command.ResultLeaseRevoke{
-			Found:   found,
-			Revoked: revoked,
+		found, revoked, err = f.lm.Revoke(cmd.LeaseRevoke.LeaseID)
+		if err == nil {
+			res.LeaseRevoke = &command.ResultLeaseRevoke{
+				Found:   found,
+				Revoked: revoked,
+			}
 		}
 
 	case command.KindLeaseKeepAlive:

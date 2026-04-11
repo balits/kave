@@ -107,5 +107,9 @@ wipe-recreate-cluster: ## Wipe and redeploy helm chart
 
 k9s:
 	./bin/k9s --kubeconfig .kube/config 
+fmt:
+	./bin/golangci-lint fmt
+lint:
+	./bin/golangci-lint run
 
 .PHONY: build build-img up3 down3 up3build test test-race kluster-create, kluster-verify helm-validate helm-lint helm-uninstall gh-ci

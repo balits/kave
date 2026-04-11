@@ -2,7 +2,6 @@ package kv
 
 import (
 	"log/slog"
-	"os"
 	"reflect"
 	"testing"
 )
@@ -38,6 +37,7 @@ func Test_TreeIndexPutAndGet(t *testing.T) {
 	}
 
 	// Reading at old revision still returns old value
+	_, modRev, ver, err = ti.Get([]byte("foo"), 1)
 	_, modRev, ver, err = ti.Get([]byte("foo"), 1)
 	if err != nil {
 		t.Fatalf("Get at old rev: %v", err)
@@ -140,6 +140,7 @@ func Test_TreeIndexRange(t *testing.T) {
 	_ = revs
 
 	// Point query (end=nil)
+	keys, _ = ti.Range([]byte("bar"), nil, 5)
 	keys, _ = ti.Range([]byte("bar"), nil, 5)
 	if len(keys) != 1 || string(keys[0]) != "bar" {
 		t.Errorf("point query = %v, want [bar]", keys)
@@ -331,4 +332,76 @@ func Test_TreeIndexInsertAndKeyIndex(t *testing.T) {
 	if got != nil {
 		t.Errorf("KeyIndex for missing key = %+v, want nil", got)
 	}
+}
+
+func Test_TreeIndex_RevisionRange(t *testing.T) {
+	ti := NewTreeIndex(slog.Default())
+
+	ti.Put([]byte("p"), Revision{Main: 2})
+	ti.Put([]byte("p"), Revision{Main: 4})
+	ti.Put([]byte("p"), Revision{Main: 6})
+
+	// p, 0-9
+	got := ti.RevisionsRange([]byte("p"), nil, 0, 10)
+	t.Log(got)
+	require.Len(t, got, 3)
+	require.Equal(t, int64(2), got[0].Main)
+	require.Equal(t, int64(4), got[1].Main)
+	require.Equal(t, int64(6), got[2].Main)
+
+	ti.Put([]byte("q"), Revision{Main: 8})
+
+	// p-q, 0-9
+	got = ti.RevisionsRange([]byte("p"), []byte("r"), 0, 10)
+	t.Log(got)
+	require.Len(t, got, 4)
+	require.Equal(t, int64(2), got[0].Main)
+	require.Equal(t, int64(4), got[1].Main)
+	require.Equal(t, int64(6), got[2].Main)
+	require.Equal(t, int64(8), got[3].Main)
+
+	// a-z, 0-9
+	got = ti.RevisionsRange(nil, nil, 0, 10)
+	t.Log(got)
+	require.Len(t, got, 4)
+
+	// a-z, 0-8
+	got = ti.RevisionsRange(nil, nil, 0, 9)
+	t.Log(got)
+	require.Len(t, got, 4)
+
+	// a-z, 0-7
+	got = ti.RevisionsRange(nil, nil, 0, 8)
+	t.Log(got)
+	require.Len(t, got, 3)
+
+	ti.Put([]byte("r"), Revision{Main: 10})
+
+	// a-s, 0-9
+	got = ti.RevisionsRange(nil, []byte("s"), 0, 10)
+	t.Log(got)
+	require.Len(t, got, 4)
+
+	// a-s, 0-10
+	got = ti.RevisionsRange(nil, []byte("s"), 0, 11)
+	t.Log(got)
+	require.Len(t, got, 5)
+
+}
+
+func Test_TreeIndex_RevisionRange_Idk(t *testing.T) {
+	ti := NewTreeIndex(slog.Default())
+
+	ti.Put([]byte("a"), Revision{Main: 1})
+	ti.Tombstone([]byte("a"), Revision{Main: 2})
+	ti.Put([]byte("a"), Revision{Main: 3})
+
+	ti.Put([]byte("b"), Revision{Main: 4})
+
+	got := ti.RevisionsRange([]byte("a"), nil, 0, 3+1)
+	t.Log(got)
+	require.Len(t, got, 3)
+	require.Equal(t, int64(1), got[0].Main)
+	require.Equal(t, int64(2), got[1].Main)
+	require.Equal(t, int64(3), got[2].Main)
 }

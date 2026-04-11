@@ -11,7 +11,7 @@ import (
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage/backend"
-	"github.com/balits/kave/internal/types"
+	"github.com/balits/kave/internal/util"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -48,15 +48,19 @@ type KvStore struct {
 	metrics *metrics.KVMetrics
 }
 
-func NewKvStore(reg prometheus.Registerer, logger *slog.Logger, b backend.Backend) *KvStore {
+func NewKvStoreWithIndex(reg prometheus.Registerer, logger *slog.Logger, b backend.Backend, index kv.Index) *KvStore {
 	s := &KvStore{
 		backend: b,
-		kvIndex: kv.NewTreeIndex(logger),
+		kvIndex: index,
 		logger:  logger.With("component", "kvstore"),
 	}
 	s.metrics = newKVMetrics(reg, s)
 
 	return s
+}
+
+func NewKvStore(reg prometheus.Registerer, logger *slog.Logger, b backend.Backend) *KvStore {
+	return NewKvStoreWithIndex(reg, logger, b, kv.NewTreeIndex(logger))
 }
 
 func (s *KvStore) Revisions() (currentRev kv.Revision, compacted int64) {
@@ -115,7 +119,7 @@ func (s *KvStore) Restore(r io.Reader) error {
 	rtx.RLock()
 	err := rtx.UnsafeScan(schema.BucketKV, min, max, func(k, v []byte) error {
 		bk := kv.DecodeKvBucketKey(k)
-		entry, err := types.DecodeKvEntry(v)
+		entry, err := kv.DecodeEntry(v)
 		if bk.Tombstone {
 			if err := s.kvIndex.Tombstone(entry.Key, bk.Revision); err != nil {
 				s.logger.Warn("restore error: failed to tombstone entry in the kvIndex", "error", err)
@@ -144,11 +148,11 @@ func (s *KvStore) Restore(r io.Reader) error {
 		s.logger.Error("restore error: failed to get raft index", "error", err)
 	}
 	rtx.RUnlock()
-	term, err := types.DecodeUint64(raftTermBytes)
+	term, err := util.DecodeUint64(raftTermBytes)
 	if err != nil {
 		s.logger.Error("restore error: failed to decode raft term", "error", err)
 	}
-	raftIndex, err := types.DecodeUint64(raftIndexBytes)
+	raftIndex, err := util.DecodeUint64(raftIndexBytes)
 	if err != nil {
 		s.logger.Error("restore error: failed to decode raft index", "error", err)
 	}

@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/cloudflare/circl v1.6.3
+	github.com/coder/websocket v1.8.14
 	github.com/google/btree v1.1.3
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/raft v1.7.3
@@ -21,6 +22,7 @@ require (
 	github.com/boltdb/bolt v1.3.1 // indirect
 	github.com/bwesterb/go-ristretto v1.2.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/coder/websocket v1.8.14 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fatih/color v1.13.0 // indirect
 	github.com/hashicorp/go-immutable-radix v1.0.0 // indirect

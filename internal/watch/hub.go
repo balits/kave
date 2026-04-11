@@ -1,0 +1,309 @@
+package watch
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/balits/kave/internal/kv"
+	"github.com/balits/kave/internal/metrics"
+	"github.com/balits/kave/internal/mvcc"
+	"github.com/balits/kave/internal/util"
+	"github.com/prometheus/client_golang/prometheus"
+)
+
+var (
+	errFailureLimitReached = errors.New("watcher has reached failure limit")
+)
+
+const (
+	defaultWatcherMapSize = 32
+)
+
+func NewWatchHub(reg prometheus.Registerer, logger *slog.Logger, store *mvcc.KvStore) *WatchHub {
+	h := &WatchHub{
+		synced:   make(map[int64]*watcher, defaultWatcherMapSize),
+		unsynced: make(map[int64]*watcher, defaultWatcherMapSize),
+		store:    store,
+		logger:   logger.With("component", "watch_hub"),
+	}
+	h.metrics = metrics.NewWatchmetrics(reg, h)
+	return h
+}
+
+// WatchHub is the central point of the watch API.
+// All watches are created and canceled through the hub.
+//
+// Internally it manages a pool of "synced" watchers (whose revisions are caught up)
+// and a pool of "unsynced" watchers (whos revisions are behind)
+//
+// It offers unsafe primitives to modify these pools, but higher level
+// consumers of the hub should only rely of the safe functions, as they are safe
+// to call concurrently.
+type WatchHub struct {
+	mu       sync.Mutex
+	synced   map[int64]*watcher
+	unsynced map[int64]*watcher
+	store    mvcc.ReadOnlyStore
+	metrics  *metrics.WatchMetrics // needs two phase init
+	logger   *slog.Logger
+}
+
+func (h *WatchHub) Synced() map[int64]*watcher {
+	if !testing.Testing() {
+		panic("watch hub: Synced() is only allowed in testing")
+	}
+	return h.synced
+}
+
+func (h *WatchHub) Unsynced() map[int64]*watcher {
+	if !testing.Testing() {
+		panic("watch hub: Unsynced() is only allowed in testing")
+	}
+	return h.synced
+}
+
+func (h *WatchHub) Mu() *sync.Mutex {
+	if !testing.Testing() {
+		panic("watch hub: Mu() is only allowed in testing")
+	}
+	return &h.mu
+}
+
+// satisfy WatchMetrics
+
+func (h *WatchHub) SyncedWatchesLen() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.synced)
+}
+func (h *WatchHub) UnsyncedWatchesLen() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.unsynced)
+}
+
+// NewWatcher creates a watcher based on the parameters, bounded by the given context.
+// If the requested ID is zero, a random ID is generated,
+// if theres an ID collision, an error is returned.
+//
+// If the startRev is less than the current store revision,
+// the watch starts out in the unsynced group (see [UnsyncedLoop]).
+// Otherwise it is treaded as synced, and will recieve events on commit.
+func (h *WatchHub) NewWatcher(ctx context.Context, requestedID, startRev int64, key, end []byte, f *kv.EventFilter, prevEntry bool) (*watcher, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	var id int64
+	if requestedID == 0 {
+		id = util.NextNonNullID()
+	} else {
+		id = requestedID
+	}
+
+	// todo: "synced" means watcher is caught up to its keys revision, not to the global revision
+	currentRev, _ := h.store.Revisions()
+	group := h.unsynced
+	synced := false
+	if startRev >= currentRev.Main {
+		group = h.synced
+		synced = true
+	}
+
+	if _, ok := group[id]; ok {
+		h.logger.Error("new watcher failed",
+			"error", ErrWatcherIDConflict.Error(),
+			"id", id,
+			"key", key,
+			"end", end,
+			"start_rev", startRev,
+			"up_to_date", synced,
+		)
+		return nil, ErrWatcherIDConflict
+	}
+
+	if key == nil {
+		key = []byte{}
+	}
+
+	derivedCtx, cancel := context.WithCancel(ctx)
+
+	w := &watcher{
+		id:         id,
+		startRev:   startRev,
+		currentRev: startRev,
+		keyStart:   key,
+		keyEnd:     end,
+		filter:     f,
+		ctx:        derivedCtx,
+		cancel:     cancel,
+		prevEntry:  prevEntry,
+		c:          make(chan kv.Event, watcherChannelBufferSize),
+	}
+	group[w.id] = w
+
+	h.logger.Info("new watcher",
+		"id", id,
+		"key", key,
+		"end", end,
+		"start_rev", startRev,
+		"up_to_date", synced,
+	)
+
+	return w, nil
+}
+
+type removal struct {
+	wid          int64
+	cause        error
+	demoteOrDrop bool // true -> demote, false -> drop
+}
+
+// OnCommint sends all events to synced watchers.
+//
+// If an error happens while sending the events to a watcher, it is marked for demotion if its overloaded,
+// or deletion if another type of error occured.
+func (h *WatchHub) OnCommit(changes []*kv.Entry) {
+	// fmt.Println("CHANGES: ", changes)
+	events := kv.ToKvEvents(changes)
+	removals := make([]removal, 0)
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	start := time.Now()
+	defer func() {
+		if h.metrics != nil {
+			h.metrics.OnCommitDurationSec.Observe(time.Since(start).Seconds())
+		}
+	}()
+
+	for _, w := range h.synced {
+		err := w.sendAll(events)
+		if err == nil {
+			continue
+		}
+
+		rem := removal{
+			cause: err,
+			wid:   w.id,
+			// default to drop
+		}
+		if errors.Is(err, ErrWatcherOverloaded) {
+			rem.demoteOrDrop = true
+		}
+
+		removals = append(removals, rem)
+	}
+
+	for _, r := range removals {
+		if r.demoteOrDrop {
+			h.logger.Info("demoting watcher due to overload", "watcher_id", r.wid)
+			h.unsafeDemote(r.wid)
+		} else {
+			h.logger.Info("dropping watcher due to error sending event batch",
+				"watcher_id", r.wid,
+				"error", r.cause,
+			)
+			h.unsafeDropFromGroup(h.synced, r.wid)
+		}
+	}
+}
+
+// DropWatcher removes the watcher from its group after closing it.
+func (h *WatchHub) DropWatcher(wid int64) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	_, ok := h.synced[wid]
+	if !ok {
+		_, ok = h.unsynced[wid]
+		if !ok {
+			return false
+		}
+		h.unsafeDropFromGroup(h.unsynced, wid)
+	} else {
+		h.unsafeDropFromGroup(h.synced, wid)
+	}
+
+	return true
+}
+
+// unsafeDropWatcher removes the watcher from its group after closing it.
+//
+// NOTE: caller needs to hold the lock
+func (h *WatchHub) unsafeDropWatcher(wid int64) {
+	_, ok := h.synced[wid]
+	if !ok {
+		_, ok = h.unsynced[wid]
+		if !ok {
+			return
+		}
+		h.unsafeDropFromGroup(h.unsynced, wid)
+	} else {
+		h.unsafeDropFromGroup(h.synced, wid)
+	}
+}
+
+// DropAll removes all the watchers from their respective groups, after closing them.
+func (h *WatchHub) DropAll() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.logger.Info("Dropping all watchers from the store",
+		"watcher_count", len(h.synced)+len(h.unsynced),
+	)
+
+	for id := range h.synced {
+		h.unsafeDropFromGroup(h.synced, id)
+	}
+	for id := range h.unsynced {
+		h.unsafeDropFromGroup(h.unsynced, id)
+	}
+}
+
+// unsafeDrop removes the watcher from the group after closing
+// its context and channel through watcher.close()
+//
+// NOTE: caller should hold the lock
+func (h *WatchHub) unsafeDropFromGroup(group map[int64]*watcher, wid int64) {
+	h.logger.Debug("dropping watcher", "watcher_id", wid)
+	w, ok := group[wid]
+	if !ok {
+		h.logger.Warn("dropping watcher failed: watcher not found in group", "watcher_id", wid)
+		return
+	}
+	w.close()
+	delete(group, w.id)
+}
+
+// unsafeDemote moves the watch from the synced group to the unsynced group
+//
+// NOTE: caller should hold the lock
+func (h *WatchHub) unsafeDemote(wid int64) {
+	h.logger.Debug("demoting watcher to unsynced group", "watcher_id", wid)
+	w, ok := h.synced[wid]
+	if !ok {
+		h.logger.Warn("watcher for demotion not found in synced group", "watcher_id", wid)
+		return
+	}
+	delete(h.synced, w.id)
+	h.unsynced[w.id] = w
+}
+
+// unsafePromote moves the watch from the unsynced group to the synced group
+//
+// NOTE: caller should hold the lock
+func (h *WatchHub) unsafePromote(wid int64) {
+	h.logger.Debug("promoting watcher to synced group", "watcher_id", wid)
+	w, ok := h.unsynced[wid]
+	if !ok {
+		h.logger.Warn("watcher for promotion not found in synced group", "watcher_id", wid)
+		return
+	}
+	delete(h.unsynced, w.id)
+	h.synced[w.id] = w
+}

@@ -2,7 +2,6 @@
 package lease
 
 import (
-	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"sync"
@@ -102,17 +101,4 @@ func DecodeLease(src []byte) (*Lease, error) {
 	}
 	l.expiry = time.Now().Add(time.Duration(l.remainingTTL) * time.Second)
 	return l, nil
-}
-
-func nextID() int64 {
-	var buf [8]byte
-	// it rand.Read fails, the program is crashed unrecoverably,
-	// its ok to ignore, err
-	_, _ = rand.Read(buf[:])
-	id := int64(binary.BigEndian.Uint64(buf[:]))
-	// 0 is reserved as "no lease"
-	if id <= 0 {
-		id = -id
-	}
-	return id
 }

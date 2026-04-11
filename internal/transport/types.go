@@ -8,6 +8,7 @@ const (
 	RouteLease   = ApiVersion + "/lease"
 	RouteCluster = ApiVersion + "/cluster"
 	RouteOt      = ApiVersion + "/ot"
+	RouteWatch   = ApiVersion + "/watch"
 )
 
 type JoinRequest struct {

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,6 +15,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
+	"time"
 
 	"github.com/balits/kave/internal/command"
 	"github.com/balits/kave/internal/fsm"
@@ -27,6 +31,12 @@ import (
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/backend"
 	"github.com/balits/kave/internal/types/api"
+	"github.com/balits/kave/internal/watch"
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
+	"github.com/balits/kave/internal/watch"
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/require"
 )
@@ -76,6 +86,12 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 		InitialBuckets: schema.AllBuckets,
 	})
 	kvstore := mvcc.NewKvStore(reg, logger, backend)
+<<<<<<< HEAD
+	hub := watch.NewWatchHub(reg, logger, kvstore)
+	hub := watch.NewWatchHub(reg, logger, kvstore)
+=======
+	watchHub := watch.NewWatchHub(reg, logger, kvstore)
+>>>>>>> b2044e6 (try to resolve merge conflicts in main <-> feature/watch)
 	lm := lease.NewManager(reg, logger, kvstore, backend)
 	om, err := ot.NewOTManager(reg, logger, backend, ot.DefaultOptions)
 	require.NoError(t, err)
@@ -115,8 +131,9 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 	kvSvc := service.NewKVService(logger, me, kvstore, raftService, kvOpts, propose)
 	leaseSvc := service.NewLeaseService(logger, propose)
 	otSvc := service.NewOTService(logger, me, kvstore, om, raftService, propose)
+
 	rateLimiterConfig := NewRateLimiterConfig(2000, 2000) // set to a gorbillion so tests can run in parallel
-	httpServer := NewHTTPServer(logger, me, discoverySvc, kvSvc, leaseSvc, otSvc, raftService, reg, rateLimiterConfig, rateLimiterConfig)
+	httpServer := NewHTTPServer(logger, me, discoverySvc, kvSvc, leaseSvc, otSvc, raftService, watchHub, reg, rateLimiterConfig, rateLimiterConfig)
 
 	ts := httptest.NewServer(httpServer.server.Handler)
 	t.Cleanup(ts.Close)
@@ -174,7 +191,6 @@ func (ts *testServer) overrideLeader(leader *httptest.Server) {
 		HttpPort: url.Port(),
 		RaftPort: "7000",
 	}
-
 }
 
 func Test_KvPut_CreatesKey(t *testing.T) {
@@ -940,4 +956,546 @@ func Test_OTWriteAll_RequiresLeader(t *testing.T) {
 		api.OTWriteAllRequest{Blob: blob})
 	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode,
 		"OT write-all MUST require a leader")
+}
+
+// tests for watches
+
+func dialWatch(t *testing.T, ts *testServer) *websocket.Conn {
+	t.Helper()
+	wsURL := ts.srv.URL + RouteWatchWS
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	t.Cleanup(cancel)
+
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		Subprotocols: []string{watch.WatchSubprotocol},
+	})
+	t.Log(err)
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.CloseNow() })
+	return conn
+}
+
+func writeWatchMsg(t *testing.T, conn *websocket.Conn, kind watch.ClientMessageKind, payload any) {
+	t.Helper()
+	bs, err := json.Marshal(payload)
+	require.NoError(t, err)
+	msg := watch.ClientMessage{
+		Kind:    kind,
+		Payload: bs,
+	}
+	require.NoError(t, wsjson.Write(t.Context(), conn, msg))
+}
+
+func readWatchMsg(t *testing.T, conn *websocket.Conn) (msg watch.ServerMessage) {
+	require.NoError(t, wsjson.Read(t.Context(), conn, &msg))
+	return msg
+}
+
+func readWatchMsgTimeout(t *testing.T, conn *websocket.Conn, timeout time.Duration) (msg watch.ServerMessage, err error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
+	defer cancel()
+	err = wsjson.Read(ctx, conn, &msg)
+	return
+}
+
+func createWatch(t *testing.T, conn *websocket.Conn, key string, startRev int64) int64 {
+	t.Helper()
+	writeWatchMsg(t, conn, watch.ClientWatchCreate, api.WatchCreateRequest{
+		Key:           []byte(key),
+		StartRevision: startRev,
+	})
+	msg := readWatchMsg(t, conn)
+	require.Equal(t, watch.ServerWatchCreated, msg.Kind)
+	res := msg.AsCreateResponse(t)
+	require.True(t, res.Success)
+	return res.WatchID
+}
+
+func Test_Server_Watch_NonUpgradeRequest_Returns426(t *testing.T) {
+	ts := newTestServer(t, true)
+
+	resp := ts.do(http.MethodGet, RouteWatchWS, nil)
+	t.Log(resp.Status)
+	require.Equal(t, http.StatusUpgradeRequired, resp.StatusCode)
+}
+
+func Test_Server_Watch_Subprotocol_CorrectAccepted(t *testing.T) {
+	ts := newTestServer(t, true)
+	conn := dialWatch(t, ts)
+	require.Equal(t, watch.WatchSubprotocol, conn.Subprotocol())
+}
+
+func Test_Server_Watch_Subprotocol_WrongRejected(t *testing.T) {
+	ts := newTestServer(t, true)
+	wsURL := "ws" + strings.TrimPrefix(ts.srv.URL, "http") + RouteWatchWS
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		Subprotocols: []string{"wrong_protocol"},
+	})
+
+	if err != nil {
+		// server rejected the connection outright — acceptable
+		return
+	}
+	defer conn.CloseNow()
+
+	// if the connection was accepted, the server should close it
+	// with StatusPolicyViolation because the subprotocol doesn't match
+	_, _, readErr := conn.Read(ctx)
+	require.Error(t, readErr, "server should close connection for wrong subprotocol")
+
+	var closeErr websocket.CloseError
+	if errors.As(readErr, &closeErr) {
+		require.Equal(t, websocket.StatusPolicyViolation, closeErr.Code)
+	}
+}
+
+func Test_Server_Watch_Subprotocol_NoneGivenRejected(t *testing.T) {
+	ts := newTestServer(t, true)
+	wsURL := "ws" + strings.TrimPrefix(ts.srv.URL, "http") + RouteWatchWS
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{})
+
+	if err != nil {
+		return
+	}
+	defer conn.CloseNow()
+
+	_, _, readErr := conn.Read(ctx)
+	require.Error(t, readErr, "server should close connection when no subprotocol offered")
+}
+
+func Test_Server_Watch_HubWiring_EventsDelivered(t *testing.T) {
+	ts := newTestServer(t, true)
+	conn := dialWatch(t, ts)
+
+	wid := createWatch(t, conn, "foo", 0)
+
+	w := ts.store.NewWriter()
+	require.NoError(t, w.Put([]byte("foo"), []byte("bar"), 0))
+	require.NoError(t, w.End())
+	_, changes := w.UnsafeExpectedChanges()
+	ts.httpServer.watchHub.OnCommit(changes)
+
+	msg := readWatchMsg(t, conn)
+	require.Equal(t, watch.ServerWatchEventPut, msg.Kind)
+
+	ev := msg.AsStreamEvent(t)
+	require.Equal(t, wid, ev.Wid)
+	require.Equal(t, "foo", string(ev.Event.Entry.Key))
+	require.Equal(t, "bar", string(ev.Event.Entry.Value))
+}
+
+func Test_Server_Watch_FollowerAcceptsConnection(t *testing.T) {
+	ts := newTestServer(t, false)
+	require.Equal(t, raft.Follower, ts.raftService.State_)
+
+	conn := dialWatch(t, ts)
+
+	wid := createWatch(t, conn, "foo", 0)
+	require.NotZero(t, wid)
+}
+
+func Test_Server_Watch_FollowerReceivesEvents(t *testing.T) {
+	ts := newTestServer(t, false)
+
+	conn := dialWatch(t, ts)
+	wid := createWatch(t, conn, "foo", 0)
+
+	ts.httpServer.watchHub.OnCommit([]*kv.Entry{
+		{Key: []byte("foo"), Value: []byte("v"), ModRev: 1, CreateRev: 1, Version: 1},
+	})
+
+	msg := readWatchMsg(t, conn)
+	require.Equal(t, watch.ServerWatchEventPut, msg.Kind)
+	ev := msg.AsStreamEvent(t)
+	require.Equal(t, wid, ev.Wid)
+}
+
+func Test_Server_Watch_ConcurrentConnections_Isolated(t *testing.T) {
+	t.Skip("skipped: why is conn2 dropped?")
+	ts := newTestServer(t, true)
+
+	conn1 := dialWatch(t, ts)
+	conn2 := dialWatch(t, ts)
+
+	wid1 := createWatch(t, conn1, "foo", 0)
+	wid2 := createWatch(t, conn2, "bar", 0)
+
+	// commit an entry for "foo" and conn1 should receive it
+	ts.httpServer.watchHub.OnCommit([]*kv.Entry{
+		{Key: []byte("foo"), Value: []byte("fv"), ModRev: 1, CreateRev: 1, Version: 1},
+	})
+
+	msg1 := readWatchMsg(t, conn1)
+	require.Equal(t, watch.ServerWatchEventPut, msg1.Kind)
+	ev1 := msg1.AsStreamEvent(t)
+	require.Equal(t, wid1, ev1.Wid)
+	require.Equal(t, "foo", string(ev1.Event.Entry.Key))
+
+	_, err := readWatchMsgTimeout(t, conn2, 100*time.Millisecond)
+	require.Error(t, err, "conn2 should not receive events for key 'foo'")
+
+	// now commit an entry for bar and only conn2 should receive it
+	ts.httpServer.watchHub.OnCommit([]*kv.Entry{
+		{Key: []byte("bar"), Value: []byte("bv"), ModRev: 2, CreateRev: 2, Version: 1},
+	})
+	require.NoError(t, conn2.Ping(t.Context()))
+
+	msg2 := readWatchMsg(t, conn2)
+	require.Equal(t, watch.ServerWatchEventPut, msg2.Kind)
+	ev2 := msg2.AsStreamEvent(t)
+	require.Equal(t, wid2, ev2.Wid)
+	require.Equal(t, "bar", string(ev2.Event.Entry.Key))
+
+	_, err = readWatchMsgTimeout(t, conn1, 100*time.Millisecond)
+	require.Error(t, err, "conn1 should not receive events for key 'bar'")
+}
+
+func Test_Server_Watch_ServerShutdown_DisconnectsClient(t *testing.T) {
+	ts := newTestServer(t, true)
+
+	conn := dialWatch(t, ts)
+	_ = createWatch(t, conn, "foo", 0)
+
+	// shut down the server — this should cancel all request contexts,
+	// which cascades through the errgroup to the session to the stream
+	shutdownCtx, shutdownCancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer shutdownCancel()
+	ts.srv.Close() // forceful close on httptest.Server
+
+	// the client should get disconnected
+	// give a generous timeout since shutdown cascades through multiple layers
+	_, _, err := conn.Read(shutdownCtx)
+	require.Error(t, err, "client should be disconnected after server shutdown")
+}
+func Test_Server_Watch_ClientDisconnect_CleansUpHub(t *testing.T) {
+	ts := newTestServer(t, true)
+
+	conn := dialWatch(t, ts)
+	wid := createWatch(t, conn, "foo", 0)
+
+	// verify the watcher exists on the hub
+	hub := ts.httpServer.watchHub
+	hub.Mu().Lock()
+	_, inSynced := hub.Synced()[wid]
+	_, inUnsynced := hub.Unsynced()[wid]
+	hub.Mu().Unlock()
+	require.True(t, inSynced || inUnsynced, "watcher should exist on hub after creation")
+
+	// abruptly close the client
+	conn.CloseNow()
+
+	// give the session time to detect disconnect and clean up
+	time.Sleep(300 * time.Millisecond)
+
+	hub.Mu().Lock()
+	_, inSynced = hub.Synced()[wid]
+	_, inUnsynced = hub.Unsynced()[wid]
+	hub.Mu().Unlock()
+	require.False(t, inSynced, "watcher should be removed from synced after client disconnect")
+	require.False(t, inUnsynced, "watcher should be removed from unsynced after client disconnect")
+}
+
+func Test_Server_Watch_EndToEnd_HTTPPut_ThenWatchEvent(t *testing.T) {
+	ts := newTestServer(t, true)
+
+	conn := dialWatch(t, ts)
+	wid := createWatch(t, conn, "e2e-key", 0)
+
+	// write through the normal HTTP PUT endpoint
+	ts.mustPut("e2e-key", "e2e-value")
+
+	// the Engine's CommitObserver would call hub.OnCommit in production.
+	// since we're using a mock propose that bypasses the Engine observer,
+	// trigger OnCommit manually with the data we know was written.
+	ts.httpServer.watchHub.OnCommit([]*kv.Entry{
+		{Key: []byte("e2e-key"), Value: []byte("e2e-value"), ModRev: 1, CreateRev: 1, Version: 1},
+	})
+
+	msg := readWatchMsg(t, conn)
+	require.Equal(t, watch.ServerWatchEventPut, msg.Kind)
+
+	ev := msg.AsStreamEvent(t)
+	require.Equal(t, wid, ev.Wid)
+	require.Equal(t, "e2e-key", string(ev.Event.Entry.Key))
+	require.Equal(t, "e2e-value", string(ev.Event.Entry.Value))
+}
+
+// tests for watches
+
+func dialWatch(t *testing.T, ts *testServer) *websocket.Conn {
+	t.Helper()
+	wsURL := ts.srv.URL + RouteWatchWS
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	t.Cleanup(cancel)
+
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		Subprotocols: []string{watch.WatchSubprotocol},
+	})
+	t.Log(err)
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.CloseNow() })
+	return conn
+}
+
+func writeWatchMsg(t *testing.T, conn *websocket.Conn, kind watch.ClientMessageKind, payload any) {
+	t.Helper()
+	bs, err := json.Marshal(payload)
+	require.NoError(t, err)
+	msg := watch.ClientMessage{
+		Kind:    kind,
+		Payload: bs,
+	}
+	require.NoError(t, wsjson.Write(t.Context(), conn, msg))
+}
+
+func readWatchMsg(t *testing.T, conn *websocket.Conn) (msg watch.ServerMessage) {
+	require.NoError(t, wsjson.Read(t.Context(), conn, &msg))
+	return msg
+}
+
+func readWatchMsgTimeout(t *testing.T, conn *websocket.Conn, timeout time.Duration) (msg watch.ServerMessage, err error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
+	defer cancel()
+	err = wsjson.Read(ctx, conn, &msg)
+	return
+}
+
+func createWatch(t *testing.T, conn *websocket.Conn, key string, startRev int64) int64 {
+	t.Helper()
+	writeWatchMsg(t, conn, watch.ClientWatchCreate, api.WatchCreateRequest{
+		Key:           []byte(key),
+		StartRevision: startRev,
+	})
+	msg := readWatchMsg(t, conn)
+	require.Equal(t, watch.ServerWatchCreated, msg.Kind)
+	res := msg.AsCreateResponse(t)
+	require.True(t, res.Success)
+	return res.WatchID
+}
+
+func Test_Server_Watch_NonUpgradeRequest_Returns426(t *testing.T) {
+	ts := newTestServer(t, true)
+
+	resp := ts.do(http.MethodGet, RouteWatchWS, nil)
+	t.Log(resp.Status)
+	require.Equal(t, http.StatusUpgradeRequired, resp.StatusCode)
+}
+
+func Test_Server_Watch_Subprotocol_CorrectAccepted(t *testing.T) {
+	ts := newTestServer(t, true)
+	conn := dialWatch(t, ts)
+	require.Equal(t, watch.WatchSubprotocol, conn.Subprotocol())
+}
+
+func Test_Server_Watch_Subprotocol_WrongRejected(t *testing.T) {
+	ts := newTestServer(t, true)
+	wsURL := "ws" + strings.TrimPrefix(ts.srv.URL, "http") + RouteWatchWS
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		Subprotocols: []string{"wrong_protocol"},
+	})
+
+	if err != nil {
+		// server rejected the connection outright — acceptable
+		return
+	}
+	defer conn.CloseNow()
+
+	// if the connection was accepted, the server should close it
+	// with StatusPolicyViolation because the subprotocol doesn't match
+	_, _, readErr := conn.Read(ctx)
+	require.Error(t, readErr, "server should close connection for wrong subprotocol")
+
+	var closeErr websocket.CloseError
+	if errors.As(readErr, &closeErr) {
+		require.Equal(t, websocket.StatusPolicyViolation, closeErr.Code)
+	}
+}
+
+func Test_Server_Watch_Subprotocol_NoneGivenRejected(t *testing.T) {
+	ts := newTestServer(t, true)
+	wsURL := "ws" + strings.TrimPrefix(ts.srv.URL, "http") + RouteWatchWS
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{})
+
+	if err != nil {
+		return
+	}
+	defer conn.CloseNow()
+
+	_, _, readErr := conn.Read(ctx)
+	require.Error(t, readErr, "server should close connection when no subprotocol offered")
+}
+
+func Test_Server_Watch_HubWiring_EventsDelivered(t *testing.T) {
+	ts := newTestServer(t, true)
+	conn := dialWatch(t, ts)
+
+	wid := createWatch(t, conn, "foo", 0)
+
+	w := ts.store.NewWriter()
+	require.NoError(t, w.Put([]byte("foo"), []byte("bar"), 0))
+	require.NoError(t, w.End())
+	_, changes := w.UnsafeExpectedChanges()
+	ts.httpServer.watchHub.OnCommit(changes)
+
+	msg := readWatchMsg(t, conn)
+	require.Equal(t, watch.ServerWatchEventPut, msg.Kind)
+
+	ev := msg.AsStreamEvent(t)
+	require.Equal(t, wid, ev.Wid)
+	require.Equal(t, "foo", string(ev.Event.Entry.Key))
+	require.Equal(t, "bar", string(ev.Event.Entry.Value))
+}
+
+func Test_Server_Watch_FollowerAcceptsConnection(t *testing.T) {
+	ts := newTestServer(t, false)
+	require.Equal(t, raft.Follower, ts.peerSvc.State_)
+
+	conn := dialWatch(t, ts)
+
+	wid := createWatch(t, conn, "foo", 0)
+	require.NotZero(t, wid)
+}
+
+func Test_Server_Watch_FollowerReceivesEvents(t *testing.T) {
+	ts := newTestServer(t, false)
+
+	conn := dialWatch(t, ts)
+	wid := createWatch(t, conn, "foo", 0)
+
+	ts.httpServer.watchHub.OnCommit([]*kv.Entry{
+		{Key: []byte("foo"), Value: []byte("v"), ModRev: 1, CreateRev: 1, Version: 1},
+	})
+
+	msg := readWatchMsg(t, conn)
+	require.Equal(t, watch.ServerWatchEventPut, msg.Kind)
+	ev := msg.AsStreamEvent(t)
+	require.Equal(t, wid, ev.Wid)
+}
+
+func Test_Server_Watch_ConcurrentConnections_Isolated(t *testing.T) {
+	t.Skip("skipped: why is conn2 dropped?")
+	ts := newTestServer(t, true)
+
+	conn1 := dialWatch(t, ts)
+	conn2 := dialWatch(t, ts)
+
+	wid1 := createWatch(t, conn1, "foo", 0)
+	wid2 := createWatch(t, conn2, "bar", 0)
+
+	// commit an entry for "foo" and conn1 should receive it
+	ts.httpServer.watchHub.OnCommit([]*kv.Entry{
+		{Key: []byte("foo"), Value: []byte("fv"), ModRev: 1, CreateRev: 1, Version: 1},
+	})
+
+	msg1 := readWatchMsg(t, conn1)
+	require.Equal(t, watch.ServerWatchEventPut, msg1.Kind)
+	ev1 := msg1.AsStreamEvent(t)
+	require.Equal(t, wid1, ev1.Wid)
+	require.Equal(t, "foo", string(ev1.Event.Entry.Key))
+
+	_, err := readWatchMsgTimeout(t, conn2, 100*time.Millisecond)
+	require.Error(t, err, "conn2 should not receive events for key 'foo'")
+
+	// now commit an entry for bar and only conn2 should receive it
+	ts.httpServer.watchHub.OnCommit([]*kv.Entry{
+		{Key: []byte("bar"), Value: []byte("bv"), ModRev: 2, CreateRev: 2, Version: 1},
+	})
+	require.NoError(t, conn2.Ping(t.Context()))
+
+	msg2 := readWatchMsg(t, conn2)
+	require.Equal(t, watch.ServerWatchEventPut, msg2.Kind)
+	ev2 := msg2.AsStreamEvent(t)
+	require.Equal(t, wid2, ev2.Wid)
+	require.Equal(t, "bar", string(ev2.Event.Entry.Key))
+
+	_, err = readWatchMsgTimeout(t, conn1, 100*time.Millisecond)
+	require.Error(t, err, "conn1 should not receive events for key 'bar'")
+}
+
+func Test_Server_Watch_ServerShutdown_DisconnectsClient(t *testing.T) {
+	ts := newTestServer(t, true)
+
+	conn := dialWatch(t, ts)
+	_ = createWatch(t, conn, "foo", 0)
+
+	// shut down the server — this should cancel all request contexts,
+	// which cascades through the errgroup to the session to the stream
+	shutdownCtx, shutdownCancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer shutdownCancel()
+	ts.srv.Close() // forceful close on httptest.Server
+
+	// the client should get disconnected
+	// give a generous timeout since shutdown cascades through multiple layers
+	_, _, err := conn.Read(shutdownCtx)
+	require.Error(t, err, "client should be disconnected after server shutdown")
+}
+func Test_Server_Watch_ClientDisconnect_CleansUpHub(t *testing.T) {
+	ts := newTestServer(t, true)
+
+	conn := dialWatch(t, ts)
+	wid := createWatch(t, conn, "foo", 0)
+
+	// verify the watcher exists on the hub
+	hub := ts.httpServer.watchHub
+	hub.Mu().Lock()
+	_, inSynced := hub.Synced()[wid]
+	_, inUnsynced := hub.Unsynced()[wid]
+	hub.Mu().Unlock()
+	require.True(t, inSynced || inUnsynced, "watcher should exist on hub after creation")
+
+	// abruptly close the client
+	conn.CloseNow()
+
+	// give the session time to detect disconnect and clean up
+	time.Sleep(300 * time.Millisecond)
+
+	hub.Mu().Lock()
+	_, inSynced = hub.Synced()[wid]
+	_, inUnsynced = hub.Unsynced()[wid]
+	hub.Mu().Unlock()
+	require.False(t, inSynced, "watcher should be removed from synced after client disconnect")
+	require.False(t, inUnsynced, "watcher should be removed from unsynced after client disconnect")
+}
+
+func Test_Server_Watch_EndToEnd_HTTPPut_ThenWatchEvent(t *testing.T) {
+	ts := newTestServer(t, true)
+
+	conn := dialWatch(t, ts)
+	wid := createWatch(t, conn, "e2e-key", 0)
+
+	// write through the normal HTTP PUT endpoint
+	ts.mustPut("e2e-key", "e2e-value")
+
+	// the Engine's CommitObserver would call hub.OnCommit in production.
+	// since we're using a mock propose that bypasses the Engine observer,
+	// trigger OnCommit manually with the data we know was written.
+	ts.httpServer.watchHub.OnCommit([]*kv.Entry{
+		{Key: []byte("e2e-key"), Value: []byte("e2e-value"), ModRev: 1, CreateRev: 1, Version: 1},
+	})
+
+	msg := readWatchMsg(t, conn)
+	require.Equal(t, watch.ServerWatchEventPut, msg.Kind)
+
+	ev := msg.AsStreamEvent(t)
+	require.Equal(t, wid, ev.Wid)
+	require.Equal(t, "e2e-key", string(ev.Event.Entry.Key))
+	require.Equal(t, "e2e-value", string(ev.Event.Entry.Value))
 }

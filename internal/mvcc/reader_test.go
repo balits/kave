@@ -15,15 +15,18 @@ func Test_Reader_RangeSingleKey(t *testing.T) {
 	w.End()
 
 	r := s.NewReader()
-	entries, total, curRev, err := r.Range([]byte("foo"), nil, 0, 0)
+	entries, total, lastRev, err := r.Range([]byte("foo"), nil, 0, 0)
+	entries, total, lastRev, err := r.Range([]byte("foo"), nil, 0, 0)
 	if err != nil {
 		t.Fatalf("Range: %v", err)
 	}
 	if total != 1 {
 		t.Errorf("total = %d, want 1", total)
 	}
-	if curRev != 1 {
-		t.Errorf("curRev = %d, want 1", curRev)
+	if lastRev != 1 {
+		t.Errorf("curRev = %d, want 1", lastRev)
+	if lastRev != 1 {
+		t.Errorf("curRev = %d, want 1", lastRev)
 	}
 	if len(entries) != 1 {
 		t.Fatalf("entries = %d, want 1", len(entries))

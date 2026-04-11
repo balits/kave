@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/balits/kave/internal/types"
+	"github.com/balits/kave/internal/kv"
 )
 
 // A RangeRequest a kulcsok egy tartományát olvassa, ahol a tartomány [Key, End) formában van megadva,
@@ -47,6 +47,9 @@ func (r *RangeRequest) Check() error {
 	if r.Limit < 0 {
 		return errors.New("limit cannot be negative")
 	}
+	if r.Revision < 0 {
+		return errors.New("revision cannot be negative")
+	}
 	// ez nem hiva, ha revision negativ akkor targetRev = 0 lesz
 	// if c.Revision < 0 {
 	// 	return errors.New("revision cannot be negative")
@@ -61,8 +64,8 @@ type RangeResponse struct {
 }
 
 type RangeResponseNoHeader struct {
-	Entries []types.KvEntry `json:"entries"`
-	Count   int             `json:"count"` // teljes egyezésű kulcsok száma (nagyobb lehet, mint len(Entries) ha limit volt alkalmazva)
+	Entries []*kv.Entry `json:"entries"`
+	Count   int         `json:"count"` // teljes egyezésű kulcsok száma (nagyobb lehet, mint len(Entries) ha limit volt alkalmazva)
 }
 
 // A PutRequest a PUT művelethez szükséges adatokat tartalmazza
@@ -104,7 +107,7 @@ type PutResponse struct {
 
 type PutResponseNoHeader struct {
 	// PrevEntry az előző értéket tartalmazza, ha PrevEntry kapcsolóval kértük, egyébként nil
-	PrevEntry *types.KvEntry `json:"prev_entry,omitempty"`
+	PrevEntry *kv.Entry `json:"prev_entry,omitempty"`
 }
 
 // A DeleteRequest a DELETE művelethez szükséges adatokat tartalmazza
@@ -136,7 +139,7 @@ type DeleteResponseNoHeader struct {
 	NumDeleted int64 `json:"num_deleted"`
 
 	// PrevEntries az eltávolított kulcsok előző értékeit tartalmazza, ha PrevEntry kapcsolóval kértük, egyébként nil
-	PrevEntries []types.KvEntry `json:"prev_entries,omitempty"`
+	PrevEntries []*kv.Entry `json:"prev_entries,omitempty"`
 }
 
 type TxnRequest struct {

@@ -89,11 +89,13 @@ func Test_LeaseManager_Revoke(t *testing.T) {
 	require.Equal(t, l.ID, l2.ID)
 	require.Equal(t, l.TTL, l2.TTL)
 
-	found, revoked := lm.Revoke(0)
+	found, revoked, err := lm.Revoke(0)
+	require.NoError(t, err, "lease revoke: unexpected error")
 	require.False(t, found, "lease revoke: expected false values after revoking non existent lease")
 	require.False(t, revoked, "lease revoke: expected false values after revoking non existent lease")
 
-	found, revoked = lm.Revoke(l.ID)
+	found, revoked, err = lm.Revoke(l.ID)
+	require.NoError(t, err, "lease revoke: unexpected error")
 	require.True(t, found, "lease revoke: expected true values after revoking existing lease")
 	require.True(t, revoked, "lease revoke: expected true values after revoking existing lease")
 	require.Nil(t, unsafeGetFromBackend(lm, l.ID), "lease revoke: expected nil from backend after revoking existing lease")

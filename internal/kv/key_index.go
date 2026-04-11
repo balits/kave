@@ -43,8 +43,8 @@ type keyIndex struct {
 	generations []generation // ordered list of create-delete cycles
 }
 
-func (a *keyIndex) Less(b *keyIndex) bool {
-	return bytes.Compare(a.key, b.key) == -1
+func (ki *keyIndex) Less(b *keyIndex) bool {
+	return bytes.Compare(ki.key, b.key) == -1
 }
 
 // put appends a new revision to the current (latest) generation.
@@ -86,9 +86,9 @@ func (a *keyIndex) get(targetRev int64) (createRev Revision, modRev Revision, ve
 		panic("get: getting empty key index")
 	}
 
-	g := a.findGen(targetRev)
-	if g.isEmpty() {
-		return Revision{}, Revision{}, 0, fmt.Errorf("%w: get: generation is empty", ErrKeyNotFound)
+	g, err := ki.findGen(targetRev)
+	if err != nil {
+		return Revision{}, Revision{}, 0, fmt.Errorf("%w: get: %w", ErrKeyNotFound, err)
 	}
 
 	n := g.walkBackwards(func(rev Revision) bool {
@@ -154,8 +154,8 @@ func (a *keyIndex) doRestore(createRev, modRev Revision, version int64) error {
 // findGen finds out the generation of the keyIndex that the
 // given rev belongs to. If the given rev is at the gap of two generations,
 // which means that the key does not exist at the given rev, it returns nil.
-func (a *keyIndex) findGen(rev int64) *generation {
-	lastGen := len(a.generations) - 1
+func (ki *keyIndex) findGen(rev int64) (*generation, error) {
+	lastGen := len(ki.generations) - 1
 	currentGen := lastGen
 
 	for currentGen >= 0 {
@@ -166,15 +166,15 @@ func (a *keyIndex) findGen(rev int64) *generation {
 		g := a.generations[currentGen]
 		if currentGen != lastGen {
 			if tomb := g.revs[len(g.revs)-1].Main; tomb <= rev {
-				return nil
+				return nil, fmt.Errorf("tombstone at %d", tomb)
 			}
 		}
 		if g.revs[0].Main <= rev {
-			return &a.generations[currentGen]
+			return &ki.generations[currentGen], nil
 		}
 		currentGen--
 	}
-	return nil
+	return nil, fmt.Errorf("revision is at the gap of two generations")
 }
 
 func (a *keyIndex) isEmpty() bool {
@@ -336,6 +336,15 @@ func (g *generation) walkBackwards(f func(rev Revision) bool) int {
 		}
 	}
 	return -1
+}
+
+func (g *generation) walk(f func(rev Revision) error) error {
+	for _, r := range g.revs {
+		if err := f(r); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // equal returns true if the two generations are identical, false otherwise.

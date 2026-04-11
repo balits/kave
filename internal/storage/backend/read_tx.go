@@ -7,12 +7,27 @@ import (
 	"github.com/balits/kave/internal/storage"
 )
 
-// TODO: read error prefix
+// TODO: read error prefix: ??
+// ReadTx is a read only transaction over the backend. Its RLock() and RUnlock() use the backends rwlock,
+// so multiple reads can happen at a given time.
 type ReadTx interface {
 	RLock()
 	RUnlock()
+
+	// UnsafeGet returns the value for the given key in the given bucket, or an error if the key doesn't exist.
+
+	// UnsafeGet returns the value for the given key in the given bucket, or an error if the key doesn't exist.
 	UnsafeGet(bucket storage.Bucket, key []byte) ([]byte, error)
+
+	// UnsafeRange iterates over all key-value pairs in the [start, end) range and applies the given function to them,
+	// returning each value in a slice. The function can return an error to stop the iteration and return it.
 	UnsafeRange(bucket storage.Bucket, start, end []byte, f func(k, v []byte) error) (res [][]byte, err error)
+
+	// UnsafeScan iterates over all key-value pairs in the [start, end) range and applies the given function to them.
+	// The function can return an error to stop the iteration and return it.
+
+	// UnsafeScan iterates over all key-value pairs in the [start, end) range and applies the given function to them.
+	// The function can return an error to stop the iteration and return it.
 	UnsafeScan(bucket storage.Bucket, start, end []byte, f func(k, v []byte) error) error
 }
 

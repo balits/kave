@@ -15,16 +15,15 @@ import (
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage/backend"
-	"github.com/balits/kave/internal/types"
 	"github.com/balits/kave/internal/util"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 var (
 	errLease           = errors.New("lease error")
-	errLeaseIDConflict = fmt.Errorf("%w: lease ID conflict", errLease)
+	ErrLeaseIDConflict = fmt.Errorf("%w: lease ID conflict", errLease)
 	ErrLeaseNotFound   = fmt.Errorf("%w: lease not found", errLease)
-	errLeaseInvalidTTL = fmt.Errorf("%w: TTL must be bigger than 0", errLease)
+	ErrLeaseInvalidTTL = fmt.Errorf("%w: TTL must be bigger than 0", errLease)
 )
 
 const (
@@ -64,7 +63,7 @@ func NewManager(reg prometheus.Registerer, logger *slog.Logger, store *mvcc.KvSt
 
 func (lm *LeaseManager) Grant(requestedID, ttl int64) (*Lease, error) {
 	if ttl <= 0 {
-		return nil, errLeaseInvalidTTL
+		return nil, ErrLeaseInvalidTTL
 	}
 	if ttl > maxTTL {
 		ttl = maxTTL
@@ -77,7 +76,7 @@ func (lm *LeaseManager) Grant(requestedID, ttl int64) (*Lease, error) {
 		id = requestedID
 	} else {
 		// leaseIDConflict esetén az unsafeSaveToLeaseMap fogja visszadobni a hibát
-		id = nextID()
+		id = util.NextNonNullID()
 	}
 
 	lease := newLease(id, ttl, lm.clock)
@@ -102,18 +101,19 @@ func (lm *LeaseManager) Grant(requestedID, ttl int64) (*Lease, error) {
 	return lease, nil
 }
 
-func (lm *LeaseManager) Revoke(id int64) (found, revoked bool) {
+// FIXME: is delete + writer End() error handled well?
+func (lm *LeaseManager) Revoke(id int64) (found, revoked bool, err error) {
 	lm.rwlock.Lock()
+	defer lm.rwlock.Unlock()
+
 	start := time.Now()
 	defer func() { lm.metrics.RevokeDurationSec.Observe(time.Since(start).Seconds()) }()
 
 	lease, ok := lm.leaseMap[id]
 	if !ok {
-		lm.rwlock.Unlock()
 		return
-	} else {
-		found = ok
 	}
+	found = ok
 
 	lease.keysMu.Lock()
 	toDelete := make([][]byte, 0, len(lease.keySet))
@@ -123,33 +123,46 @@ func (lm *LeaseManager) Revoke(id int64) (found, revoked bool) {
 	}
 	lease.keysMu.Unlock()
 
-	lm.unsafeRemoveFromLeaseMap(lease)
-	lm.unsafeRemoveFromHeap(lease.ID)
-
-	lm.rwlock.Unlock()
-
 	if len(toDelete) > 0 {
 		w := lm.store.NewWriter()
 		actuallyDeleted := 0
 		for _, k := range toDelete {
-			if _, _, err := w.DeleteKey(k); err != nil {
-				lm.logger.Info("failed to delete key",
+			if err := w.DeleteKey(k); err != nil {
+				w.Abort()
+				msg := fmt.Sprintf("lease revoke: failed to delete key %s", k)
+				lm.logger.Error(msg,
 					"key", k,
+					"id", lease.ID,
 					"error", err,
 				)
+				return true, false, fmt.Errorf("%s: %w", msg, err)
 			} else {
 				actuallyDeleted++
 			}
 		}
-		w.End()
-		lm.logger.Info("lease revoke: removed attached keys",
-			"id", lease.ID,
-			"all_key_count", len(toDelete),
-			"deleted_key_count", actuallyDeleted,
-		)
 
-		lm.metrics.KeysPerRevoke.Observe(float64(len(toDelete)))
+		if err := w.End(); err != nil {
+			w.Abort()
+			msg := "lease revoke: failed to remove attached keys: writer.End() failed"
+			lm.logger.Error(msg,
+				"error", err,
+				"id", lease.ID,
+				"all_key_count", len(toDelete),
+				"deleted_key_count", actuallyDeleted,
+			)
+			return false, false, fmt.Errorf("%s: %w", msg, err)
+		} else {
+			lm.logger.Info("lease revoke: removed attached keys",
+				"id", lease.ID,
+				"all_key_count", len(toDelete),
+				"deleted_key_count", actuallyDeleted,
+			)
+			lm.metrics.KeysPerRevoke.Observe(float64(len(toDelete)))
+		}
 	}
+
+	lm.unsafeRemoveFromLeaseMap(lease)
+	lm.unsafeRemoveFromHeap(lease.ID)
 
 	// logoljuk, de nem kell hibával visszatértünk:
 	// a kulcsokat már úgyis töröltük, és a régi lease-k úgyis törlődnek
@@ -319,7 +332,7 @@ func (lm *LeaseManager) ApplyExpired(cmd command.CmdLeaseExpire) (*command.Resul
 
 	w := lm.store.NewWriter()
 	for _, key := range attachedKeys {
-		_, _, err := w.DeleteKey(key)
+		err := w.DeleteKey(key)
 		if err != nil {
 			w.Abort()
 			lm.logger.Error("apply expired: failed to remove key from store",
@@ -329,7 +342,7 @@ func (lm *LeaseManager) ApplyExpired(cmd command.CmdLeaseExpire) (*command.Resul
 			return nil, err
 		}
 	}
-	w.End()
+	_ = w.End()
 	lm.metrics.KeysPerExpiry.Observe(float64(len(attachedKeys)))
 	lm.logger.Info("apply expired: removed keys from store", "key_count", len(attachedKeys))
 
@@ -471,7 +484,7 @@ func (lm *LeaseManager) Restore() error {
 				return nil
 			}
 
-			entry, err := types.DecodeKvEntry(v)
+			entry, err := kv.DecodeEntry(v)
 			if err != nil {
 				lm.logger.Warn("restore error: failed to decode entry", "error", err)
 				return nil
@@ -520,7 +533,7 @@ func (lm *LeaseManager) Restore() error {
 // NOTE: caller needs to hold the lock
 func (lm *LeaseManager) unsafeSaveToLeaseMap(l *Lease) error {
 	if _, ok := lm.leaseMap[l.ID]; ok {
-		return errLeaseIDConflict
+		return ErrLeaseIDConflict
 	}
 	lm.leaseMap[l.ID] = l
 	return nil
@@ -534,6 +547,7 @@ func (lm *LeaseManager) unsafePushToHeap(lease *Lease) {
 }
 
 // unsafeRemoveFromHeap eltávolítja a least a heapről O(log n) időben
+//
 // NOTE: caller needs to hold the lock
 func (lm *LeaseManager) unsafeRemoveFromHeap(id int64) {
 	item, ok := lm.heapMap[id]
@@ -545,6 +559,7 @@ func (lm *LeaseManager) unsafeRemoveFromHeap(id int64) {
 }
 
 // unsafePersistLease elmenti a leaset a backendbe
+//
 // NOTE: caller needs to hold the lock
 func (lm *LeaseManager) unsafePersistToBackend(lease *Lease) error {
 	bucketKey := EncodeLeaseBucketKey(LeaseBucketKey(lease.ID))
@@ -588,6 +603,7 @@ func (lm *LeaseManager) unsafeRemoveFromBackend(lease *Lease) error {
 }
 
 // unsafeRemoveFromLeaseMap törli a leaset a leaseMap-ből
+//
 // NOTE: caller needs to hold the lock
 func (lm *LeaseManager) unsafeRemoveFromLeaseMap(l *Lease) {
 	delete(lm.leaseMap, l.ID)
@@ -595,6 +611,7 @@ func (lm *LeaseManager) unsafeRemoveFromLeaseMap(l *Lease) {
 
 // unsafeUpdateHeap frissít egy már meglévő elemet
 // heap.Fix O(log n) időben újraépíti a heap invaránsát
+//
 // NOTE: caller needs to hold the lock
 func (lm *LeaseManager) unsafeUpdateHeap(id int64, t time.Time) {
 	item, ok := lm.heapMap[id]
@@ -612,7 +629,7 @@ func (lm *LeaseManager) unsafeUpdateHeap(id int64, t time.Time) {
 // NOTE: caller needs to hold the lock
 func (lm *LeaseManager) unsafeRegrant(requestedID, remainingTTLsec int64) (*Lease, error) {
 	if remainingTTLsec <= 0 {
-		return nil, errLeaseInvalidTTL
+		return nil, ErrLeaseInvalidTTL
 	}
 	if remainingTTLsec > maxTTL {
 		remainingTTLsec = maxTTL
@@ -623,7 +640,7 @@ func (lm *LeaseManager) unsafeRegrant(requestedID, remainingTTLsec int64) (*Leas
 		id = requestedID
 	} else {
 		// leaseIDConflict esetén az unsafeSaveToLeaseMap fogja visszadobni a hibát
-		id = nextID()
+		id = util.NextNonNullID()
 	}
 
 	lease := newLease(id, remainingTTLsec, lm.clock)

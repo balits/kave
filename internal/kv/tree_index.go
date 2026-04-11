@@ -14,7 +14,7 @@ var ErrCompactionFailed = fmt.Errorf("treeIndex: compaction failed")
 
 //	key -> {
 //		key,
-//		{key, modRev, []revs},
+//		{key, lastModRev, []revs},
 //	}
 type Index interface {
 	// Get looks up a single user key at a target revision.
@@ -30,9 +30,14 @@ type Index interface {
 	// If end is nil, returns only the exact key match.
 	Range(key, end []byte, targetRev int64) ([][]byte, []Revision)
 
-	// Revisions returns up to `limit` revisions for keys in [key, end) at targetRev.
-	// The second return value is the total count (ignoring limit).
-	Revisions(key, end []byte, targetRev int64, limit int) ([]Revision, int)
+	// RevisionRange returns all {revision,tombstone} found for the  key range[key, end)
+	// in the  range [startRev, endRev).
+	RevisionsRange(key, end []byte, startRev, endRev int64) []KvBucketKey
+
+	// Revisions returns limited number of revisions from [key, end) at the given rev.
+	// The returned slice is sorted in the order of key. There is no limit if limit <= 0.
+	// The second return parameter isn't capped by the limit and reflects the total number of revisions.
+	Revisions(key, end []byte, targetRev int64, limit int) (revs []Revision, total int)
 
 	// CountRevisions counts how many keys in [key, end) are live at targetRev.
 	CountRevisions(key, end []byte, targetRev int64) int
@@ -144,6 +149,56 @@ func (ti *treeIndex) unsafeVisit(key, end []byte, f func(ki *keyIndex) bool) {
 	})
 }
 
+// RevisionRange returns all revisions found for the key [key, end) in the range [startRev, endRev).
+func (ti *treeIndex) RevisionsRange(key, end []byte, startRev, endRev int64) (out []KvBucketKey) {
+	ti.mu.Lock()
+	defer ti.mu.Unlock()
+
+	getRevs := func(ki *keyIndex) {
+		for i, g := range ki.generations {
+			genComplete := i < len(ki.generations)-1
+			lastRevIdx := len(g.revs) - 1
+			_ = g.walk(func(rev Revision) error {
+				if rev.Main > startRev && rev.Main < endRev {
+					tomb := genComplete && g.revs[lastRevIdx] == rev
+					out = append(out, KvBucketKey{Revision: rev, Tombstone: tomb})
+				}
+				return nil
+			})
+		}
+	}
+
+	if startRev > endRev {
+		return
+	}
+
+	if end == nil && len(key) != 0 {
+		ki := &keyIndex{key: key}
+		if ki = ti.keyIndex(ki); ki == nil {
+			return make([]KvBucketKey, 0)
+		}
+		getRevs(ki)
+		return
+	}
+
+	if key == nil {
+		key = []byte{}
+	}
+
+	// didnt check prev value, but all tests passed:
+	// unsafeVisit + getRevs handles this case too
+	// if end == nil && len(key) != 0 {
+	// 	ti.unsafeGet(key, endRev)
+	// }
+
+	ti.unsafeVisit(key, end, func(ki *keyIndex) bool {
+		getRevs(ki)
+		return true
+	})
+
+	return out
+}
+
 // Revisions returns limited number of revisions from key(included) to end(excluded)
 // at the given rev. The returned slice is sorted in the order of key. There is no limit if limit <= 0.
 // The second return parameter isn't capped by the limit and reflects the total number of revisions.
@@ -164,15 +219,15 @@ func (ti *treeIndex) Revisions(key, end []byte, targetRev int64, limit int) (rev
 	}
 
 	ti.unsafeVisit(key, end, func(ki *keyIndex) bool {
-		if _, modRev, _, err := ki.get(targetRev); err == nil {
+		if _, mod, _, err := ki.get(targetRev); err == nil {
 			if limit <= 0 || len(revs) < limit {
-				revs = append(revs, modRev)
+				revs = append(revs, mod)
 			}
 			total++
 		}
 		return true
 	})
-	return revs, total
+	return
 }
 
 // CountRevisions returns the number of revisions

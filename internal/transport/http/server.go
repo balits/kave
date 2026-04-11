@@ -9,36 +9,61 @@ import (
 	"net/http"
 
 	"github.com/balits/kave/internal/peer"
+	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/service"
 	"github.com/balits/kave/internal/transport"
 	"github.com/balits/kave/internal/types/api"
 	"github.com/balits/kave/internal/util"
+	"github.com/balits/kave/internal/watch"
+	"github.com/coder/websocket"
+	"github.com/balits/kave/internal/watch"
+	"github.com/coder/websocket"
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
-	RouteKvRange  string = transport.RouteKv + "/range"
-	RouteKvPut    string = transport.RouteKv + "/put"
-	RouteKvDelete string = transport.RouteKv + "/delete"
-	RouteKvTxn    string = transport.RouteKv + "/txn"
+	RouteKvRange  = transport.RouteKv + "/range"
+	RouteKvPut    = transport.RouteKv + "/put"
+	RouteKvDelete = transport.RouteKv + "/delete"
+	RouteKvTxn    = transport.RouteKv + "/txn"
+	RouteKvRange  = transport.RouteKv + "/range"
+	RouteKvPut    = transport.RouteKv + "/put"
+	RouteKvDelete = transport.RouteKv + "/delete"
+	RouteKvTxn    = transport.RouteKv + "/txn"
 
-	RouteLeaseGrant     string = transport.RouteLease + "/grant"
-	RouteLeaseRevoke    string = transport.RouteLease + "/revoke"
-	RouteLeaseKeepAlive string = transport.RouteLease + "/keep-alive"
-	RouteLeaseLookup    string = transport.RouteLease + "/lookup"
+	RouteLeaseGrant     = transport.RouteLease + "/grant"
+	RouteLeaseRevoke    = transport.RouteLease + "/revoke"
+	RouteLeaseKeepAlive = transport.RouteLease + "/keep-alive"
+	RouteLeaseLookup    = transport.RouteLease + "/lookup"
+	RouteLeaseGrant     = transport.RouteLease + "/grant"
+	RouteLeaseRevoke    = transport.RouteLease + "/revoke"
+	RouteLeaseKeepAlive = transport.RouteLease + "/keep-alive"
+	RouteLeaseLookup    = transport.RouteLease + "/lookup"
 
-	RouteOtInit     string = transport.RouteOt + "/init"
-	RouteOtTransfer string = transport.RouteOt + "/transfer"
-	RouteOtWriteAll string = transport.RouteOt + "/write-all"
+	RouteOtInit     = transport.RouteOt + "/init"
+	RouteOtTransfer = transport.RouteOt + "/transfer"
+	RouteOtWriteAll = transport.RouteOt + "/write-all"
 
-	RouteClusterJoin string = transport.RouteCluster + "/join"
+	RouteWatchWS = transport.RouteWatch
+	RouteOtInit     = transport.RouteOt + "/init"
+	RouteOtTransfer = transport.RouteOt + "/transfer"
+	RouteOtWriteAll = transport.RouteOt + "/write-all"
 
-	RouteStats   string = "/stats"
-	RouteMetrics string = "/metrics"
-	RouteLivez   string = "/livez"
-	RouteReadyz  string = "/readyz"
+	RouteWatchWS = transport.RouteWatch
+
+	RouteClusterJoin = transport.RouteCluster + "/join"
+	RouteClusterJoin = transport.RouteCluster + "/join"
+
+	RouteStats   = "/stats"
+	RouteMetrics = "/metrics"
+	RouteLivez   = "/livez"
+	RouteReadyz  = "/readyz"
+	RouteStats   = "/stats"
+	RouteMetrics = "/metrics"
+	RouteLivez   = "/livez"
+	RouteReadyz  = "/readyz"
 )
 
 const (
@@ -68,6 +93,12 @@ const (
 
 var (
 	errRaftShutdown = errors.New("raft is shutdown")
+	// statsErrMsg  string = "stats check failed"
+	livezErrMsg string = "livez check failed"
+)
+
+var (
+	errRaftShutdown = errors.New("raft is shutdown")
 )
 
 type HttpServer struct {
@@ -86,6 +117,8 @@ func NewHTTPServer(
 	logger *slog.Logger,
 	me peer.Peer,
 	discoveryService peer.DiscoveryService,
+	me peer.Peer,
+	discoveryService peer.DiscoveryService,
 	kvService service.KVService,
 	leaseService service.LeaseService,
 	otService service.OTService,
@@ -93,7 +126,10 @@ func NewHTTPServer(
 	reg *prometheus.Registry,
 	readLimitConfig RateLimiterConfig,
 	writeLimitConfig RateLimiterConfig,
+	readLimitConfig RateLimiterConfig,
+	writeLimitConfig RateLimiterConfig,
 ) *HttpServer {
+	addr := me.GetHttpAdvertisedAddress()
 	addr := me.GetHttpAdvertisedAddress()
 	mux := http.NewServeMux()
 	s := &HttpServer{
@@ -113,13 +149,25 @@ func NewHTTPServer(
 	s.writeLimiter = newRateLimiter(readLimitConfig)
 	s.readLimiter = newRateLimiter(writeLimitConfig)
 
+	// TODO(ratelimiter): run real benchmarks to determine rps and burst: something around 75% of peak capacity
+	s.writeLimiter = newRateLimiter(readLimitConfig)
+	s.readLimiter = newRateLimiter(writeLimitConfig)
+
 	// kv
+	mux.HandleFunc("GET "+RouteKvRange, s.readChain(s.handleKvRange)) // optional leader if we want the latest data
+	mux.HandleFunc("POST "+RouteKvPut, s.writeChain(s.handleKvPut))
+	mux.HandleFunc("DELETE "+RouteKvDelete, s.writeChain(s.handleKvDelete))
+	mux.HandleFunc("POST "+RouteKvTxn, s.writeChain(s.handleKvTxn))
 	mux.HandleFunc("GET "+RouteKvRange, s.readChain(s.handleKvRange)) // optional leader if we want the latest data
 	mux.HandleFunc("POST "+RouteKvPut, s.writeChain(s.handleKvPut))
 	mux.HandleFunc("DELETE "+RouteKvDelete, s.writeChain(s.handleKvDelete))
 	mux.HandleFunc("POST "+RouteKvTxn, s.writeChain(s.handleKvTxn))
 
 	// lease
+	mux.HandleFunc("POST "+RouteLeaseGrant, s.writeChain(s.handleLeaseGrant))
+	mux.HandleFunc("DELETE "+RouteLeaseRevoke, s.writeChain(s.handleLeaseRevoke))
+	mux.HandleFunc("POST "+RouteLeaseKeepAlive, s.writeChain(s.handleLeaseKeepAlive))
+	mux.HandleFunc("GET "+RouteLeaseLookup, s.readChain(s.handleLeaseLookup)) // optional leader if we want the most "up to date" data regarding a lease's ttl
 	mux.HandleFunc("POST "+RouteLeaseGrant, s.writeChain(s.handleLeaseGrant))
 	mux.HandleFunc("DELETE "+RouteLeaseRevoke, s.writeChain(s.handleLeaseRevoke))
 	mux.HandleFunc("POST "+RouteLeaseKeepAlive, s.writeChain(s.handleLeaseKeepAlive))
@@ -131,6 +179,7 @@ func NewHTTPServer(
 	mux.HandleFunc("POST "+RouteOtWriteAll, s.writeChain(s.handleOTWriteAll)) // write must go through raft
 
 	// cluster
+	mux.HandleFunc("POST "+RouteClusterJoin, s.writeChain(s.handleJoin))
 	mux.HandleFunc("POST "+RouteClusterJoin, s.writeChain(s.handleJoin))
 
 	// health / debug
@@ -156,6 +205,8 @@ func (s *HttpServer) Shutdown(ctx context.Context) error {
 	if err := s.server.Shutdown(ctx); err != nil {
 		err := s.server.Close()
 		s.logger.Error("closing server failed", "error", err)
+		err := s.server.Close()
+		s.logger.Error("closing server failed", "error", err)
 		return err
 	}
 	return nil
@@ -172,6 +223,7 @@ func (s *HttpServer) handleKvRange(w http.ResponseWriter, r *http.Request) {
 	response, err := s.kvSvc.Range(r.Context(), req)
 	if err != nil {
 		s.logger.Error(kvRangeErrMsg, "error", err)
+		if errors.Is(err, util.ErrPropose) {
 		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
@@ -194,6 +246,7 @@ func (s *HttpServer) handleKvPut(w http.ResponseWriter, r *http.Request) {
 	response, err := s.kvSvc.Put(r.Context(), req)
 	if err != nil {
 		if errors.Is(err, util.ErrPropose) {
+		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
 			status = http.StatusBadRequest
@@ -214,6 +267,7 @@ func (s *HttpServer) handleKvDelete(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	response, err := s.kvSvc.Delete(r.Context(), req)
 	if err != nil {
+		if errors.Is(err, util.ErrPropose) {
 		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
@@ -237,6 +291,7 @@ func (s *HttpServer) handleKvTxn(w http.ResponseWriter, r *http.Request) {
 	response, err := s.kvSvc.Txn(r.Context(), req)
 	if err != nil {
 		if errors.Is(err, util.ErrPropose) {
+		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
 			status = http.StatusBadRequest
@@ -255,6 +310,7 @@ func (s *HttpServer) handleJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	err := s.raftSvc.AddToCluster(r.Context(), req)
 	err := s.raftSvc.AddToCluster(r.Context(), req)
 	if err != nil {
 		s.writeError(w, clusterJoinErrMsg, err, http.StatusInternalServerError)
@@ -277,6 +333,7 @@ func (s *HttpServer) handleLeaseGrant(w http.ResponseWriter, r *http.Request) {
 	response, err := s.leaseSvc.Grant(r.Context(), req)
 	if err != nil {
 		if errors.Is(err, util.ErrPropose) {
+		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
 			status = http.StatusBadRequest
@@ -296,6 +353,7 @@ func (s *HttpServer) handleLeaseRevoke(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	response, err := s.leaseSvc.Revoke(r.Context(), req)
 	if err != nil {
+		if errors.Is(err, util.ErrPropose) {
 		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
@@ -318,6 +376,7 @@ func (s *HttpServer) handleLeaseKeepAlive(w http.ResponseWriter, r *http.Request
 	response, err := s.leaseSvc.KeepAlive(r.Context(), req)
 	if err != nil {
 		if errors.Is(err, util.ErrPropose) {
+		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
 			status = http.StatusBadRequest
@@ -338,6 +397,7 @@ func (s *HttpServer) handleLeaseLookup(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	response, err := s.leaseSvc.Lookup(r.Context(), req)
 	if err != nil {
+		if errors.Is(err, util.ErrPropose) {
 		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
@@ -363,6 +423,7 @@ func (s *HttpServer) handleOTInit(w http.ResponseWriter, r *http.Request) {
 	response, err := s.otSvc.Init(r.Context(), req)
 	if err != nil {
 		if errors.Is(err, util.ErrPropose) {
+		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
 			status = http.StatusBadRequest
@@ -383,6 +444,7 @@ func (s *HttpServer) handleOTTransfer(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	reponse, err := s.otSvc.Transfer(r.Context(), req)
 	if err != nil {
+		if errors.Is(err, util.ErrPropose) {
 		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
@@ -405,6 +467,7 @@ func (s *HttpServer) handleOTWriteAll(w http.ResponseWriter, r *http.Request) {
 	response, err := s.otSvc.WriteAll(r.Context(), req)
 	if err != nil {
 		if errors.Is(err, util.ErrPropose) {
+		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
 		} else {
 			status = http.StatusBadRequest
@@ -417,10 +480,12 @@ func (s *HttpServer) handleOTWriteAll(w http.ResponseWriter, r *http.Request) {
 
 func (s *HttpServer) handleStats(w http.ResponseWriter, r *http.Request) {
 	stats := s.raftSvc.Stats()
+	stats := s.raftSvc.Stats()
 	s.writeJSON(w, stats, http.StatusOK)
 }
 
 func (s *HttpServer) handleLivez(w http.ResponseWriter, r *http.Request) {
+	if s.raftSvc.RaftState() == raft.Shutdown {
 	if s.raftSvc.RaftState() == raft.Shutdown {
 		s.writeError(w, livezErrMsg, errRaftShutdown, http.StatusServiceUnavailable)
 		return
@@ -436,10 +501,12 @@ func (s *HttpServer) handleLivez(w http.ResponseWriter, r *http.Request) {
 
 func (s *HttpServer) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	if s.raftSvc.RaftState() == raft.Shutdown {
+	if s.raftSvc.RaftState() == raft.Shutdown {
 		s.writeError(w, readyzErrMsg, errRaftShutdown, http.StatusServiceUnavailable)
 		return
 	}
 
+	_, err := s.raftSvc.Leader()
 	_, err := s.raftSvc.Leader()
 	if err != nil {
 		msg := readyzErrMsg + ": failed to get leader info"
@@ -448,12 +515,83 @@ func (s *HttpServer) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.raftSvc.LaggingBehind(); err != nil {
+	if err := s.raftSvc.LaggingBehind(); err != nil {
 		msg := readyzErrMsg + ": raft is lagging behind"
 		s.writeError(w, msg, err, http.StatusServiceUnavailable)
 		return
 	}
 
 	s.writeJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
+}
+
+func (s *HttpServer) handleWatch(w http.ResponseWriter, r *http.Request) {
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		Subprotocols: []string{watch.WatchSubprotocol},
+	})
+
+	if err != nil {
+		msg := "failed to accept connection"
+		s.writeError(w, msg, err, http.StatusBadRequest)
+		return
+	}
+
+	defer func() {
+		_ = conn.CloseNow()
+	}()
+
+	if conn.Subprotocol() != watch.WatchSubprotocol {
+		msg := fmt.Sprintf("client must speak '%s'", watch.WatchSubprotocol)
+		s.logger.Error("faild to accept connection", "error", msg)
+		_ = conn.Close(websocket.StatusPolicyViolation, msg)
+		return
+	}
+
+	session := watch.NewSession(conn, r.Context(), s.watchHub, s.rootLogger, 0, 0)
+	defer session.Close()
+
+	if err = session.Run(); err != nil {
+		msg := "watch handler failed, closing connection"
+		s.logger.Error(msg, "error", err)
+		_ = conn.Close(websocket.StatusAbnormalClosure, fmt.Sprintf("%s: %v", msg, err))
+		return
+	}
+	s.logger.Info("watch handler done, closing connection")
+	if err = conn.Close(websocket.StatusNormalClosure, "all good"); err != nil {
+		s.writeError(w, "failed to close websocket", err, http.StatusInternalServerError)
+	}
+}
+
+func (s *HttpServer) handleWatch(w http.ResponseWriter, r *http.Request) {
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		Subprotocols: []string{watch.WatchSubprotocol},
+	})
+
+	if err != nil {
+		msg := "failed to accept connection"
+		s.writeError(w, msg, err, http.StatusBadRequest)
+		return
+	}
+
+	defer conn.CloseNow()
+
+	if conn.Subprotocol() != watch.WatchSubprotocol {
+		msg := fmt.Sprintf("client must speak '%s'", watch.WatchSubprotocol)
+		s.logger.Error("faild to accept connection", "error", msg)
+		conn.Close(websocket.StatusPolicyViolation, msg)
+		return
+	}
+
+	session := watch.NewSession(conn, r.Context(), s.watchHub, s.rootLogger, 0, 0)
+	defer session.Close()
+
+	if err = session.Run(); err != nil {
+		msg := "watch handler failed, closing connection"
+		s.logger.Error(msg, "error", err)
+		conn.Close(websocket.StatusAbnormalClosure, fmt.Sprintf("%s: %v", msg, err))
+		return
+	}
+	s.logger.Info("watch handler done, closing connection")
+	conn.Close(websocket.StatusNormalClosure, "all good")
 }
 
 func (s *HttpServer) writeJSON(w http.ResponseWriter, response any, status int) {
@@ -465,10 +603,16 @@ func (s *HttpServer) writeJSON(w http.ResponseWriter, response any, status int) 
 		if _, err = w.Write([]byte(jsonEncodeErrMsg + ": " + err.Error())); err != nil {
 			s.logger.Error("Failed to write JSON response", "error", err)
 		}
+		if _, err = w.Write([]byte(jsonEncodeErrMsg + ": " + err.Error())); err != nil {
+			s.logger.Error("Failed to write JSON response", "error", err)
+		}
 		return
 	}
 
 	w.WriteHeader(status)
+	if _, err := w.Write(bytes); err != nil {
+		s.logger.Error("Failed to write JSON response", "error", err)
+	}
 	if _, err := w.Write(bytes); err != nil {
 		s.logger.Error("Failed to write JSON response", "error", err)
 	}
@@ -484,6 +628,39 @@ func (s *HttpServer) writeError(w http.ResponseWriter, msg string, err error, st
 	w.Header().Set("Content-Type", "application/json")
 	bytes, _ := json.Marshal(map[string]string{"error": jsonMessage})
 	w.WriteHeader(status)
+	if _, err := w.Write(bytes); err != nil {
+		s.logger.Error("Failed to write error response", "error", err)
+	}
+}
+
+// readLimitMiddleware is a wrapper around the internal read rate limiters in the [HttpServer]
+// that fits the type definition of [middleware] functions.
+func (s *HttpServer) readLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		l := s.readLimiter.Limiter(r.URL.Path)
+
+		if !l.Allow() {
+			s.writeError(w, "read limit exceeded", errMsgRateLimiter, http.StatusTooManyRequests)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// writeMiddleware is a wrapper around the internal write rate limiters in the [HttpServer]
+// that fits the type definition of [middleware] functions.
+func (s *HttpServer) writeLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		l := s.writeLimiter.Limiter(r.URL.Path)
+
+		if !l.Allow() {
+			s.writeError(w, "write limit exceeded", errMsgRateLimiter, http.StatusTooManyRequests)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 	if _, err := w.Write(bytes); err != nil {
 		s.logger.Error("Failed to write error response", "error", err)
 	}
