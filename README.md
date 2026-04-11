@@ -152,10 +152,10 @@ Hello world
         - [x] WriteTx Commit Observer
         - [ ] Snapshot metrics too
         - [ ] meaningful grafana
-        - [ ] figure out where and how to collect every kind of metric
-            - [ ] raft
-            - [ ] kv
-            - [ ] backend
+        - [x] figure out where and how to collect every kind of metric
+            - [x] raft
+            - [x] kv
+            - ~~[ ] backend~~
             - [x] lease
     - [x] use time.Tick() instead of time.Ticker() (no need for ticker.Stop() from now on)
     - [ ] http layer touch ups
@@ -164,8 +164,8 @@ Hello world
             - [ ] tls on raft inter node communication
         - [x] handle http redirects from follower to leader
             - single host reverse proxy?
-        - [ ] http tests
-            - [ ] middleware
+        - [x] http tests
+            - [x] middleware
                 - [x] readMiddleware
                     - switch request.Serializable 
                         - case True: serve reads localy
@@ -183,7 +183,7 @@ Hello world
     - [ ] kv index
         - [ ] LICENSE from etcd: http://www.apache.org/licenses/LICENSE-2.0
         - [ ] batch kvindex updates, rollback on commit failure
-    - [ ] OT
+    - [x] OT
         - [x] type TokenCodec
             - [x] impl
             - [x] test
@@ -192,11 +192,11 @@ Hello world
             - [x] test
         - [x] type OTService
             - [x] impl
-            - [ ] test
+            - [x] test
     - [ ] refactor LeaseService return types
     - [ ] cluster integration tests
     - [ ] live workload + web ui for stats, metrics and manual commands
-    - [ ] watch API
+    - [x] watch API
         - [x] watcher
             - store key, end, startRev, currentRev and a buffered channel of events for send/sendAll
             - since channel is buffered, send/sendAll returns errWatcherOverloaded,
@@ -213,7 +213,7 @@ Hello world
             - [x] promotion happens when the watchers.currentRev >= HIGHEST_REV_FOR_KEYRANGE, where KEYRANGE is [watcher.keyStart, watcher.keyEnd)
             - [x] to reduce latency in the fsm.Apply path (WatchHub.OnCommit()), batch promotion/deletion at the end of each tick, instead of locking the hub for the entire tick
             - [x] remove Reader.RevisionRange, use kvIndex.RevisionsRange(key, end []byte, startRev, endRev int64)
-        - [ ] Stream: creates/cancels watchers, runs them in go routines and collects messages through a public read only channle 
+        - [x] Stream: creates/cancels watchers, runs them in go routines and collects messages through a public read only channle 
             - [x]manages its own subset of watcher, wraps the hub
             - [x] starts a collector go routine for each new watch created, and collects it
                 in an output channel, emitting StreamEvents {watcher_id, event}

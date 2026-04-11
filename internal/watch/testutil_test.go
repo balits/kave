@@ -31,14 +31,13 @@ func (m *mockStore) NewReader() mvcc.Reader {
 	return &mockReader{} // empty reader by default
 }
 
-func (m *mockStore) setCurrentRev(rev int64) {
-	m.currentRev = rev
-}
+// func (m *mockStore) setCurrentRev(rev int64) {
+// 	m.currentRev = rev
+// }
 
 type mockReader struct {
 	s       *mockStore
 	entries []*kv.Entry
-	err     error
 }
 
 func (r *mockReader) Revisions() (kv.Revision, int64) {

@@ -158,7 +158,7 @@ func (ti *treeIndex) RevisionsRange(key, end []byte, startRev, endRev int64) (ou
 		for i, g := range ki.generations {
 			genComplete := i < len(ki.generations)-1
 			lastRevIdx := len(g.revs) - 1
-			g.walk(func(rev Revision) error {
+			_ = g.walk(func(rev Revision) error {
 				if rev.Main > startRev && rev.Main < endRev {
 					tomb := genComplete && g.revs[lastRevIdx] == rev
 					out = append(out, KvBucketKey{Revision: rev, Tombstone: tomb})
@@ -185,9 +185,11 @@ func (ti *treeIndex) RevisionsRange(key, end []byte, startRev, endRev int64) (ou
 		key = []byte{}
 	}
 
-	if end == nil && len(key) != 0 {
-		ti.unsafeGet(key, endRev)
-	}
+	// didnt check prev value, but all tests passed:
+	// unsafeVisit + getRevs handles this case too
+	// if end == nil && len(key) != 0 {
+	// 	ti.unsafeGet(key, endRev)
+	// }
 
 	ti.unsafeVisit(key, end, func(ki *keyIndex) bool {
 		getRevs(ki)

@@ -33,19 +33,20 @@ type Fsm struct {
 	logger         *slog.Logger
 }
 
-func NewWithEngine(logger *slog.Logger, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager, engine *mvcc.Engine, nodeID string) *Fsm {
+func NewWithEngine(logger *slog.Logger, me peer.Peer, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager, engine *mvcc.Engine) *Fsm {
 	f := &Fsm{
+		me:     me,
+		store:  store,
 		engine: engine,
 		lm:     lm,
-		store:  store,
 		om:     om,
 		logger: logger.With("component", "fsm"),
 	}
 	return f
 }
 
-func New(logger *slog.Logger, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager, nodeID string) *Fsm {
-	return NewWithEngine(logger, store, lm, om, mvcc.NewEngine(store, lm), nodeID)
+func New(logger *slog.Logger, me peer.Peer, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager) *Fsm {
+	return NewWithEngine(logger, me, store, lm, om, mvcc.NewEngine(store, lm))
 }
 
 // SetMetrics is needed for a two phase init of the fsm
@@ -99,7 +100,7 @@ func (f *Fsm) Apply(log *raft.Log) interface{} {
 	// set fields that apply could touch
 	res.Header.RaftTerm = log.Term
 	res.Header.RaftIndex = log.Index
-	res.Header.NodeID = f.myID
+	res.Header.NodeID = f.me.NodeID
 
 	if res.Error == nil {
 		for _, o := range f.writeObservers {
@@ -145,10 +146,12 @@ func (f *Fsm) applyLease(cmd command.Command) (res command.Result) {
 
 	case command.KindLeaseRevoke:
 		var found, revoked bool
-		found, revoked = f.lm.Revoke(cmd.LeaseRevoke.LeaseID)
-		res.LeaseRevoke = &command.ResultLeaseRevoke{
-			Found:   found,
-			Revoked: revoked,
+		found, revoked, err = f.lm.Revoke(cmd.LeaseRevoke.LeaseID)
+		if err == nil {
+			res.LeaseRevoke = &command.ResultLeaseRevoke{
+				Found:   found,
+				Revoked: revoked,
+			}
 		}
 
 	case command.KindLeaseKeepAlive:

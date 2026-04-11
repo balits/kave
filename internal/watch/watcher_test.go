@@ -247,9 +247,9 @@ func Test_Watcher_Matches_RangeWatch(t *testing.T) {
 	// [a, d)
 	w := &watcher{keyStart: []byte("a"), keyEnd: []byte("d")}
 
-	require.True(t, w.matches(testPutEvent("a", "v", 1))) 
-	require.True(t, w.matches(testPutEvent("b", "v", 1))) 
-	require.True(t, w.matches(testPutEvent("c", "v", 1))) 
+	require.True(t, w.matches(testPutEvent("a", "v", 1)))
+	require.True(t, w.matches(testPutEvent("b", "v", 1)))
+	require.True(t, w.matches(testPutEvent("c", "v", 1)))
 	require.False(t, w.matches(testPutEvent("d", "v", 1)))
 	require.False(t, w.matches(testPutEvent("e", "v", 1)))
 	require.False(t, w.matches(testPutEvent("Z", "v", 1)))

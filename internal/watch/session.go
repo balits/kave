@@ -262,7 +262,8 @@ func serverWatchCreate(res api.WatchCreateResponse) ServerMessage {
 	}
 
 	var r api.WatchCreateResponse
-	r.UnmarshalJSON(bs)
+	// FIXME !!!
+	_ = r.UnmarshalJSON(bs)
 
 	return ServerMessage{
 		Kind:    ServerWatchCreated,

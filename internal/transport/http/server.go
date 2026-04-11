@@ -114,12 +114,12 @@ type HttpServer struct {
 	leaseSvc     service.LeaseService
 	otSvc        service.OTService
 	raftSvc      service.RaftService
-	watchHub *watch.WatchHub
+	watchHub     *watch.WatchHub
 	readLimiter  *rateLimiter
 	writeLimiter *rateLimiter
 	logger       *slog.Logger
 	server       *http.Server
-	rootLogger *slog.Logger
+	rootLogger   *slog.Logger
 }
 
 func NewHTTPServer(
@@ -129,8 +129,7 @@ func NewHTTPServer(
 	kvService service.KVService,
 	leaseService service.LeaseService,
 	otService service.OTService,
-	clusterService service.ClusterService,
-	peerService service.PeerService,
+	raftService service.RaftService,
 	hub *watch.WatchHub,
 	reg *prometheus.Registry,
 	readLimitConfig RateLimiterConfig,
@@ -139,6 +138,7 @@ func NewHTTPServer(
 	addr := me.GetHttpAdvertisedAddress()
 	mux := http.NewServeMux()
 	s := &HttpServer{
+<<<<<<< HEAD
 <<<<<<< HEAD
 		kvSvc:      kvService,
 		leaseSvc:   leaseService,
@@ -154,8 +154,15 @@ func NewHTTPServer(
 		leaseSvc: leaseService,
 		otSvc:    otService,
 		raftSvc:  raftService,
+=======
+		me:         me,
+		kvSvc:      kvService,
+		leaseSvc:   leaseService,
+		otSvc:      otService,
+		raftSvc:    raftService,
+>>>>>>> b2044e6 (try to resolve merge conflicts in main <-> feature/watch)
 		watchHub:   hub,
-		logger:   logger.With("component", "http_server", "addr", addr),
+		logger:     logger.With("component", "http_server", "addr", addr),
 		rootLogger: logger,
 		server: &http.Server{
 			Addr:    addr,
@@ -180,9 +187,9 @@ func NewHTTPServer(
 	mux.HandleFunc("GET "+RouteLeaseLookup, s.readChain(s.handleLeaseLookup)) // optional leader if we want the most "up to date" data regarding a lease's ttl
 
 	// ot
-	mux.HandleFunc("GET "+RouteOtInit, s.handleOTInit)                             // Init does not read anything from the backend, no middleware need
-	mux.HandleFunc("GET "+RouteOtTransfer, s.readMiddleware(s.handleOTTransfer))   // optional leader if we want the latest data
-	mux.HandleFunc("POST "+RouteOtWriteAll, s.writeMiddleware(s.handleOTWriteAll)) // write must go through raft
+	mux.HandleFunc("GET "+RouteOtInit, s.handleOTInit)                        // Init does not read anything from the backend, no middleware need
+	mux.HandleFunc("GET "+RouteOtTransfer, s.readChain(s.handleOTTransfer))   // optional leader if we want the latest data
+	mux.HandleFunc("POST "+RouteOtWriteAll, s.writeChain(s.handleOTWriteAll)) // write must go through raft
 
 	// watch
 	mux.HandleFunc("GET "+RouteWatchWS, s.handleWatch)
@@ -524,12 +531,14 @@ func (s *HttpServer) handleWatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer conn.CloseNow()
+	defer func() {
+		_ = conn.CloseNow()
+	}()
 
 	if conn.Subprotocol() != watch.WatchSubprotocol {
 		msg := fmt.Sprintf("client must speak '%s'", watch.WatchSubprotocol)
 		s.logger.Error("faild to accept connection", "error", msg)
-		conn.Close(websocket.StatusPolicyViolation, msg)
+		_ = conn.Close(websocket.StatusPolicyViolation, msg)
 		return
 	}
 
@@ -539,11 +548,13 @@ func (s *HttpServer) handleWatch(w http.ResponseWriter, r *http.Request) {
 	if err = session.Run(); err != nil {
 		msg := "watch handler failed, closing connection"
 		s.logger.Error(msg, "error", err)
-		conn.Close(websocket.StatusAbnormalClosure, fmt.Sprintf("%s: %v", msg, err))
+		_ = conn.Close(websocket.StatusAbnormalClosure, fmt.Sprintf("%s: %v", msg, err))
 		return
 	}
 	s.logger.Info("watch handler done, closing connection")
-	conn.Close(websocket.StatusNormalClosure, "all good")
+	if err = conn.Close(websocket.StatusNormalClosure, "all good"); err != nil {
+		s.writeError(w, "failed to close websocket", err, http.StatusInternalServerError)
+	}
 }
 
 func (s *HttpServer) handleWatch(w http.ResponseWriter, r *http.Request) {

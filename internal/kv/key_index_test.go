@@ -373,7 +373,7 @@ func Test_KeyIndexFindGen(t *testing.T) {
 		if tt.wantErr {
 			require.Error(t, err, "findGen(%d) = non-nil, want nil + error", tt.rev)
 		} else {
-			require.NotNil(t, g,"findGen(%d) = nil, want gen starting at rev %d, got err: %v", tt.rev, tt.wantRev, err)
+			require.NotNil(t, g, "findGen(%d) = nil, want gen starting at rev %d, got err: %v", tt.rev, tt.wantRev, err)
 			require.Equal(t, g.revs[0].Main, tt.wantRev, "findGen(%d).revs[0].Main = %d, want %d", tt.rev, g.revs[0].Main, tt.wantRev)
 		}
 	}

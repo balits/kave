@@ -41,7 +41,7 @@ type Node struct {
 
 	backend      backend.Backend
 	kvIndex      kv.Index
-	hub          *watch.WatchHub
+	watchHub     *watch.WatchHub
 	unsyncedLoop *watch.UnsyncedLoop
 	kvstore      *mvcc.KvStore
 	leaseManager *lease.LeaseManager
@@ -110,7 +110,7 @@ func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*No
 		n.leaseService,
 		n.otService,
 		n.raftService,
-		n.hub,
+		n.watchHub,
 		reg,
 		readLimit,
 		writeLimit,
@@ -244,21 +244,23 @@ func (n *Node) initStorage(reg prometheus.Registerer, storageOpts storage.Storag
 	n.backend = backend.New(reg, storageOpts)
 	n.kvIndex = kv.NewTreeIndex(n.logger)
 	n.kvstore = mvcc.NewKvStoreWithIndex(reg, n.logger, n.backend, n.kvIndex)
+	n.leaseManager = lease.NewManager(reg, n.logger, n.kvstore, n.backend)
 	om, err := ot.NewOTManager(reg, n.logger, n.backend, otOpts)
 	if err != nil {
 		return err
 	}
 	n.otManager = om
 
-	n.hub = watch.NewWatchHub(reg, n.logger, n.kvstore)
-	n.unsyncedLoop = watch.NewUnsyncedLoop(n.logger, n.hub, n.kvIndex, n.backend.ReadTx(), n.kvstore)
-	n.engine = mvcc.NewEngine(n.kvstore, n.leaseManager, n.hub)
+	n.watchHub = watch.NewWatchHub(reg, n.logger, n.kvstore)
+	n.unsyncedLoop = watch.NewUnsyncedLoop(n.logger, n.watchHub, n.kvIndex, n.backend.ReadTx(), n.kvstore)
+	n.engine = mvcc.NewEngine(n.kvstore, n.leaseManager, n.watchHub)
 
 	return nil
 }
 
 func (n *Node) initRaft(reg prometheus.Registerer, cfg *config.Config) error {
 	n.fsm = fsm.New(n.logger, cfg.Me, n.kvstore, n.leaseManager, n.otManager)
+
 	slogLevel := cfg.LoggerOptions.Level.ToSlogLevel()
 	hclogger := logutil.NewHcLogAdapter(n.logger, slogLevel)
 	raftCfg := config.NewRaftConfig(cfg.Me.NodeID, hclogger, slogLevel)

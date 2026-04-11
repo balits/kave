@@ -376,7 +376,7 @@ func Test_TreeIndex_RevisionRange_Idk(t *testing.T) {
 	ti := NewTreeIndex(slog.Default())
 
 	ti.Put([]byte("a"), Revision{Main: 1})
-	ti.Tombstone([]byte("a"), Revision{Main:2})
+	ti.Tombstone([]byte("a"), Revision{Main: 2})
 	ti.Put([]byte("a"), Revision{Main: 3})
 
 	ti.Put([]byte("b"), Revision{Main: 4})

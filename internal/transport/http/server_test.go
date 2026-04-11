@@ -86,8 +86,12 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 		InitialBuckets: schema.AllBuckets,
 	})
 	kvstore := mvcc.NewKvStore(reg, logger, backend)
+<<<<<<< HEAD
 	hub := watch.NewWatchHub(reg, logger, kvstore)
 	hub := watch.NewWatchHub(reg, logger, kvstore)
+=======
+	watchHub := watch.NewWatchHub(reg, logger, kvstore)
+>>>>>>> b2044e6 (try to resolve merge conflicts in main <-> feature/watch)
 	lm := lease.NewManager(reg, logger, kvstore, backend)
 	om, err := ot.NewOTManager(reg, logger, backend, ot.DefaultOptions)
 	require.NoError(t, err)
@@ -126,10 +130,10 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 	discoverySvc := &mockDiscoveryService{me}
 	kvSvc := service.NewKVService(logger, me, kvstore, raftService, kvOpts, propose)
 	leaseSvc := service.NewLeaseService(logger, propose)
-	otService := service.NewOTService(logger, kvstore, om, peerSvc, propose)
-	clusterSvc := &service.MockClusterService{}
+	otSvc := service.NewOTService(logger, me, kvstore, om, raftService, propose)
 
-	httpServer := NewHTTPServer(logger, me.GetHttpListenAddress(), kvSvc, leaseSvc, otService, clusterSvc, peerSvc, hub, reg)
+	rateLimiterConfig := NewRateLimiterConfig(2000, 2000) // set to a gorbillion so tests can run in parallel
+	httpServer := NewHTTPServer(logger, me, discoverySvc, kvSvc, leaseSvc, otSvc, raftService, watchHub, reg, rateLimiterConfig, rateLimiterConfig)
 
 	ts := httptest.NewServer(httpServer.server.Handler)
 	t.Cleanup(ts.Close)
@@ -1091,7 +1095,7 @@ func Test_Server_Watch_HubWiring_EventsDelivered(t *testing.T) {
 
 func Test_Server_Watch_FollowerAcceptsConnection(t *testing.T) {
 	ts := newTestServer(t, false)
-	require.Equal(t, raft.Follower, ts.peerSvc.State_)
+	require.Equal(t, raft.Follower, ts.raftService.State_)
 
 	conn := dialWatch(t, ts)
 
