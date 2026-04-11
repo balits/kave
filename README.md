@@ -234,6 +234,14 @@ Hello world
         - [ ] LICENSE from etcd: http://www.apache.org/licenses/LICENSE-2.0
         - [ ] batch kvindex updates, rollback on commit failure
 
+    - APR. 11:
+    - [ ] cluster integration tests
+    - [ ] live workload + web ui for stats, metrics and manual commands
+    - [ ] BatchingFSM
+    - [ ] kv index
+        - [ ] LICENSE from etcd: http://www.apache.org/licenses/LICENSE-2.0
+        - [ ] batch kvindex updates, rollback on commit failure
+
 # CHORES
 - [ ] use require in every test insteaf of if err != nil ...
 - [ ] use either english or hungarian in all of the doc comments ???
