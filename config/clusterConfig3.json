@@ -25,5 +25,15 @@
         "slot_count": 32,
         "slot_size": 64,
         "token_ttl_sec": 30
+    },
+    "ratelimiter": {
+        "read": {
+            "rps": 200,
+            "burst": 500
+        },
+        "write": {
+            "rps": 100,
+            "burst": 300
+        }
     }
 }

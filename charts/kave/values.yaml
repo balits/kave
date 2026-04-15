@@ -31,6 +31,14 @@ config:
     slotCount: 32
     slotSize: 64
     tokenTTLSec: 60
+  ratelimiter:
+    read: 
+      rps: 200
+      burst: 500
+    write: 
+      rps: 100
+      burst: 300
+        
 
 storage:
   size: 20Gi #out of 40 on a small civo vm

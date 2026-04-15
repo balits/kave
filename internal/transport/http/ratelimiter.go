@@ -15,7 +15,7 @@ type RatelimitOpions struct {
 var errMsgRateLimiter = errors.New("rate limiter error")
 
 type ratelimiterConfig struct {
-	Rps   uint `json:"rsp"`
+	Rps   uint `json:"rps"`
 	Burst uint `json:"burst"`
 }
 
