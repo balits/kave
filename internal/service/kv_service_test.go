@@ -36,7 +36,7 @@ func newTestKVService(t *testing.T) *testKVService {
 	me := peer.TestPeer()
 	logger := slog.Default()
 	reg := metrics.InitTestPrometheus()
-	backend := backend.New(reg, storage.StorageOptions{
+	backend := backend.New(reg, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})
@@ -1429,7 +1429,7 @@ func Test_KVService_Txn_CompareCreateRev(t *testing.T) {
 			{
 				Key:         []byte("k"),
 				Operator:    api.OperatorEqual,
-				TargetField: api.FieldCreate,
+				TargetField: api.FieldCreateRev,
 				TargetValue: api.CompareTargetUnion{CreateRevision: 1},
 			},
 		},

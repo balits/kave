@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -14,11 +15,14 @@ import (
 	"github.com/balits/kave/internal/util"
 )
 
+var ErrManualCompaction = errors.New("failed to compact store manually")
+
 type KVService interface {
 	Range(ctx context.Context, req api.RangeRequest) (*api.RangeResponse, error)
 	Put(ctx context.Context, req api.PutRequest) (*api.PutResponse, error)
 	Delete(ctx context.Context, req api.DeleteRequest) (*api.DeleteResponse, error)
 	Txn(ctx context.Context, req api.TxnRequest) (*api.TxnResponse, error)
+	TriggerCompaction(ctx context.Context, req api.CompactionRequest) (*api.CompactionResponse, error)
 
 	Ping() error
 }
@@ -81,15 +85,21 @@ func (s *kvSvc) Range(ctx context.Context, req api.RangeRequest) (*api.RangeResp
 		res.Entries = entries
 	}
 
-	raftIndex, raftTerm := s.store.RaftMeta()
-	currRev, _ := s.store.Revisions()
-
+	currRev, compactedRev, raftIndex, raftTerm := s.store.Meta()
 	res.Header = api.ResponseHeader{
-		Revision:  currRev.Main,
-		RaftTerm:  raftTerm,
-		RaftIndex: raftIndex,
-		NodeID:    s.me.NodeID,
+		Revision:     currRev.Main,
+		CompactedRev: compactedRev,
+		RaftTerm:     raftTerm,
+		RaftIndex:    raftIndex,
+		NodeID:       s.me.NodeID,
 	}
+
+	s.logger.WithGroup("response").
+		Debug("Range request succeeded",
+			"count", res.Count,
+			"entries", res.Entries,
+		)
+
 	return res, nil
 }
 
@@ -208,4 +218,58 @@ func (s *kvSvc) Txn(ctx context.Context, req api.TxnRequest) (*api.TxnResponse, 
 
 func (s *kvSvc) Ping() error {
 	return s.store.Ping()
+}
+
+func (s *kvSvc) TriggerCompaction(ctx context.Context, req api.CompactionRequest) (*api.CompactionResponse, error) {
+	l := s.logger.With(
+		"compaction_target_rev", req.TargetRev,
+	)
+
+	cmd := command.Command{
+		Kind:       command.KindCompaction,
+		Compaction: &req,
+	}
+
+	result, err := s.propose(ctx, cmd)
+	if err != nil {
+		l.Warn("failed to compact manually: failed to propose compaction", "error", err)
+		return nil, fmt.Errorf("%w: %s", ErrManualCompaction, err)
+	}
+
+	if result.Error != nil {
+		l.Warn("failed to compact manually", "error", result.Error)
+		return nil, fmt.Errorf("%w: %s", ErrManualCompaction, result.Error)
+	}
+
+	if result.Compaction == nil {
+		l.Error("failed to compact manually", "error", "compaction result was nil")
+		return nil, fmt.Errorf("%w: compaction result was nil", ErrManualCompaction)
+	}
+
+	if result.Compaction.Error != nil {
+		l.Warn("failed to compact manually", "error", result.Compaction.Error)
+		return nil, fmt.Errorf("%w: %s", ErrManualCompaction, result.Compaction.Error)
+	}
+
+	select {
+	case <-result.Compaction.DoneC:
+		l.Info("compaction finished successfuly")
+
+		currentRev, compactedRev, raftIndex, raftTerm := s.store.Meta()
+		header := api.ResponseHeader{
+			Revision:     currentRev.Main,
+			CompactedRev: compactedRev,
+			RaftTerm:     raftTerm,
+			RaftIndex:    raftIndex,
+			NodeID:       s.me.NodeID,
+		}
+
+		return &api.CompactionResponse{
+			Header:                     header,
+			CompactionResponseNoHeader: api.CompactionResponseNoHeader{Success: true},
+		}, nil
+	case <-ctx.Done():
+		l.Error("failed to compact manually", "error", "context cancelled while waiting for compaction to finish")
+		return nil, fmt.Errorf("%w: %s", ErrManualCompaction, ctx.Err())
+	}
 }

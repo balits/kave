@@ -4,15 +4,18 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/balits/kave/internal/peer"
+	"github.com/balits/kave/internal/service"
 )
 
 const (
@@ -61,7 +64,7 @@ func (s *HttpServer) consitencyMiddleware(next http.HandlerFunc) http.HandlerFun
 			return
 		}
 
-		leader, err := s.raftSvc.Leader()
+		leader, err := s.raftSvc.Leader(r.Context())
 		if err != nil {
 			s.writeError(w, errMsgReadMiddleware, err, http.StatusServiceUnavailable)
 			return
@@ -99,7 +102,7 @@ func (s *HttpServer) writeChain(base http.HandlerFunc) http.HandlerFunc {
 
 func (s *HttpServer) leaderMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		leader, err := s.raftSvc.Leader()
+		leader, err := s.raftSvc.Leader(r.Context())
 		if err != nil {
 			s.writeError(w, errMsgWriteMiddleware, err, http.StatusServiceUnavailable)
 			return
@@ -121,6 +124,11 @@ func (s *HttpServer) proxyToLeader(w http.ResponseWriter, r *http.Request, leade
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		if errors.Is(err, service.ErrLeaderNotFound) || networkerr(err) {
+			s.writeError(w, errMsgProxyLeader, err, http.StatusServiceUnavailable)
+			return
+		}
+
 		s.writeError(w, errMsgProxyLeader, err, http.StatusBadGateway,
 			"leader_id", leader.NodeID,
 			"leader_addr", leader.GetHttpAdvertisedAddress(),
@@ -188,4 +196,13 @@ func (i *statusCodeInterceptor) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 		return nil, nil, fmt.Errorf("webserver does not support hijacking")
 	}
 	return h.Hijack()
+}
+
+func networkerr(err error) bool {
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true // timeout or dial errors
+	}
+	str := err.Error()
+	return strings.Contains(str, "connection refused") || strings.Contains(str, "EOF")
 }

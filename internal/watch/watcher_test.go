@@ -255,6 +255,18 @@ func Test_Watcher_Matches_RangeWatch(t *testing.T) {
 	require.False(t, w.matches(testPutEvent("Z", "v", 1)))
 }
 
+func Test_Watcher_Matches_PrefixRangeWatch(t *testing.T) {
+	key := []byte("app")
+	w := &watcher{keyStart: key, keyEnd: kv.PrefixEnd(key)}
+	t.Log(w)
+
+	require.True(t, w.matches(testPutEvent("app", "v1", 6)))
+	require.True(t, w.matches(testPutEvent("apple", "v2", 7)))
+	require.True(t, w.matches(testPutEvent("application", "v3", 8)))
+	require.False(t, w.matches(testPutEvent("apq", "v4", 9)))
+	require.False(t, w.matches(testPutEvent("banana", "v5", 10)))
+}
+
 func Test_Watcher_Close_CancelsContextAndClosesChannel(t *testing.T) {
 	w := newTestWatcher(t, []byte("foo"), nil, 0, nil, nil)
 	w.close()

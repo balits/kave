@@ -14,7 +14,7 @@ const testBucket storage.Bucket = "test"
 const metaBucket storage.Bucket = "_meta"
 
 func newTestStore() *InmemStore {
-	return NewStore(storage.StorageOptions{
+	return NewStore(storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: []storage.Bucket{"test", "_meta"},
 	}).(*InmemStore)

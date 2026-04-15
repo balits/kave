@@ -44,8 +44,14 @@ up3build: ## Builds image and runs 3-node cluster
 	$(MAKE) build-img
 	$(MAKE) up3
 
-test:
-	go test -v ./internal/...
+test-unit:
+	go test -v ./internal/... --timeout=90s
+
+test-integ:
+	go test ./test/integration/... --timeout 5m -p 1
+
+test-smoke:
+	go test -v ./test/smoke/...
 
 test-race:
 	go test -v -race -count=3 ./internal/... 

@@ -6,7 +6,7 @@
     "checkpoint_interval_minutes": 5,
     "peer_discovery": {
         "mode": "static",
-        "peers": "node-voter-0:7000:8000,node-voter-1:7000:8000,node-voter-2:7000:8000"
+        "peers": "node-voter-0:127.0.0.1:7000:8000,node-voter-1:127.0.0.1:7000:8000,node-voter-2:127.0.0.1:7000:8000"
     },
     "kv": {
         "max_key_size": 512,

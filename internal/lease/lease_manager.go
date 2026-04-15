@@ -61,7 +61,7 @@ func NewManager(reg prometheus.Registerer, logger *slog.Logger, store *mvcc.KvSt
 	return m
 }
 
-func (lm *LeaseManager) Grant(requestedID, ttl int64) (*Lease, error) {
+func (lm *LeaseManager) Grant(id, ttl int64) (*Lease, error) {
 	if ttl <= 0 {
 		return nil, ErrLeaseInvalidTTL
 	}
@@ -71,14 +71,10 @@ func (lm *LeaseManager) Grant(requestedID, ttl int64) (*Lease, error) {
 	start := time.Now()
 	defer func() { lm.metrics.GrantDurationSec.Observe(time.Since(start).Seconds()) }()
 
-	var id int64
-	if requestedID != 0 {
-		id = requestedID
-	} else {
-		// leaseIDConflict esetén az unsafeSaveToLeaseMap fogja visszadobni a hibát
-		id = util.NextNonNullID()
-	}
-
+	// new: id is not generated at the leaseManager (inside the FSM)
+	// but the service layer, proposing the GrantCmd AND the id with it.
+	// This way each nodes fsm is replicating the GrantCmd with the same ID,
+	// as opposed to granting a lease, but generating unique IDS per node
 	lease := newLease(id, ttl, lm.clock)
 
 	lm.rwlock.Lock()
@@ -93,11 +89,12 @@ func (lm *LeaseManager) Grant(requestedID, ttl int64) (*Lease, error) {
 	}
 
 	lm.metrics.LeasesGranted.Inc()
-	lm.logger.Info("lease granted",
-		"id", lease.ID,
-		"ttl", lease.TTL,
-		"expiry", lease.expiry,
-	)
+	lm.logger.WithGroup("lease").
+		Info("lease granted",
+			"id", lease.ID,
+			"ttl", lease.TTL,
+			"expiry", lease.expiry,
+		)
 	return lease, nil
 }
 
@@ -111,7 +108,7 @@ func (lm *LeaseManager) Revoke(id int64) (found, revoked bool, err error) {
 
 	lease, ok := lm.leaseMap[id]
 	if !ok {
-		return
+		return false, false, ErrLeaseNotFound
 	}
 	found = ok
 
@@ -176,7 +173,10 @@ func (lm *LeaseManager) Revoke(id int64) (found, revoked bool, err error) {
 
 	revoked = true
 	lm.metrics.LeasesRevoked.Inc()
-	lm.logger.Info("lease revoked successfuly", "id", lease.ID)
+	lm.logger.WithGroup("lease").
+		Info("lease revoked successfuly",
+			"id", lease.ID,
+		)
 	return
 }
 
@@ -208,6 +208,10 @@ func (lm *LeaseManager) KeepAlive(id int64) (remainingTTL int64, err error) {
 		)
 	}
 	lm.metrics.KeepAliveTotal.Inc()
+	lm.logger.WithGroup("lease").
+		Info("lease kept alive",
+			"id", id,
+		)
 	return remTTL, nil
 }
 
@@ -344,7 +348,7 @@ func (lm *LeaseManager) ApplyExpired(cmd command.CmdLeaseExpire) (*command.Resul
 	}
 	_ = w.End()
 	lm.metrics.KeysPerExpiry.Observe(float64(len(attachedKeys)))
-	lm.logger.Info("apply expired: removed keys from store", "key_count", len(attachedKeys))
+	lm.logger.Debug("apply expired: removed keys from store", "key_count", len(attachedKeys))
 
 	wtx := lm.backend.WriteTx()
 	wtx.Lock()
@@ -367,8 +371,11 @@ func (lm *LeaseManager) ApplyExpired(cmd command.CmdLeaseExpire) (*command.Resul
 		return nil, err
 	}
 
-	lm.logger.Info("apply expired: removed leases from backend", "lease_count", leaseCount)
 	lm.metrics.LeasesExpired.Add(float64(leaseCount))
+	lm.logger.Info("apply expired: removed leases from backend",
+		"lease_count", leaseCount,
+		"key_count", len(attachedKeys),
+	)
 
 	return &command.ResultLeaseExpire{
 		RemovedLeaseCount: leaseCount,
@@ -627,7 +634,7 @@ func (lm *LeaseManager) unsafeUpdateHeap(id int64, t time.Time) {
 // hogy ne kapjon egy lease se extra időt
 //
 // NOTE: caller needs to hold the lock
-func (lm *LeaseManager) unsafeRegrant(requestedID, remainingTTLsec int64) (*Lease, error) {
+func (lm *LeaseManager) unsafeRegrant(id, remainingTTLsec int64) (*Lease, error) {
 	if remainingTTLsec <= 0 {
 		return nil, ErrLeaseInvalidTTL
 	}
@@ -635,12 +642,10 @@ func (lm *LeaseManager) unsafeRegrant(requestedID, remainingTTLsec int64) (*Leas
 		remainingTTLsec = maxTTL
 	}
 
-	var id int64
-	if requestedID != 0 {
-		id = requestedID
-	} else {
-		// leaseIDConflict esetén az unsafeSaveToLeaseMap fogja visszadobni a hibát
-		id = util.NextNonNullID()
+	// this genuienly should not happen,
+	// but be defensive just in case
+	if id == 0 {
+		return nil, fmt.Errorf("tried to reegrant lease with ID = 0")
 	}
 
 	lease := newLease(id, remainingTTLsec, lm.clock)

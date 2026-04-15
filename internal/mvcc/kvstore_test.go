@@ -21,7 +21,7 @@ func newTestKVStore(t *testing.T) *KvStore {
 	// 	Kind:           storage.StorageKindInmemory,
 	// 	InitialBuckets: schema.AllBuckets,
 	// })
-	b := backend.New(reg, storage.StorageOptions{
+	b := backend.New(reg, storage.Options{
 		Kind:           storage.StorageKindBoltdb,
 		Dir:            t.TempDir(),
 		InitialBuckets: schema.AllBuckets,
@@ -221,11 +221,11 @@ func Test_KVStoreRestoreInmem(t *testing.T) {
 	t.Parallel()
 	reg1 := prometheus.NewRegistry()
 	reg2 := prometheus.NewRegistry()
-	s := NewKvStore(reg1, slog.Default(), backend.New(reg2, storage.StorageOptions{
+	s := NewKvStore(reg1, slog.Default(), backend.New(reg2, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	}))
-	s2 := NewKvStore(reg2, slog.Default(), backend.New(reg1, storage.StorageOptions{
+	s2 := NewKvStore(reg2, slog.Default(), backend.New(reg1, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	}))
@@ -260,8 +260,8 @@ func Test_KVStoreRestoreBoltdb(t *testing.T) {
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
 
-	opts1 := storage.StorageOptions{Kind: storage.StorageKindBoltdb, Dir: dir1, InitialBuckets: schema.AllBuckets}
-	opts2 := storage.StorageOptions{Kind: storage.StorageKindBoltdb, Dir: dir2, InitialBuckets: schema.AllBuckets}
+	opts1 := storage.Options{Kind: storage.StorageKindBoltdb, Dir: dir1, InitialBuckets: schema.AllBuckets}
+	opts2 := storage.Options{Kind: storage.StorageKindBoltdb, Dir: dir2, InitialBuckets: schema.AllBuckets}
 
 	b1 := backend.New(prometheus.NewRegistry(), opts1)
 	s1 := NewKvStore(prometheus.NewRegistry(), slog.Default(), b1)

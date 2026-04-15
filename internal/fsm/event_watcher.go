@@ -1,6 +1,8 @@
 package fsm
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/balits/kave/internal/metrics"
@@ -34,11 +36,20 @@ func (w *RaftEventWatcher) FilterFn() raft.FilterFn {
 	return w.filterFn
 }
 
-func (w *RaftEventWatcher) Run() {
+func (w *RaftEventWatcher) Run(ctx context.Context) error {
 	for {
-		ev, ok := <-w.c
-		if !ok {
-			return
+		var (
+			ev raft.Observation
+			ok bool
+		)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case ev, ok = <-w.c:
+			if !ok {
+				return errors.New("observation channel closed")
+			}
 		}
 
 		switch eventType := ev.Data.(type) {

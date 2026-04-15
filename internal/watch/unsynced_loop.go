@@ -60,7 +60,7 @@ func (u *UnsyncedLoop) Run(ctx context.Context) {
 		u.logger.Warn("Attempted to run unsynced watcher loop while it was already running")
 		return
 	}
-	u.logger.Info("starting unsynced watcher loop")
+	u.logger.Info("Unsynced watcher loop started")
 	ctx, cancel := context.WithCancel(ctx)
 	u.ctx = ctx
 	u.cancel = cancel
@@ -122,11 +122,17 @@ OUTER:
 			continue
 		}
 
-		bucketKeys := u.kvIndex.RevisionsRange(w.keyStart, w.keyEnd, w.currentRev, storeCurrentRev.Main+1)
+		revsAsBucketKeys := u.kvIndex.RevisionsRange(w.keyStart, w.keyEnd, w.currentRev, storeCurrentRev.Main+1)
+		// fast forwads watchers who has not seen any updates since they currentRev
+		if len(revsAsBucketKeys) == 0 {
+			w.currentRev = storeCurrentRev.Main
+			u.promoteBatch[w.id] = struct{}{}
+			continue OUTER
+		}
 
-		events := make([]kv.Event, len(bucketKeys))
+		events := make([]kv.Event, len(revsAsBucketKeys))
 		u.rtx.RLock()
-		for i, bucketKey := range bucketKeys {
+		for i, bucketKey := range revsAsBucketKeys {
 			bk := kv.EncodeKvBucketKey(bucketKey, kv.NewRevBytes())
 			val, err := u.rtx.UnsafeGet(schema.BucketKV, bk)
 			if err != nil || val == nil {
@@ -170,11 +176,6 @@ OUTER:
 			u.logger.Warn("failed to syncing watcher: watcher overloaded")
 			u.incFailures(w)
 			continue
-		}
-
-		if len(events) == 0 {
-			// empty events for non-empty revisions?
-			panic("got empty events list for non-empty revision list")
 		}
 
 		highestRev := events[len(events)-1].Entry.ModRev

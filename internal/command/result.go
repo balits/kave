@@ -21,7 +21,7 @@ type Result struct {
 	// =====  private, internal results =====
 
 	LeaseExpire          *ResultLeaseExpire
-	Compact              *ResultCompact
+	Compaction           *CompactionResult
 	OtWriteAll           *ResultOTWriteAll
 	OtGenerateClusterKey *ResultOTGenerateClusterKey
 }

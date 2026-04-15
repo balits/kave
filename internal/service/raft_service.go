@@ -41,7 +41,8 @@ type RaftService interface {
 	AddToCluster(ctx context.Context, req transport.JoinRequest) error
 
 	// Leader returns the current leader, or ErrLeaderNotFound
-	Leader() (peer.Peer, error)
+	Leader(ctx context.Context) (peer.Peer, error)
+	RaftConfiguration(ctx context.Context) (raft.Configuration, error)
 	Stats() map[string]string               // Returns the raft libraries internal statistics
 	RaftState() raft.RaftState              // Our current state
 	VerifyLeader(ctx context.Context) error // Verify that we are the leader, or return an error if not
@@ -167,10 +168,10 @@ func (rs *raftSvc) JoinCluster(ctx context.Context, me peer.Peer) error {
 		return fmt.Errorf("failed to serialize request body: %v", body)
 	}
 
-	initialTimeout := time.Second * 4 // slightly higher in k8s than in compose
+	initialTimeout := time.Second * 2 // slightly higher in k8s than in compose | or js attempt one more time hehe
 	jitter := time.Duration(rand.Int64N(int64(initialTimeout)))
 	time.Sleep(initialTimeout + jitter) //sleep so that bootstrapping node has some time to elect itself
-	if err := rs.joinWithBackoff(ctx, urls, 4, jsonBody); err != nil {
+	if err := rs.joinWithBackoff(ctx, urls, 5, jsonBody); err != nil {
 		return err
 	}
 
@@ -228,15 +229,46 @@ func join(ctx context.Context, url string, jsonBody []byte) error {
 	}
 }
 
-func (rs *raftSvc) Leader() (peer.Peer, error) {
-	_, i := rs.r.LeaderWithID()
-	rs.peerMu.RLock()
-	defer rs.peerMu.RUnlock()
-	p, ok := rs.peerMap[string(i)]
-	if !ok {
+func (rs *raftSvc) Leader(ctx context.Context) (peer.Peer, error) {
+	addr, id := rs.r.LeaderWithID()
+	if len(addr) == 0 || len(id) == 0 {
 		return peer.Peer{}, ErrLeaderNotFound
 	}
-	return p, nil
+
+	conf, err := rs.RaftConfiguration(ctx)
+	if err != nil {
+		return peer.Peer{}, err
+	}
+
+	var foundLeader bool
+	for _, srv := range conf.Servers {
+		if srv.Address == addr && srv.ID == id {
+			foundLeader = true
+			break
+		}
+	}
+
+	rs.peerMu.RLock()
+	defer rs.peerMu.RUnlock()
+
+	if foundLeader {
+		p, ok := rs.peerMap[string(id)]
+		if !ok {
+			return peer.Peer{}, fmt.Errorf("%w: new unkown leader found (not part of discovered peers)", ErrLeaderNotFound)
+		}
+		return p, nil
+	}
+
+	return peer.Peer{}, ErrLeaderNotFound
+}
+
+func (rs *raftSvc) RaftConfiguration(ctx context.Context) (cfg raft.Configuration, err error) {
+	fut := rs.r.GetConfiguration()
+	if err = util.WaitFuture(ctx, fut); err != nil {
+		return
+	}
+	cfg = fut.Configuration()
+	return
 }
 
 func (rs *raftSvc) Stats() map[string]string {
@@ -257,6 +289,17 @@ func (rs *raftSvc) VerifyLeader(ctx context.Context) error {
 
 func (rs *raftSvc) LaggingBehind() error {
 	c, a := rs.r.CommitIndex(), rs.r.AppliedIndex()
+
+	if a == 0 {
+		addr, _ := rs.r.LeaderWithID()
+		if addr != "" {
+			rs.logger.Warn("node lagging behind",
+				"cause", "node has not applied any state (waiting for InstallRPC / initial log sync)",
+			)
+			return fmt.Errorf("node has not applied any state (waiting for InstallRPC / initial log sync)")
+		}
+	}
+
 	if c-a > rs.lagThreshold {
 		return fmt.Errorf("raft is lagging behind: commit index %d, applied index %d", c, a)
 	}

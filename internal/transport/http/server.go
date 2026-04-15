@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/balits/kave/internal/lease"
 	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/service"
 	"github.com/balits/kave/internal/transport"
@@ -37,7 +38,8 @@ const (
 
 	RouteWatchWS = transport.RouteWatch
 
-	RouteClusterJoin = transport.RouteCluster + "/join"
+	RouteClusterJoin       = transport.RouteCluster + "/join"
+	RouteCompactionTrigger = transport.RouteAdmin + "/compaction"
 
 	RouteStats   = "/stats"
 	RouteMetrics = "/metrics"
@@ -97,8 +99,8 @@ func NewHTTPServer(
 	raftService service.RaftService,
 	watchHub *watch.WatchHub,
 	reg *prometheus.Registry,
-	readLimitConfig RateLimiterConfig,
-	writeLimitConfig RateLimiterConfig,
+	readLimitConfig ratelimiterConfig,
+	writeLimitConfig ratelimiterConfig,
 ) *HttpServer {
 	addr := me.GetHttpAdvertisedAddress()
 	mux := http.NewServeMux()
@@ -118,8 +120,8 @@ func NewHTTPServer(
 	}
 
 	// TODO(ratelimiter): run real benchmarks to determine rps and burst: something around 75% of peak capacity
-	s.writeLimiter = newRateLimiter(readLimitConfig)
-	s.readLimiter = newRateLimiter(writeLimitConfig)
+	s.readLimiter = newRateLimiter(readLimitConfig)
+	s.writeLimiter = newRateLimiter(writeLimitConfig)
 
 	// kv
 	mux.HandleFunc("GET "+RouteKvRange, s.readChain(s.handleKvRange))
@@ -131,18 +133,22 @@ func NewHTTPServer(
 	mux.HandleFunc("POST "+RouteLeaseGrant, s.writeChain(s.handleLeaseGrant))
 	mux.HandleFunc("DELETE "+RouteLeaseRevoke, s.writeChain(s.handleLeaseRevoke))
 	mux.HandleFunc("POST "+RouteLeaseKeepAlive, s.writeChain(s.handleLeaseKeepAlive))
-	mux.HandleFunc("GET "+RouteLeaseLookup, s.readChain(s.handleLeaseLookup))
+	// since leases are time sensitive, the only correct lookup should be done on the leader
+	mux.HandleFunc("GET "+RouteLeaseLookup, chain(s.handleLeaseLookup, s.requestLoggingMiddleware, s.readLimitMiddleware, s.leaderMiddleware))
 
 	// ot
 	mux.HandleFunc("GET "+RouteOtInit, s.handleOTInit)
 	mux.HandleFunc("GET "+RouteOtTransfer, s.readChain(s.handleOTTransfer))
 	mux.HandleFunc("POST "+RouteOtWriteAll, s.writeChain(s.handleOTWriteAll))
 
-	// watch
+	// watch: watches can be served from any node
 	mux.HandleFunc("GET "+RouteWatchWS, chain(s.handleWatch, s.requestLoggingMiddleware, s.readLimitMiddleware))
 
+	// admin | protected routes (auth WIP):
 	// cluster
 	mux.HandleFunc("POST "+RouteClusterJoin, s.writeChain(s.handleJoin))
+	// manual compaction trigger
+	mux.HandleFunc("POST "+RouteCompactionTrigger, s.writeChain(s.handleCompactionTrigger))
 
 	// health / debug
 	mux.HandleFunc("GET "+RouteStats, s.handleStats)                                  // stats
@@ -307,6 +313,8 @@ func (s *HttpServer) handleLeaseRevoke(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
+		} else if errors.Is(err, lease.ErrLeaseNotFound) {
+			status = http.StatusNotFound
 		} else {
 			status = http.StatusBadRequest
 		}
@@ -328,6 +336,8 @@ func (s *HttpServer) handleLeaseKeepAlive(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
+		} else if errors.Is(err, lease.ErrLeaseNotFound) {
+			status = http.StatusNotFound
 		} else {
 			status = http.StatusBadRequest
 		}
@@ -349,6 +359,8 @@ func (s *HttpServer) handleLeaseLookup(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, util.ErrPropose) {
 			status = http.StatusServiceUnavailable
+		} else if errors.Is(err, lease.ErrLeaseNotFound) {
+			status = http.StatusNotFound
 		} else {
 			status = http.StatusBadRequest
 		}
@@ -449,7 +461,7 @@ func (s *HttpServer) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := s.raftSvc.Leader()
+	_, err := s.raftSvc.Leader(r.Context())
 	if err != nil {
 		msg := readyzErrMsg + ": failed to get leader info"
 		s.writeError(w, msg, err, http.StatusServiceUnavailable)
@@ -500,6 +512,27 @@ func (s *HttpServer) handleWatch(w http.ResponseWriter, r *http.Request) {
 	if err = conn.Close(websocket.StatusNormalClosure, "all good"); err != nil {
 		s.writeError(w, "failed to close websocket", err, http.StatusInternalServerError)
 	}
+}
+
+func (s *HttpServer) handleCompactionTrigger(w http.ResponseWriter, r *http.Request) {
+	var req api.CompactionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, jsonDecodeErrMsg, err, http.StatusBadRequest)
+		return
+	}
+
+	status := http.StatusOK
+	response, err := s.kvSvc.TriggerCompaction(r.Context(), req)
+	if err != nil {
+		if errors.Is(err, util.ErrPropose) {
+			status = http.StatusServiceUnavailable
+		} else {
+			status = http.StatusBadRequest
+		}
+		s.writeError(w, "compaction trigger failed", err, status)
+		return
+	}
+	s.writeJSON(w, response, status)
 }
 
 func (s *HttpServer) writeJSON(w http.ResponseWriter, response any, status int) {

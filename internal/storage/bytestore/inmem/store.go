@@ -19,7 +19,7 @@ type InmemStore struct {
 }
 
 // NewStore creates a new, empty in-memory key-value store
-func NewStore(opts storage.StorageOptions) bytestore.ByteStore {
+func NewStore(opts storage.Options) bytestore.ByteStore {
 	if opts.Kind != storage.StorageKindInMemory {
 		panic("failed to create inmem store: param opts.Kind was not StorageKindInMemory")
 	}

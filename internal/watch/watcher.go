@@ -24,6 +24,7 @@ type watcher struct {
 	id         int64
 	keyStart   []byte
 	keyEnd     []byte
+	prefix     bool // TODO: add tests for this
 	startRev   int64
 	currentRev int64
 	filter     *kv.EventFilter // either NO_PUT or NO_DELETE, or empty for no filter

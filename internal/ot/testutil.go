@@ -17,14 +17,18 @@ type MockOTClient struct {
 	T *testing.T
 }
 
-func FakeBlob(t *testing.T, om *OTManager) []byte {
+func FakeBlob(t *testing.T, opts Options) []byte {
+	if !testing.Testing() {
+		panic("ot.FakeBlob can only be used in tests")
+	}
+
 	t.Helper()
-	blob := make([]byte, om.opts.SlotCount*om.opts.SlotSize)
-	for i := range om.opts.SlotCount {
-		offset := i * om.opts.SlotSize
+	blob := make([]byte, opts.SlotCount*opts.SlotSize)
+	for i := range opts.SlotCount {
+		offset := i * opts.SlotSize
 
 		blob[offset] = byte(i)
-		for j := range om.opts.SlotSize {
+		for j := range opts.SlotSize {
 			blob[offset+j] = byte(i + j)
 		}
 	}
@@ -36,7 +40,7 @@ func FakeBlob(t *testing.T, om *OTManager) []byte {
 //
 //	b       = random scalar
 //	B       = b*G + c*A       // blinded choice point
-func (c *MockOTClient) Choose(pointABytes []byte, choice int) (pointBBytes []byte, scalarB group.Scalar) {
+func (c *MockOTClient) BlindedChoice(pointABytes []byte, choice int) (pointBBytes []byte, scalarB group.Scalar) {
 	c.T.Helper()
 
 	A := Group.NewElement()

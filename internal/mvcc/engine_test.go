@@ -65,7 +65,7 @@ func newTestEngine(t *testing.T) *Engine {
 	t.Helper()
 	reg := metrics.InitTestPrometheus()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	b := backend.New(reg, storage.StorageOptions{
+	b := backend.New(reg, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})
@@ -620,7 +620,7 @@ func Test_EngineApplyTxn_CompareCreateRev(t *testing.T) {
 				{
 					Key:         []byte("k"),
 					Operator:    api.OperatorEqual,
-					TargetField: api.FieldCreate,
+					TargetField: api.FieldCreateRev,
 					TargetValue: api.CompareTargetUnion{CreateRevision: 1},
 				},
 			},

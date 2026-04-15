@@ -24,7 +24,7 @@ func newTestStore(t *testing.T) *boltStore {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := NewStore(storage.StorageOptions{
+	s, err := NewStore(storage.Options{
 		Kind:           storage.StorageKindBoltdb,
 		Dir:            tmp,
 		InitialBuckets: []storage.Bucket{testBucket, metaBucket},
