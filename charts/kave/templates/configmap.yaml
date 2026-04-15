@@ -33,5 +33,15 @@ data:
         "slot_count": {{ .Values.config.ot.slotCount }},
         "slot_size": {{  .Values.config.ot.slotSize }},
         "token_ttl_sec": {{  .Values.config.ot.tokenTTLSec }}
+      },
+      "ratelimiter": {
+          "read": {
+              "rps":  {{ .Values.config.ratelimiter.read.rps }},
+              "burst": {{ .Values.config.ratelimiter.read.burst }}
+          },
+          "write": {
+              "rps": {{ .Values.config.ratelimiter.write.rps }},
+              "burst": {{ .Values.config.ratelimiter.write.burst }}
+          }
       }
     }
