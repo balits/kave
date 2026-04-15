@@ -1,0 +1,25 @@
+name: Test kave
+description: Lint and format the code, then run unit and integration tests
+
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v6
+    - uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+        cache: true
+    
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v9
+      with:
+        version: v2.11
+
+    - name: Unit Tests
+      uses: bash
+      run: go test ./internal/... -race -count=1 --timeout 1m
+
+    - name: Integration tests
+      uses: bash
+      run: go test ./test/integration/... -p 1 --timeout 5m 

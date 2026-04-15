@@ -1,0 +1,54 @@
+name: Smoke test for the Kubernetes cluster
+description: Checks that cluster forms, pods are ready and basic apis work
+
+runs:
+  using: composite
+  steps:
+    - name: Verify kubectl is installed
+      shell: bash
+      run: kubectl version --client
+
+    # this should set KUBECONFIG
+    - name: Create Kind cluster
+      uses: helm/kind-action@v1.10.0 
+      with:
+        cluster_name: "kave"
+  
+    - name: Install Chart to Kind
+      shell: bash
+      run: kind load docker-image ghcr.io/balits/kave:latest --name ghcr.io/balits/kave:latest
+
+    - name: Install Helm Chart
+      shell: bash
+      run: |
+        helm install kave ./charts/kave \
+          --namespace kave \
+          --create-namespace \
+          --set image.pullPolicy=Never \
+          --set voters.replicas=3 \
+          --timeout 2m
+
+    - name: Wait for cluster readiness
+      shell: bash
+      run: |
+        kubectl rollout status statefulset/kave-release-kave \
+          --namespace kave
+          --timeout 2m
+
+    - name: Port-forward kave service in the background
+      shell: bash
+      run: |
+        kubectl port-forward svc/kave 8080:80 \
+          --namespace kave-smoke &
+        sleep 5
+        # 7. Run your smoke tests!
+
+    - name: Run Smoke Tests
+      shell: bash
+      env:
+        # KUBECONFIG gets handled by helm/kind-actions
+        NAMESPACE: kave
+        CLUSTER_SIZE: 3
+        URL: "http://localhost:8080" 
+      run: |
+        go test ./test/smoke/... -v -count=1 --timeout 5m
