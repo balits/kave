@@ -6,7 +6,7 @@ var (
 	errOptionMaxKeySizeLEZero = errors.New("max key size cannot be negative or zero")
 	errOptionMaxValSizeEZero  = errors.New("max value size cannot be negative or zero")
 	errKeyTooLarge            = errors.New("key size exceeds max key size")
-	errValueTooLarge          = errors.New("value size exceeds max key size")
+	errValueTooLarge          = errors.New("value size exceeds max value size")
 )
 
 type Options struct {

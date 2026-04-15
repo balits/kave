@@ -12,6 +12,7 @@ type WatchCreateRequest struct {
 	WatchID       int64           `json:"id"`
 	Key           []byte          `json:"key"`
 	End           []byte          `json:"end"`
+	Prefix        bool            `json:"prefix"` // flag to indicate a watch over the range [Key, Key+1)
 	StartRevision int64           `json:"start_revision"`
 	PrevEntry     bool            `json:"prev_entry"`
 	Filter        *kv.EventFilter `json:"filter,omitempty"`

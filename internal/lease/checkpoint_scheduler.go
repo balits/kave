@@ -67,7 +67,7 @@ func (cs *CheckpointScheduler) Run(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	cs.ctx = ctx
 	cs.cancel = cancel
-	cs.logger.Info("Checkpoint scheduler started")
+	cs.logger.Info("Checkpoint scheduler started", "interval", cs.interval)
 	cs.run()
 }
 

@@ -16,12 +16,12 @@ type mockStore struct {
 	readerFn     func() mvcc.Reader
 }
 
-func (s *mockStore) RaftMeta() (uint64, uint64) { return 0, 0 }
+func (s *mockStore) RaftMeta() (uint64, uint64) { return 0, 0 } // dummy raft meta
 
 func (s *mockStore) Ping() error { return nil }
 
-func (s *mockStore) Revisions() (kv.Revision, int64) {
-	return kv.Revision{Main: s.currentRev}, s.compactedRev
+func (s *mockStore) Meta() (kv.Revision, int64, uint64, uint64) {
+	return kv.Revision{Main: s.currentRev}, s.compactedRev, 0, 0 // dummy raft meta
 }
 
 func (m *mockStore) NewReader() mvcc.Reader {
@@ -41,7 +41,8 @@ type mockReader struct {
 }
 
 func (r *mockReader) Revisions() (kv.Revision, int64) {
-	return r.s.Revisions()
+	curr, compacted, _, _ := r.s.Meta()
+	return curr, compacted
 }
 
 func (r *mockReader) Range(key, end []byte, rev int64, limit int64) (out []*kv.Entry, count int, highestRev int64, err error) {

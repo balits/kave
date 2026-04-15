@@ -15,12 +15,12 @@ var (
 	KeyCurrentRevision NamedKey = []byte("current_revision")
 
 	// Stores the last requested compaction revision.
-	// Stored at request, before compaction is actually run
-	KeyCompactionScheduled NamedKey = []byte("scheduled_compaction")
+	// Stored at request time, before compaction is actually run
+	KeyScheduledCompactedRev NamedKey = []byte("scheduled_compacted_rev")
 
 	// Stores the last finished compaction revision.
-	// Stored after compaction is finished
-	KeyCompactionFinished NamedKey = []byte("finished_compaction")
+	// Stored rhgt after compaction is finished successfully
+	KeyFinishedCompactedRev NamedKey = []byte("finished_compacted_rev")
 )
 
 // keys in BucketOT

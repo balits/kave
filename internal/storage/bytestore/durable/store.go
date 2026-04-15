@@ -28,7 +28,7 @@ type boltStore struct {
 	bucketMap map[storage.Bucket][]byte
 }
 
-func NewStore(opts storage.StorageOptions) (bytestore.ByteStore, error) {
+func NewStore(opts storage.Options) (bytestore.ByteStore, error) {
 	if opts.Kind != storage.StorageKindBoltdb {
 		return nil, fmt.Errorf("failed to create boltdb store: option 'Kind' was not StorageKindBoltdb")
 	}

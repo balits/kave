@@ -15,21 +15,12 @@ import (
 // thats produced by a [watcher]. It can optionally
 // attach an error if something went wrong.
 type StreamEvent struct {
-	Kind  StreamEventKind `json:"kind"`
-	Wid   int64           `json:"watcher_id"`
-	Event kv.Event        `json:"event"`
+	Wid   int64    `json:"watcher_id"`
+	Event kv.Event `json:"event"`
 }
-
-type StreamEventKind string
-
-const (
-	StreamWatchPut    StreamEventKind = "WATCH_PUT"
-	StreamWatchDelete StreamEventKind = "WATCH_DELETE"
-)
 
 func putEvent(wid int64, ev kv.Event) StreamEvent {
 	return StreamEvent{
-		Kind:  StreamWatchPut,
 		Wid:   wid,
 		Event: ev,
 	}
@@ -37,7 +28,6 @@ func putEvent(wid int64, ev kv.Event) StreamEvent {
 
 func deleteEvent(wid int64, ev kv.Event) StreamEvent {
 	return StreamEvent{
-		Kind:  StreamWatchDelete,
 		Wid:   wid,
 		Event: ev,
 	}
@@ -68,8 +58,8 @@ const (
 	ServerCloseSession     ServerMessageKind = "SESSION_CLOSE"
 	ServerWatchCreated     ServerMessageKind = "WATCH_CREATED"
 	ServerWatchCanceled    ServerMessageKind = "WATCH_CANCELED"
-	ServerWatchEventPut    ServerMessageKind = ServerMessageKind(StreamWatchPut)
-	ServerWatchEventDelete ServerMessageKind = ServerMessageKind(StreamWatchDelete)
+	ServerWatchEventPut    ServerMessageKind = ServerMessageKind(kv.EventPut)
+	ServerWatchEventDelete ServerMessageKind = ServerMessageKind(kv.EventDelete)
 )
 
 type serverErrorPayload struct {
@@ -91,8 +81,6 @@ func (e serverErrorPayload) MarshalJSON() ([]byte, error) {
 	}
 
 	bs = fmt.Appendf(bs, "}")
-
-	fmt.Println(string(bs))
 	return bs, nil
 }
 

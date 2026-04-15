@@ -76,7 +76,7 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 		Level: slog.LevelDebug,
 	}))
 	reg := metrics.InitTestPrometheus()
-	backend := backend.New(reg, storage.StorageOptions{
+	backend := backend.New(reg, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})
@@ -115,14 +115,12 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 	require.NoError(t, genRes.Error, "FSM returned error for cluster key gen")
 	require.NotNil(t, genRes.OtGenerateClusterKey, "OtGenerateClusterKey result is nil")
 
-	require.NoError(t, om.InitTokenCodec())
-
 	discoverySvc := &mockDiscoveryService{me}
 	kvSvc := service.NewKVService(logger, me, kvstore, raftService, kvOpts, propose)
 	leaseSvc := service.NewLeaseService(logger, propose)
 	otSvc := service.NewOTService(logger, me, kvstore, om, raftService, propose)
-
 	rateLimiterConfig := NewRateLimiterConfig(2000, 2000) // set to a gorbillion so tests can run in parallel
+
 	httpServer := NewHTTPServer(logger, me, discoverySvc, kvSvc, leaseSvc, otSvc, raftService, watchHub, reg, rateLimiterConfig, rateLimiterConfig)
 
 	ts := httptest.NewServer(httpServer.server.Handler)
@@ -741,7 +739,7 @@ func Test_OTInit_MalformedBody_Returns400(t *testing.T) {
 func Test_OTWriteAll_OK(t *testing.T) {
 	t.Parallel()
 	ts := newTestServer(t, true)
-	blob := ot.FakeBlob(t, ts.om)
+	blob := ot.FakeBlob(t, ts.om.Options())
 
 	resp := ts.do(http.MethodPost, RouteOtWriteAll,
 		api.OTWriteAllRequest{Blob: blob})
@@ -783,7 +781,7 @@ func Test_OTTransfer_OK(t *testing.T) {
 	t.Parallel()
 	ts := newTestServer(t, true)
 
-	blob := ot.FakeBlob(t, ts.om)
+	blob := ot.FakeBlob(t, ts.om.Options())
 	ts.do(http.MethodPost, RouteOtWriteAll,
 		api.OTWriteAllRequest{Blob: blob})
 
@@ -791,7 +789,7 @@ func Test_OTTransfer_OK(t *testing.T) {
 	var initRes api.OTInitResponse
 	ts.decodeJSON(initResp, &initRes)
 
-	pointB, _ := ts.otClient.Choose(initRes.PointA, 0)
+	pointB, _ := ts.otClient.BlindedChoice(initRes.PointA, 0)
 	resp := ts.do(http.MethodGet, RouteOtTransfer,
 		api.OTTransferRequest{Token: initRes.Token, PointB: pointB})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -804,7 +802,7 @@ func Test_OTTransfer_OK(t *testing.T) {
 func Test_OTTransfer_InvalidPointB_Returns400(t *testing.T) {
 	t.Parallel()
 	ts := newTestServer(t, true)
-	blob := ot.FakeBlob(t, ts.om)
+	blob := ot.FakeBlob(t, ts.om.Options())
 	ts.do(http.MethodPost, RouteOtWriteAll,
 		api.OTWriteAllRequest{Blob: blob})
 
@@ -827,7 +825,7 @@ func Test_OTTransfer_NoBlobWritten_Returns400(t *testing.T) {
 	var initRes api.OTInitResponse
 	ts.decodeJSON(initResp, &initRes)
 
-	pointB, _ := ts.otClient.Choose(initRes.PointA, 0)
+	pointB, _ := ts.otClient.BlindedChoice(initRes.PointA, 0)
 	resp := ts.do(http.MethodGet, RouteOtTransfer,
 		api.OTTransferRequest{Token: initRes.Token, PointB: pointB})
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -846,7 +844,7 @@ func Test_OT_E2E_HTTP_ChosenSlotDecrypts(t *testing.T) {
 	t.Parallel()
 	ts := newTestServer(t, true)
 
-	blob := ot.FakeBlob(t, ts.om)
+	blob := ot.FakeBlob(t, ts.om.Options())
 	writeResp := ts.do(http.MethodPost, RouteOtWriteAll,
 		api.OTWriteAllRequest{Blob: blob})
 	require.Equal(t, http.StatusOK, writeResp.StatusCode)
@@ -857,7 +855,7 @@ func Test_OT_E2E_HTTP_ChosenSlotDecrypts(t *testing.T) {
 	ts.decodeJSON(initResp, &initRes)
 
 	choice := 7
-	pointB, scalarB := ts.otClient.Choose(initRes.PointA, choice)
+	pointB, scalarB := ts.otClient.BlindedChoice(initRes.PointA, choice)
 
 	transferResp := ts.do(http.MethodGet, RouteOtTransfer,
 		api.OTTransferRequest{Token: initRes.Token, PointB: pointB})
@@ -876,7 +874,7 @@ func Test_OT_E2E_HTTP_NonChosenSlotsFail(t *testing.T) {
 	t.Parallel()
 	ts := newTestServer(t, true)
 
-	blob := ot.FakeBlob(t, ts.om)
+	blob := ot.FakeBlob(t, ts.om.Options())
 	ts.do(http.MethodPost, RouteOtWriteAll,
 		api.OTWriteAllRequest{Blob: blob})
 
@@ -885,7 +883,7 @@ func Test_OT_E2E_HTTP_NonChosenSlotsFail(t *testing.T) {
 	ts.decodeJSON(initResp, &initRes)
 
 	choice := 2
-	pointB, scalarB := ts.otClient.Choose(initRes.PointA, choice)
+	pointB, scalarB := ts.otClient.BlindedChoice(initRes.PointA, choice)
 
 	transferResp := ts.do(http.MethodGet, RouteOtTransfer,
 		api.OTTransferRequest{Token: initRes.Token, PointB: pointB})
@@ -918,7 +916,7 @@ func Test_OTTransfer_SerializableRead_ServedLocally_NoLeaderMiddleware(t *testin
 	t.Parallel()
 	ts := newTestServer(t, true)
 
-	blob := ot.FakeBlob(t, ts.om)
+	blob := ot.FakeBlob(t, ts.om.Options())
 	ts.do(http.MethodPost, RouteOtWriteAll,
 		api.OTWriteAllRequest{Blob: blob})
 
@@ -929,7 +927,7 @@ func Test_OTTransfer_SerializableRead_ServedLocally_NoLeaderMiddleware(t *testin
 	var initRes api.OTInitResponse
 	ts.decodeJSON(initResp, &initRes)
 
-	pointB, _ := ts.otClient.Choose(initRes.PointA, 0)
+	pointB, _ := ts.otClient.BlindedChoice(initRes.PointA, 0)
 	resp := ts.do(http.MethodGet, RouteOtTransfer,
 		api.OTTransferRequest{Token: initRes.Token, PointB: pointB, Serializable: true})
 	require.NotEqual(t, http.StatusServiceUnavailable, resp.StatusCode,
@@ -941,7 +939,7 @@ func Test_OTWriteAll_RequiresLeader(t *testing.T) {
 	ts := newTestServer(t, true)
 	ts.raftService.ErrLeader = fmt.Errorf("no quorum")
 
-	blob := ot.FakeBlob(t, ts.om)
+	blob := ot.FakeBlob(t, ts.om.Options())
 	resp := ts.do(http.MethodPost, RouteOtWriteAll,
 		api.OTWriteAllRequest{Blob: blob})
 	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode,

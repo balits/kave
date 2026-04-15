@@ -23,13 +23,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestScheduler(t *testing.T, threshold int64, ticker util.Ticker, isLeaderValue bool, opts *CompactionOptions) *CompactionScheduler {
+func newTestScheduler(t *testing.T, threshold int64, ticker util.Ticker, isLeaderValue bool, opts *Options) *CompactionScheduler {
 	t.Helper()
 	isLeader := func() bool { return isLeaderValue }
 
 	logger := slog.Default()
 	reg := metrics.InitTestPrometheus()
-	backend := backend.New(reg, storage.StorageOptions{
+	backend := backend.New(reg, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})
@@ -59,11 +59,11 @@ func newTestScheduler(t *testing.T, threshold int64, ticker util.Ticker, isLeade
 		return &result, nil
 	}
 
-	var o CompactionOptions
+	var o Options
 	if opts != nil {
 		o = *opts
 	} else {
-		o = CompactionOptions{
+		o = Options{
 			Threshold:   threshold,
 			IntervalMin: DefaultIntervalMin,
 			MaxRevGap:   math.MaxInt64,
@@ -210,7 +210,7 @@ func Test_CompactionScheduler_LeadershipLost_NoCompaction(t *testing.T) {
 	oldPropose := cs.propose
 	var calls atomic.Int64
 	cs.propose = func(ctx context.Context, cmd command.Command) (*command.Result, error) {
-		if cmd.Kind == command.KindCompact && cmd.Compact.TargetRev != 0 {
+		if cmd.Kind == command.KindCompaction && cmd.Compaction.TargetRev != 0 {
 			calls.Add(1)
 		}
 		return oldPropose(ctx, cmd)
@@ -241,7 +241,7 @@ func Test_CompactionScheduler_LeadershipRegained_ResumeCompaction(t *testing.T) 
 	var calls atomic.Int64
 	oldPropose := cs.propose
 	cs.propose = func(ctx context.Context, cmd command.Command) (*command.Result, error) {
-		if cmd.Kind == command.KindCompact && cmd.Compact.TargetRev != 0 {
+		if cmd.Kind == command.KindCompaction && cmd.Compaction.TargetRev != 0 {
 			calls.Add(1)
 		}
 		return oldPropose(ctx, cmd)
@@ -432,7 +432,7 @@ func Test_CompactionScheduler_ThresholdNotMet_NoCompaction(t *testing.T) {
 func Test_CompactionScheduler_WritePressure_TriggerFires(t *testing.T) {
 
 	ft := util.NewFakeTicker().(*util.FakeTicker)
-	cs := newTestScheduler(t, 0, ft, true, &CompactionOptions{
+	cs := newTestScheduler(t, 0, ft, true, &Options{
 		IntervalMin: 30,
 		Threshold:   100,
 		MaxRevGap:   10,
@@ -441,7 +441,7 @@ func Test_CompactionScheduler_WritePressure_TriggerFires(t *testing.T) {
 	var compactions atomic.Int64
 	oldPropose := cs.propose
 	cs.propose = func(ctx context.Context, cmd command.Command) (*command.Result, error) {
-		if cmd.Kind == command.KindCompact {
+		if cmd.Kind == command.KindCompaction {
 			compactions.Add(1)
 		}
 		return oldPropose(ctx, cmd)
@@ -467,7 +467,7 @@ func Test_CompactionScheduler_WritePressure_TriggerFires(t *testing.T) {
 func Test_CompactionScheduler_WritePressure_IgnoredAsNonLeader(t *testing.T) {
 
 	ft := util.NewFakeTicker().(*util.FakeTicker)
-	cs := newTestScheduler(t, 0, ft, true, &CompactionOptions{
+	cs := newTestScheduler(t, 0, ft, true, &Options{
 		IntervalMin: 30,
 		Threshold:   100,
 		MaxRevGap:   10,
@@ -477,7 +477,7 @@ func Test_CompactionScheduler_WritePressure_IgnoredAsNonLeader(t *testing.T) {
 	var compactions atomic.Int64
 	oldPropose := cs.propose
 	cs.propose = func(ctx context.Context, cmd command.Command) (*command.Result, error) {
-		if cmd.Kind == command.KindCompact {
+		if cmd.Kind == command.KindCompaction {
 			compactions.Add(1)
 		}
 		return oldPropose(ctx, cmd)
@@ -500,7 +500,7 @@ func Test_CompactionScheduler_WritePressure_IgnoredAsNonLeader(t *testing.T) {
 
 func Test_CompactionScheduler_WritePressure_NoDuplicateSignals(t *testing.T) {
 
-	opts := CompactionOptions{
+	opts := Options{
 		Threshold:   2,
 		IntervalMin: 30,
 		MaxRevGap:   5,
@@ -517,7 +517,7 @@ func Test_CompactionScheduler_WritePressure_NoDuplicateSignals(t *testing.T) {
 
 func Test_CompactionScheduler_NormalInterval_WhenGapIsSmall(t *testing.T) {
 
-	opts := CompactionOptions{
+	opts := Options{
 		Threshold:   2,
 		IntervalMin: 30,
 		MaxRevGap:   100, // high enough
@@ -546,7 +546,7 @@ func Test_CompactionScheduler_NormalInterval_WhenGapIsSmall(t *testing.T) {
 }
 
 func Test_CompactionScheduler_BothIntervalAndBackpressure_WorkTogether(t *testing.T) {
-	opts := CompactionOptions{
+	opts := Options{
 		Threshold:   2,
 		IntervalMin: 30,
 		MaxRevGap:   5,

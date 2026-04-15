@@ -45,7 +45,7 @@ type backend struct {
 	obs     BackendObserver
 }
 
-func New(reg prometheus.Registerer, opts storage.StorageOptions) Backend {
+func New(reg prometheus.Registerer, opts storage.Options) Backend {
 	var s bytestore.ByteStore
 	switch opts.Kind {
 	case storage.StorageKindBoltdb:

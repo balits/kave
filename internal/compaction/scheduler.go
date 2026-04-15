@@ -13,24 +13,24 @@ import (
 )
 
 const (
-	DefaultThreshold   = 10
+	DefaultThreshold   = 100
 	DefaultIntervalMin = 30
-	DefaultMaxRevGap   = 10
+	DefaultMaxRevGap   = 100
 )
 
-type CompactionOptions struct {
+type Options struct {
 	Threshold   int64 `json:"threshold"`
 	IntervalMin int64 `json:"interval_minutes"`
 	MaxRevGap   int64 `json:"max_rev_gap"`
 }
 
-var DefaultOptions = CompactionOptions{
+var DefaultOptions = Options{
 	Threshold:   DefaultThreshold,
 	IntervalMin: DefaultIntervalMin,
 	MaxRevGap:   DefaultMaxRevGap,
 }
 
-func (co *CompactionOptions) Check() error {
+func (co *Options) Check() error {
 	if co.Threshold <= 0 {
 		return errors.New("compactor threshold must be positive")
 	}
@@ -44,7 +44,7 @@ func (co *CompactionOptions) Check() error {
 }
 
 type CompactionScheduler struct {
-	opts           CompactionOptions
+	opts           Options
 	store          mvcc.SmartRevisionGetter
 	ticker         util.Ticker
 	running        atomic.Bool
@@ -52,14 +52,14 @@ type CompactionScheduler struct {
 	isLeader       util.IsLeaderFunc
 	candidateRev   int64
 	leadershipC    chan bool
-	writePressureC chan struct{}
+	writePressureC chan struct{} // if writes spike, compact earlier than the interval
 	ctx            context.Context
 	cancel         context.CancelFunc
 	logger         *slog.Logger
 }
 
-func NewScheduler(logger *slog.Logger, store mvcc.SmartRevisionGetter, propose util.ProposeFunc, isLeader util.IsLeaderFunc, opts *CompactionOptions) *CompactionScheduler {
-	var o CompactionOptions
+func NewScheduler(logger *slog.Logger, store mvcc.SmartRevisionGetter, propose util.ProposeFunc, isLeader util.IsLeaderFunc, opts *Options) *CompactionScheduler {
+	var o Options
 	if opts != nil {
 		o = *opts
 	} else {
@@ -171,8 +171,8 @@ func (cs *CompactionScheduler) tick(force bool) {
 	}
 
 	cmd := command.Command{
-		Kind: command.KindCompact,
-		Compact: &command.CompactCmd{
+		Kind: command.KindCompaction,
+		Compaction: &command.CompactionCmd{
 			TargetRev: prev,
 		},
 	}
@@ -180,7 +180,7 @@ func (cs *CompactionScheduler) tick(force bool) {
 	l := cs.logger.With(
 		"current_rev", currentRev.Main,
 		"last_compacted_rev", lastCompacted,
-		"candidate_rev", cmd.Compact.TargetRev,
+		"candidate_rev", cmd.Compaction.TargetRev,
 	)
 
 	result, err := cs.propose(cs.ctx, cmd)
@@ -194,18 +194,18 @@ func (cs *CompactionScheduler) tick(force bool) {
 		return
 	}
 
-	if result.Compact == nil {
+	if result.Compaction == nil {
 		l.Error("compaction error: compact result was nil")
 		return
 	}
 
-	if result.Compact.Error != nil {
-		l.Warn("compaction error", "error", result.Compact.Error)
+	if result.Compaction.Error != nil {
+		l.Warn("compaction error", "error", result.Compaction.Error)
 		return
 	}
 
 	select {
-	case <-result.Compact.DoneC:
+	case <-result.Compaction.DoneC:
 		l.Info("compaction finished")
 	case <-cs.ctx.Done():
 		l.Info("context cancelled while waiting for compaction to finish")

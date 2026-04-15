@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/types/api"
 	"github.com/balits/kave/internal/util"
 	"github.com/coder/websocket"
@@ -21,11 +22,14 @@ const (
 )
 
 var (
-	errInvalidClientMessage       = errors.New("client message error:")
-	errInvalidWatchRequestPayload = fmt.Errorf("%w: invalid request payload", errInvalidClientMessage)
-	errStreamEventParse           = errors.New("failed to parse stream event")
-	errServerMessageMarshall      = errors.New("failed to marshal server message")
-	_closeSessionSignal           = errors.New("client requested closing the session")
+	errClientMessage              = errors.New("client message error:")
+	errUnkownClientMessageKind    = fmt.Errorf("%w: unknown client message kind", errClientMessage)
+	errInvalidWatchRequestPayload = fmt.Errorf("%w: invalid request payload", errClientMessage)
+
+	errStreamEventParse      = errors.New("failed to parse stream event")
+	errServerMessageMarshall = errors.New("failed to marshal server message")
+
+	_closeSessionSignal = errors.New("client requested closing the session")
 )
 
 // Session is a wrapper around a watch websocket connection.
@@ -104,7 +108,7 @@ func (s *Session) Run() error {
 	})
 
 	if err := s.g.Wait(); err != nil {
-		s.logger.Error("error after waiting for dispatcher/collector go routines",
+		s.logger.Error("error after waiting for reader/writer go routines",
 			"error", err,
 		)
 		if errors.Is(err, context.Canceled) {
@@ -125,16 +129,16 @@ func (s *Session) Run() error {
 func (s *Session) writer() (err error) {
 	defer func() {
 		if errors.Is(err, context.Canceled) {
-			s.logger.Info("collector exited with canceled error")
-			err = fmt.Errorf("collector error: %w", err)
+			s.logger.Info("writer exited with canceled error")
+			err = fmt.Errorf("writer error: %w", err)
 			return
 		}
 		// err is never non nil, otherwise the for loop wouldnt have returned
-		s.logger.Warn("collector exited with error", "error", err)
-		err = fmt.Errorf("collector error: %w", err)
+		s.logger.Warn("writer exited with error", "error", err)
+		err = fmt.Errorf("writer error: %w", err)
 	}()
 
-	s.logger.Info("collector started")
+	s.logger.Info("writer started")
 
 	for {
 		var (
@@ -157,7 +161,6 @@ func (s *Session) writer() (err error) {
 			msg, err = toServerErrorMessage(err, "")
 
 			if err != nil {
-
 				return closeSessionSignal(s.logger, "failed to marshal error message", err)
 			}
 		}
@@ -179,19 +182,19 @@ func (s *Session) writer() (err error) {
 func (s *Session) reader() (err error) {
 	defer func() {
 		if errors.Is(err, context.Canceled) {
-			s.logger.Info("dispatcher exited with canceled error")
-			err = fmt.Errorf("dispatcher failed: %w", err)
+			s.logger.Info("reader exited with canceled error")
+			err = fmt.Errorf("reader failed: %w", err)
 			return
 		}
 		// err is never non nil, otherwise the for loop wouldnt have returned
-		s.logger.Warn("dispatcher exited with error", "error", err)
-		err = fmt.Errorf("dispatcher failed: %w", err)
+		s.logger.Warn("reader exited with error", "error", err)
+		err = fmt.Errorf("reader failed: %w", err)
 	}()
 
-	s.logger.Info("dispatcher started")
-	var req *ClientMessage
+	s.logger.Info("reader started")
 
 	for {
+		var req *ClientMessage
 		req, err = s.read()
 		if err != nil {
 			return err
@@ -224,11 +227,10 @@ func (s *Session) reader() (err error) {
 		case ClientClose:
 			response = serverCloseSession()
 		default:
-			s.logger.Info("Unknown kind while reading client message",
-				"error", errInvalidClientMessage,
+			s.logger.Error(errUnkownClientMessageKind.Error(),
 				"kind", req.Kind,
 			)
-			response, err = toServerErrorMessage(errInvalidClientMessage, "unknown kind while reading client message")
+			response, err = toServerErrorMessage(errUnkownClientMessageKind, "unknown kind")
 		}
 
 		if err != nil {
@@ -318,13 +320,11 @@ func toServerStreamEvent(ev StreamEvent) (msg ServerMessage, err error) {
 	var kind ServerMessageKind
 	var bs []byte
 
-	switch ev.Kind {
-	case StreamWatchPut:
+	switch ev.Event.Kind {
+	case kv.EventPut:
 		kind = ServerWatchEventPut
-	case StreamWatchDelete:
+	case kv.EventDelete:
 		kind = ServerWatchEventDelete
-	default:
-		kind = ServerError
 	}
 
 	bs, err = json.Marshal(ev)

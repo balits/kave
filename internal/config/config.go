@@ -14,7 +14,9 @@ import (
 	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
+	"github.com/balits/kave/internal/transport/http"
 	"github.com/balits/kave/internal/util/logutil"
+	"github.com/hashicorp/raft"
 )
 
 const ApplyLagReadinessThreshold uint = 10
@@ -26,21 +28,24 @@ type Config struct {
 	LoggerOptions             logutil.Options
 	KvOptions                 kv.Options
 	PeerDiscoveryOptions      peer.DiscoveryOptions
-	StorageOpts               storage.StorageOptions
-	CompactionOpts            compaction.CompactionOptions
+	StorageOpts               storage.Options
+	CompactionOpts            compaction.Options
 	OtOpts                    ot.Options
 	CheckpointIntervalMinutes time.Duration
+	RatelimiterOpts           http.RatelimitOpions
+	RaftCfg                   *raft.Config
 }
 
 // TODO: move away from Config <-> ConfigJson, just use a single config file
 type ConfigJson struct {
-	LoggerOptions             logutil.Options              `json:"logger"`
-	KvOptions                 kv.Options                   `json:"kv"`
-	PeerDiscoveryOptions      peer.DiscoveryOptions        `json:"peer_discovery"`
-	StorageOpts               storage.StorageOptions       `json:"storage"`
-	CompactionOpts            compaction.CompactionOptions `json:"compaction"`
-	OtOpts                    ot.Options                   `json:"ot"`
-	CheckpointIntervalMinutes time.Duration                `json:"checkpoint_interval_minutes"`
+	LoggerOptions             logutil.Options       `json:"logger"`
+	KvOptions                 kv.Options            `json:"kv"`
+	PeerDiscoveryOptions      peer.DiscoveryOptions `json:"peer_discovery"`
+	StorageOpts               storage.Options       `json:"storage"`
+	CompactionOpts            compaction.Options    `json:"compaction"`
+	OtOpts                    ot.Options            `json:"ot"`
+	CheckpointIntervalMinutes time.Duration         `json:"checkpoint_interval_minutes"`
+	RatelimiterOpts           http.RatelimitOpions  `json:"ratelimiter"`
 }
 
 func (cj *ConfigJson) check() error {
@@ -133,9 +138,8 @@ func LoadConfig() *Config {
 	cfg.Bootstrap = strings.HasSuffix(*nodeID, "-0")
 	cfg.Me = me
 	cfg.PodNamespace = optionalString(podNamespace)
+	cfg.RaftCfg = NewDefaultRaftConfig(cfg.Me.NodeID)
 
-	s, _ := json.MarshalIndent(cfg, "", "    ")
-	fmt.Printf("Loaded config successfully:\n%s\n", string(s))
 	return cfg
 }
 

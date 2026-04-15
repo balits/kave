@@ -20,7 +20,7 @@ const (
 func newTestBackend(t *testing.T, kind storage.StorageKind) Backend {
 	t.Helper()
 
-	opts := storage.StorageOptions{
+	opts := storage.Options{
 		Kind:           kind,
 		Dir:            t.TempDir(),
 		InitialBuckets: []storage.Bucket{testBucket, metaBucket},

@@ -6,7 +6,8 @@ const (
 	ApiVersion   = "/v1"
 	RouteKv      = ApiVersion + "/kv"
 	RouteLease   = ApiVersion + "/lease"
-	RouteCluster = ApiVersion + "/cluster"
+	RouteAdmin   = ApiVersion + "/admin"
+	RouteCluster = RouteAdmin + "/cluster"
 	RouteOt      = ApiVersion + "/ot"
 	RouteWatch   = ApiVersion + "/watch"
 )

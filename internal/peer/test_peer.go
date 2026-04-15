@@ -9,7 +9,7 @@ func TestPeer() Peer {
 
 	return Peer{
 		NodeID:   "test_peer",
-		Hostname: "0.0.0.0",
+		Hostname: "127.0.0.1",
 		RaftPort: "7000",
 		HttpPort: "8000",
 	}

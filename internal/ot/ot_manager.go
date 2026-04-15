@@ -86,14 +86,18 @@ func NewOTManager(reg prometheus.Registerer, logger *slog.Logger, backend backen
 
 	return &OTManager{
 		opts:    opts,
-		codec:   nil, // codec needs a cluster key -> two phase init
+		codec:   nil, // codec needs a cluster key -> two phase init (when the cluster key gets generated)
 		backend: backend,
 		metrics: metrics.NewOTMetrics(reg),
 		logger:  logger.With("component", "ot_manager"),
 	}, nil
 }
 
-// InitTokenCodec initializes the token codec, setting its key to the cluster key stored in the backend
+func (om *OTManager) Options() Options {
+	return om.opts
+}
+
+// unsafeInitTokenCodec initializes the token codec, setting its key to the cluster key stored in the backend
 // and its maxTTL to the provided ttl (in seconds).
 //
 // If the key is not found or invalid, an error is returned and the codec remains uninitialized.
@@ -103,11 +107,7 @@ func NewOTManager(reg prometheus.Registerer, logger *slog.Logger, backend backen
 // and is separated from the constructor because the cluster key needs to be generated and stored
 // in a separate step (OTManager.ApplyGenerateClusterKey through the FSM so its replicated across all nodes)
 // before it can be used to initialize the codec.
-func (om *OTManager) InitTokenCodec() error {
-	rtx := om.backend.ReadTx()
-	rtx.RLock()
-	defer rtx.RUnlock()
-
+func (om *OTManager) unsafeInitTokenCodec(rtx backend.ReadTx) error {
 	clusterKey, err := rtx.UnsafeGet(schema.BucketOT, schema.KeyOTClusterKey)
 	if err != nil {
 		return fmt.Errorf("init token codec error: failed to retrieve cluster key: %w", err)
@@ -201,7 +201,7 @@ func (om *OTManager) Transfer(token, pointB []byte) (ciphertexts [][]byte, err e
 
 	rtx := om.backend.ReadTx()
 	rtx.RLock()
-	slotValue, err := rtx.UnsafeGet(schema.BucketOT, schema.KeyOTBlob)
+	blob, err := rtx.UnsafeGet(schema.BucketOT, schema.KeyOTBlob)
 	if err != nil {
 		rtx.RUnlock()
 		om.metrics.TransferErrorsTotal.Inc()
@@ -209,7 +209,7 @@ func (om *OTManager) Transfer(token, pointB []byte) (ciphertexts [][]byte, err e
 	}
 	rtx.RUnlock()
 
-	slots, err := om.blobToSlots(slotValue)
+	slots, err := om.blobToSlots(blob)
 	if err != nil {
 		om.metrics.TransferErrorsTotal.Inc()
 		return nil, err
@@ -277,37 +277,42 @@ func (om *OTManager) ApplyWriteAll(cmd command.CmdOTWriteAll) (*command.ResultOT
 	return &command.ResultOTWriteAll{}, nil
 }
 
-func (om *OTManager) ApplyGenerateClusterKey() (*command.ResultOTGenerateClusterKey, error) {
-	key, err := generateClusterKey()
-	if err != nil {
-		return nil, err
-	}
-
+// ApplyGenerateClusterKey is the command the fsm executes.
+// It checks for an existing key, returning error if found, otherwises generates
+// a [ClusterKeySize] cryptographically secure random key, and initializes
+// the managers tokenCodec
+func (om *OTManager) ApplyGenerateClusterKey() error {
 	wtx := om.backend.WriteTx()
 	wtx.Lock()
 	defer wtx.Unlock()
 	existingKey, err := wtx.UnsafeGet(schema.BucketOT, schema.KeyOTClusterKey)
 	if err != nil {
 		wtx.Abort()
-		return nil, fmt.Errorf("%w: failed to read previous cluster key: %w", ErrClusterKeyGen, err)
+		return fmt.Errorf("%w: failed to read previous cluster key: %w", ErrClusterKeyGen, err)
 	}
 	if existingKey != nil {
 		wtx.Abort()
-		return nil, fmt.Errorf("%w: cluster key already exists", ErrClusterKeyGen)
+		return fmt.Errorf("%w: cluster key already exists", ErrClusterKeyGen)
 	}
+
+	key := make([]byte, ClusterKeySize)
+	_, _ = rand.Read(key) // never returns error, only panics
 
 	if err := wtx.UnsafePut(schema.BucketOT, schema.KeyOTClusterKey, key); err != nil {
 		wtx.Abort()
-		return nil, fmt.Errorf("%w: %w", ErrClusterKeyGen, err)
+		return fmt.Errorf("%w: %w", ErrClusterKeyGen, err)
 	}
 	if _, err := wtx.Commit(); err != nil {
 		wtx.Abort()
-		return nil, fmt.Errorf("%w: %w", ErrClusterKeyGen, err)
+		return fmt.Errorf("%w: %w", ErrClusterKeyGen, err)
 	}
 
-	return &command.ResultOTGenerateClusterKey{
-		Key: key,
-	}, nil
+	om.logger.Info("Initiating OT token codec")
+	if err := om.unsafeInitTokenCodec(wtx); err != nil {
+		return fmt.Errorf("%w: failed to init token codec: %w", ErrClusterKeyGen, err)
+	}
+
+	return nil
 }
 
 func (om *OTManager) blobToSlots(blob []byte) (slots [][]byte, err error) {
@@ -379,10 +384,36 @@ func (om *OTManager) CheckBlob(blob []byte) error {
 	return nil
 }
 
-func generateClusterKey() ([]byte, error) {
-	key := make([]byte, ClusterKeySize)
-	if _, err := rand.Read(key); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrClusterKeyGen, err)
+func (om *OTManager) Restore() error {
+	rtx := om.backend.ReadTx()
+	rtx.RLock()
+	if err := om.unsafeInitTokenCodec(rtx); err != nil {
+		rtx.RUnlock()
+		return fmt.Errorf("OT restore: failed to init new TokenCodec")
 	}
-	return key, nil
+
+	blob, err := rtx.UnsafeGet(schema.BucketOT, schema.KeyOTBlob)
+	if err != nil {
+		rtx.RUnlock()
+		return fmt.Errorf("OT restore: %w", err)
+	}
+	rtx.RUnlock()
+
+	if err := om.CheckBlob(blob); err != nil {
+		return fmt.Errorf("OT restore: %w", err)
+	}
+
+	wtx := om.backend.WriteTx()
+	wtx.Lock()
+	defer wtx.Unlock()
+	if err := wtx.UnsafePut(schema.BucketOT, schema.KeyOTBlob, blob); err != nil {
+		wtx.Abort()
+		return fmt.Errorf("OT restore: %w", err)
+	}
+	if _, err := wtx.Commit(); err != nil {
+		wtx.Abort()
+		return fmt.Errorf("OT restore: %w", err)
+	}
+
+	return nil
 }
