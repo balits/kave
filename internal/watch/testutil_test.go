@@ -1,83 +1,86 @@
 package watch
 
 import (
-	"bytes"
 	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/balits/kave/internal/kv"
+	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
+	"github.com/balits/kave/internal/schema"
+	"github.com/balits/kave/internal/storage"
+	"github.com/balits/kave/internal/storage/backend"
 )
 
-type mockStore struct {
-	currentRev   int64
-	compactedRev int64
-	readerFn     func() mvcc.Reader
-}
-
-func (s *mockStore) RaftMeta() (uint64, uint64) { return 0, 0 } // dummy raft meta
-
-func (s *mockStore) Ping() error { return nil }
-
-func (s *mockStore) Meta() (kv.Revision, int64, uint64, uint64) {
-	return kv.Revision{Main: s.currentRev}, s.compactedRev, 0, 0 // dummy raft meta
-}
-
-func (m *mockStore) NewReader() mvcc.Reader {
-	if m.readerFn != nil {
-		return m.readerFn()
-	}
-	return &mockReader{} // empty reader by default
-}
-
-// func (m *mockStore) setCurrentRev(rev int64) {
-// 	m.currentRev = rev
+// type mockStore struct {
+// 	currentRev   int64
+// 	compactedRev int64
+// 	readerFn     func() mvcc.Reader
 // }
 
-type mockReader struct {
-	s       *mockStore
-	entries []*kv.Entry
-}
+// func (s *mockStore) RaftMeta() (uint64, uint64) { return 0, 0 } // dummy raft meta
 
-func (r *mockReader) Revisions() (kv.Revision, int64) {
-	curr, compacted, _, _ := r.s.Meta()
-	return curr, compacted
-}
+// func (s *mockStore) Ping() error { return nil }
 
-func (r *mockReader) Range(key, end []byte, rev int64, limit int64) (out []*kv.Entry, count int, highestRev int64, err error) {
-	if rev < r.s.compactedRev {
-		return nil, 0, 0, kv.ErrCompacted
-	}
+// func (s *mockStore) Meta() (kv.Revision, int64, uint64, uint64) {
+// 	return kv.Revision{Main: s.currentRev}, s.compactedRev, 0, 0 // dummy raft meta
+// }
 
-	match := func(e *kv.Entry) bool {
-		if len(end) == 0 {
-			return bytes.Equal(e.Key, key)
-		}
-		return bytes.Compare(e.Key, key) >= 0 && bytes.Compare(e.Key, end) < 0
-	}
-	for _, e := range r.entries {
-		if match(e) {
-			out = append(out, e)
-			if highestRev < e.ModRev {
-				highestRev = e.ModRev
-			}
-		}
-	}
+// func (m *mockStore) NewReader() mvcc.Reader {
+// 	if m.readerFn != nil {
+// 		return m.readerFn()
+// 	}
+// 	return &mockReader{s: m, entries: make([]*kv.Entry, 0)} // empty reader by default
+// }
 
-	return out, len(out), highestRev, nil
-}
+// // func (m *mockStore) setCurrentRev(rev int64) {
+// // 	m.currentRev = rev
+// // }
 
-func (r *mockReader) Get(key []byte, rev int64) *kv.Entry {
-	e, _, _, err := r.Range(key, nil, rev, 1)
-	if err != nil {
-		return nil
-	}
-	if len(e) == 1 {
-		return e[0]
-	}
-	return nil
-}
+// type mockReader struct {
+// 	s       *mockStore
+// 	entries []*kv.Entry
+// }
+
+// func (r *mockReader) Revisions() (kv.Revision, int64) {
+// 	curr, compacted, _, _ := r.s.Meta()
+// 	return curr, compacted
+// }
+
+// func (r *mockReader) Range(key, end []byte, rev int64, limit int64) (out []*kv.Entry, count int, highestRev int64, err error) {
+// 	if rev < r.s.compactedRev {
+// 		return nil, 0, 0, kv.ErrCompacted
+// 	}
+
+// 	match := func(e *kv.Entry) bool {
+// 		if len(end) == 0 {
+// 			return bytes.Equal(e.Key, key)
+// 		}
+// 		return bytes.Compare(e.Key, key) >= 0 && bytes.Compare(e.Key, end) < 0
+// 	}
+// 	for _, e := range r.entries {
+// 		if match(e) {
+// 			out = append(out, e)
+// 			if highestRev < e.ModRev {
+// 				highestRev = e.ModRev
+// 			}
+// 		}
+// 	}
+
+// 	return out, len(out), highestRev, nil
+// }
+
+// func (r *mockReader) Get(key []byte, rev int64) *kv.Entry {
+// 	e, _, _, err := r.Range(key, nil, rev, 1)
+// 	if err != nil {
+// 		return nil
+// 	}
+// 	if len(e) == 1 {
+// 		return e[0]
+// 	}
+// 	return nil
+// }
 
 func putEntry(key, value string, modrev int64) *kv.Entry {
 	return &kv.Entry{
@@ -153,11 +156,19 @@ func expectNoEvents(t *testing.T, c <-chan kv.Event) {
 	}
 }
 
-func newMockHub(store *mockStore) *WatchHub {
+func newMockHub() *WatchHub {
+	logger := slog.Default()
+	reg := metrics.InitTestPrometheus()
+	backend := backend.New(reg, storage.Options{
+		Kind:           storage.StorageKindInMemory,
+		InitialBuckets: []storage.Bucket{schema.BucketKV},
+	})
+	store := mvcc.NewKvStore(reg, logger, backend)
+
 	return &WatchHub{
 		synced:   make(map[int64]*watcher),
 		unsynced: make(map[int64]*watcher),
 		store:    store,
-		logger:   slog.Default(),
+		logger:   logger,
 	}
 }

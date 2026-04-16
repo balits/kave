@@ -977,7 +977,7 @@ func Test_KVService_Delete_HeaderRevision(t *testing.T) {
 func Test_KVService_Put_IgnoreValue_UpdatesLeaseOnly(t *testing.T) {
 	ts := newTestKVService(t)
 
-	l, err := ts.lm.Grant(0, 60)
+	l, err := ts.lm.Grant(1, 60)
 	require.NoError(t, err)
 
 	ts.mustPut("foo", "bar")
@@ -1063,7 +1063,7 @@ func Test_KVService_Put_IgnoreValue_WithPrevEntry(t *testing.T) {
 func Test_KVService_Put_IgnoreLease_PreservesExistingLease(t *testing.T) {
 	ts := newTestKVService(t)
 
-	l, err := ts.lm.Grant(0, 60)
+	l, err := ts.lm.Grant(1, 60)
 	require.NoError(t, err)
 
 	_, err = ts.Put(ts.ctx, api.PutRequest{
@@ -1122,7 +1122,7 @@ func Test_KVService_Put_IgnoreLease_KeyWithNoLease_PreservesNoLease(t *testing.T
 func Test_KVService_Put_IgnoreLease_DoesNotDetachExistingLease(t *testing.T) {
 	ts := newTestKVService(t)
 
-	l, err := ts.lm.Grant(0, 60)
+	l, err := ts.lm.Grant(1, 60)
 	require.NoError(t, err)
 
 	_, err = ts.Put(ts.ctx, command.CmdPut{
@@ -1151,7 +1151,7 @@ func Test_KVService_Put_IgnoreLease_DoesNotDetachExistingLease(t *testing.T) {
 func Test_KVService_Put_IgnoreValueAndLease_ActsAsTouchOperation(t *testing.T) {
 	ts := newTestKVService(t)
 
-	l, err := ts.lm.Grant(0, 60)
+	l, err := ts.lm.Grant(1, 60)
 	require.NoError(t, err)
 
 	_, err = ts.Put(ts.ctx, api.PutRequest{
@@ -1193,7 +1193,7 @@ func Test_KVService_Put_IgnoreValueAndLease_NonExistentKey_ReturnsError(t *testi
 func Test_KVService_Put_IgnoreValueAndLease_PreservesAllFieldsExceptRevAndVersion(t *testing.T) {
 	ts := newTestKVService(t)
 
-	l, err := ts.lm.Grant(0, 60)
+	l, err := ts.lm.Grant(1, 60)
 	require.NoError(t, err)
 
 	ts.mustPut("foo", "value1") // rev 1
