@@ -17,9 +17,9 @@ runs:
         version: v2.11
 
     - name: Unit Tests
-      uses: bash
+      shell: bash
       run: go test ./internal/... -race -count=1 --timeout 1m
 
     - name: Integration tests
-      uses: bash
+      shell: bash
       run: go test ./test/integration/... -p 1 --timeout 5m 
