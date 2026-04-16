@@ -18,11 +18,7 @@ jobs:
     name: Lint & Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/test
 
   build:
@@ -36,6 +32,7 @@ jobs:
     outputs:
       image_tag: ${{ steps.meta.outputs.version }} # do we need this here?
     steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/build-and-push-image
       
   smoke:
@@ -44,6 +41,7 @@ jobs:
     needs: build
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request' && (github.ref_name == 'main' || github.ref_name == 'feature/ci')
     steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/kind-smoke-test
 
   deploy:
