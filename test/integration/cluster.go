@@ -377,7 +377,9 @@ func (c *cluster) pollReady(i int) int {
 	if err != nil {
 		return 500
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	return resp.StatusCode
 }
 
