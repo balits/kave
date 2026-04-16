@@ -161,15 +161,15 @@ func (f *Fsm) applyLease(cmd command.Command) (res command.Result) {
 		}
 
 	case command.KindLeaseLookup:
-		// if lease not found, each field is its zero value (LeaseID = 0, which is not a valid id)
-		var subres command.ResultLeaseLookup
-		l := f.lm.Lookup(cmd.LeaseLookup.LeaseID)
-		if l != nil {
-			subres.LeaseID = l.ID
-			subres.OriginalTTL = l.TTL
-			subres.RemainingTTL = l.RemainingTTL()
+		var l *lease.Lease
+		l, err = f.lm.Lookup(cmd.LeaseLookup.LeaseID)
+		if err == nil {
+			res.LeaseLookup = &command.ResultLeaseLookup{
+				LeaseID:      l.ID,
+				OriginalTTL:  l.TTL,
+				RemainingTTL: l.RemainingTTL(),
+			}
 		}
-		res.LeaseLookup = &subres
 
 	case command.KindLeaseCheckpoint:
 		f.lm.ApplyCheckpoint(*cmd.LeaseCheckpoint)

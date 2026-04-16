@@ -1140,7 +1140,8 @@ func Test_KVService_Put_IgnoreLease_DoesNotDetachExistingLease(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	lease := ts.lm.Lookup(l.ID)
+	lease, err := ts.lm.Lookup(l.ID)
+	require.NoError(t, err)
 	require.NotNil(t, lease)
 	require.Equal(t, 1, len(lease.KeySet()), "expected key should still be attached to lease")
 }

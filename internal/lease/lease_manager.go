@@ -105,10 +105,6 @@ func (lm *LeaseManager) Grant(id, ttl int64) (*Lease, error) {
 
 // FIXME: is delete + writer End() error handled well?
 func (lm *LeaseManager) Revoke(id int64) (found, revoked bool, err error) {
-	if id == 0 {
-		return false, false, ErrLeaseIdZero
-	}
-
 	lm.rwlock.Lock()
 	defer lm.rwlock.Unlock()
 
@@ -246,14 +242,15 @@ func (lm *LeaseManager) DetachKey(id int64, key []byte) {
 	lm.metrics.LeasedKeys.Dec()
 }
 
-func (lm *LeaseManager) Lookup(id int64) *Lease {
-	if id == 0 {
-		return nil
-	}
-
+func (lm *LeaseManager) Lookup(id int64) (*Lease, error) {
 	lm.rwlock.RLock()
 	defer lm.rwlock.RUnlock()
-	return lm.leaseMap[id]
+
+	l, ok := lm.leaseMap[id]
+	if !ok {
+		return nil, ErrLeaseNotFound
+	}
+	return l, nil
 }
 
 func (lm *LeaseManager) Checkpoint() []command.Checkpoint {
