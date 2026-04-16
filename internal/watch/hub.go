@@ -145,6 +145,8 @@ func (h *WatchHub) NewWatcher(ctx context.Context, req api.WatchCreateRequest) (
 	var key, end []byte
 	if req.Key == nil {
 		key = []byte{}
+	} else {
+		key = req.Key
 	}
 
 	end = req.End
@@ -161,7 +163,7 @@ func (h *WatchHub) NewWatcher(ctx context.Context, req api.WatchCreateRequest) (
 		lastRevision = r.Main
 		fmt.Println("last rev for range/prefix is store rev:", r.Main)
 	} else {
-		_, c, rev, err := h.store.NewReader().Range(req.Key, nil, 0, 0)
+		_, _, rev, err := h.store.NewReader().Range(req.Key, nil, 0, 0)
 		fmt.Println("last rev for single key:", rev)
 		if err != nil {
 			h.logger.Error("new watcher failed",
@@ -170,13 +172,6 @@ func (h *WatchHub) NewWatcher(ctx context.Context, req api.WatchCreateRequest) (
 			return nil, err
 		}
 
-		if c != 0 {
-			errMsg := "single key watcher: reader returned multiple entries for latest revision"
-			h.logger.Error("new watcher failed",
-				"error", errMsg,
-			)
-			return nil, errors.New(errMsg)
-		}
 		lastRevision = rev
 	}
 
