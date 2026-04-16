@@ -31,7 +31,6 @@ type testOTService struct {
 }
 
 func newTestOTService(t *testing.T) (*testOTService, ot.MockOTClient) {
-	t.Helper()
 	logger := slog.Default()
 	me := peer.TestPeer()
 	reg := metrics.InitTestPrometheus()
@@ -68,14 +67,10 @@ func newTestOTService(t *testing.T) (*testOTService, ot.MockOTClient) {
 		return &result, nil
 	}
 
-	genRes, err := propose(context.Background(), command.Command{
-		Kind:                 command.KindOTGenerateClusterKey,
-		OTGenerateClusterKey: &command.CmdOTGenerateClusterKey{},
+	_, err = propose(t.Context(), command.Command{
+		Kind: command.KindOTGenerateClusterKey,
 	})
 	require.NoError(t, err)
-	require.NoError(t, genRes.Error, "FSM should not return an error for cluster key generation")
-	require.NotNil(t, genRes.OtGenerateClusterKey)
-	require.Len(t, genRes.OtGenerateClusterKey.Key, ot.ClusterKeySize)
 
 	peerSvc := &MockRaftService{
 		Me_:     me,

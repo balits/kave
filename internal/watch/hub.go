@@ -3,6 +3,7 @@ package watch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"testing"
@@ -141,11 +142,47 @@ func (h *WatchHub) NewWatcher(ctx context.Context, req api.WatchCreateRequest) (
 		id = req.WatchID
 	}
 
-	// todo: "synced" means watcher is caught up to its keys revision, not to the global revision
-	currentRev, _, _, _ := h.store.Meta()
+	var key, end []byte
+	if req.Key == nil {
+		key = []byte{}
+	}
+
+	end = req.End
+	if req.Prefix {
+		end = kv.PrefixEnd(req.Key)
+	}
+
+	// fix: "synced" means watcher is caught up to its keys revision, not to the global revision
+	var lastRevision int64
+	if end != nil {
+		// range or prefix watch, default to main rev,
+		// and unsynced loop will feed all needed events
+		r, _, _, _ := h.store.Meta()
+		lastRevision = r.Main
+		fmt.Println("last rev for range/prefix is store rev:", r.Main)
+	} else {
+		_, c, rev, err := h.store.NewReader().Range(req.Key, nil, 0, 0)
+		fmt.Println("last rev for single key:", rev)
+		if err != nil {
+			h.logger.Error("new watcher failed",
+				"error", ErrWatcherIDConflict.Error(),
+			)
+			return nil, err
+		}
+
+		if c != 0 {
+			errMsg := "single key watcher: reader returned multiple entries for latest revision"
+			h.logger.Error("new watcher failed",
+				"error", errMsg,
+			)
+			return nil, errors.New(errMsg)
+		}
+		lastRevision = rev
+	}
+
 	group := h.unsynced
 	synced := false
-	if req.StartRevision >= currentRev.Main {
+	if req.StartRevision >= lastRevision {
 		group = h.synced
 		synced = true
 	}
@@ -160,16 +197,6 @@ func (h *WatchHub) NewWatcher(ctx context.Context, req api.WatchCreateRequest) (
 			"up_to_date", synced,
 		)
 		return nil, ErrWatcherIDConflict
-	}
-
-	var key, end []byte
-	if req.Key == nil {
-		key = []byte{}
-	}
-
-	end = req.End
-	if req.Prefix {
-		end = kv.PrefixEnd(req.Key)
 	}
 
 	derivedCtx, cancel := context.WithCancel(ctx)
