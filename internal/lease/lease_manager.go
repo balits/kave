@@ -21,9 +21,10 @@ import (
 
 var (
 	errLease           = errors.New("lease error")
+	ErrLeaseIdZero     = fmt.Errorf("%w: lease ID cannot be zero", errLease)
 	ErrLeaseIDConflict = fmt.Errorf("%w: lease ID conflict", errLease)
 	ErrLeaseNotFound   = fmt.Errorf("%w: lease not found", errLease)
-	ErrLeaseInvalidTTL = fmt.Errorf("%w: TTL must be bigger than 0", errLease)
+	ErrLeaseInvalidTTL = fmt.Errorf("%w: TTL cannot be negative", errLease)
 )
 
 const (
@@ -62,12 +63,16 @@ func NewManager(reg prometheus.Registerer, logger *slog.Logger, store *mvcc.KvSt
 }
 
 func (lm *LeaseManager) Grant(id, ttl int64) (*Lease, error) {
+	if id == 0 {
+		return nil, ErrLeaseIdZero
+	}
 	if ttl <= 0 {
 		return nil, ErrLeaseInvalidTTL
 	}
 	if ttl > maxTTL {
 		ttl = maxTTL
 	}
+
 	start := time.Now()
 	defer func() { lm.metrics.GrantDurationSec.Observe(time.Since(start).Seconds()) }()
 

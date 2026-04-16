@@ -320,7 +320,9 @@ func randomPort(tb testing.TB) string {
 		tb.Fatal("failed to generate random port", err)
 	}
 
-	defer l.Close()
+	defer func() {
+		_ = l.Close()
+	}()
 
 	return fmt.Sprintf("%d", (l.Addr().(*net.TCPAddr).Port))
 }
@@ -340,7 +342,9 @@ func do(tb testing.TB, node *node.Node, method string, route string, reqBody any
 
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(tb, err)
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if respBody != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		err = json.NewDecoder(resp.Body).Decode(respBody)
@@ -357,7 +361,9 @@ func (c *cluster) requireReady(i int) int {
 	url := c.nodes[i].Me.HttpURL()
 	resp, err := http.Get(url + "/readyz")
 	require.NoError(c.tb, err)
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	return resp.StatusCode
 }
 
