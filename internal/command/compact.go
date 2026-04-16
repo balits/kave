@@ -1,10 +1,10 @@
 package command
 
-type CompactCmd struct {
-	TargetRev int64
-}
+import "github.com/balits/kave/internal/types/api"
 
-type ResultCompact struct {
+type CompactionCmd = api.CompactionRequest
+
+type CompactionResult struct {
 	DoneC <-chan struct{}
 	Error error
 }

@@ -68,7 +68,7 @@ func (ex *ExpiryLoop) Run(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	ex.ctx = ctx
 	ex.cancel = cancel
-	ex.logger.Info("Expiry loop started started")
+	ex.logger.Info("Expiry loop started started", "interval", ex.innerTicker.Interval())
 	ex.run()
 }
 
@@ -102,6 +102,10 @@ func (ex *ExpiryLoop) run() {
 
 func (ex *ExpiryLoop) tick() {
 	expired := ex.drainer.DrainExpiredLeases()
+	if len(expired) == 0 {
+		return
+	}
+
 	ids := make([]int64, 0, len(expired))
 	for _, l := range expired {
 		ids = append(ids, l.ID)
@@ -114,6 +118,7 @@ func (ex *ExpiryLoop) tick() {
 		},
 	}
 	result, err := ex.propose(ex.ctx, cmd)
+	ex.logger.Debug("proposing LeaseExpireCmd")
 	if err != nil {
 		ex.logger.Warn(
 			"expiry loop error: failed to propose LeaseExpireCmd",

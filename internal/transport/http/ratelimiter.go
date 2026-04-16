@@ -7,27 +7,32 @@ import (
 	"golang.org/x/time/rate"
 )
 
-var errMsgRateLimiter = errors.New("rate limiter error")
-
-type RateLimiterConfig struct {
-	rps   uint
-	burst uint
+type RatelimitOpions struct {
+	Read  ratelimiterConfig `json:"read"`
+	Write ratelimiterConfig `json:"write"`
 }
 
-func NewRateLimiterConfig(r, b uint) RateLimiterConfig {
-	return RateLimiterConfig{
-		rps:   r,
-		burst: b,
+var errMsgRateLimiter = errors.New("rate limiter error")
+
+type ratelimiterConfig struct {
+	Rps   uint `json:"rps"`
+	Burst uint `json:"burst"`
+}
+
+func NewRateLimiterConfig(r, b uint) ratelimiterConfig {
+	return ratelimiterConfig{
+		Rps:   r,
+		Burst: b,
 	}
 }
 
 type rateLimiter struct {
 	mu       sync.Mutex
 	limiters map[string]*rate.Limiter
-	cfg      RateLimiterConfig
+	cfg      ratelimiterConfig
 }
 
-func newRateLimiter(cfg RateLimiterConfig) *rateLimiter {
+func newRateLimiter(cfg ratelimiterConfig) *rateLimiter {
 	return &rateLimiter{
 		limiters: make(map[string]*rate.Limiter),
 		cfg:      cfg,
@@ -42,7 +47,7 @@ func (rl *rateLimiter) Limiter(path string) *rate.Limiter {
 	if l, ok := rl.limiters[path]; ok {
 		return l
 	}
-	l := rate.NewLimiter(rate.Limit(rl.cfg.rps), int(rl.cfg.burst))
+	l := rate.NewLimiter(rate.Limit(rl.cfg.Rps), int(rl.cfg.Burst))
 	rl.limiters[path] = l
 	return l
 }

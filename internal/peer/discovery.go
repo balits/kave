@@ -2,7 +2,6 @@ package peer
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"sort"
@@ -91,15 +90,16 @@ func parseRawPeers(s *string) (peers []Peer, err error) {
 
 	rawPeers := strings.SplitSeq(str, ",")
 	for s := range rawPeers {
-		parts := strings.SplitN(s, ":", 3)
-		if len(parts) != 3 {
-			return nil, fmt.Errorf("failed to parse peer %s (expected id:raft_port:http_port)", s)
+		parts := strings.SplitN(s, ":", 4)
+		if len(parts) != 4 {
+			return nil, fmt.Errorf("failed to parse peer %s (expected <id>:<hostname>:<raft_port>:<http_port>)", s)
 		}
 
 		n := Peer{
 			NodeID:   parts[0],
-			RaftPort: parts[1],
-			HttpPort: parts[2],
+			Hostname: parts[1], // static peer list should only be used localy or in tests, so this should be 127.0.0.1
+			RaftPort: parts[2],
+			HttpPort: parts[3],
 		}
 
 		if err := n.Check(); err != nil {
@@ -109,9 +109,9 @@ func parseRawPeers(s *string) (peers []Peer, err error) {
 	}
 
 	switch len(peers) {
-	case 1, 3, 5:
+	case 3, 5:
 	default:
-		return nil, fmt.Errorf("for optimal raft clusters, cluster size must be 1, 3 or 5, got %d", len(peers))
+		return nil, fmt.Errorf("for optimal raft clusters, cluster size must be 3 or 5, got %d", len(peers))
 	}
 
 	return
@@ -151,8 +151,10 @@ type dnsDiscovery struct {
 }
 
 func newDynamicDiscovery(me Peer, namespace string, httpPort string, expectedCount int) (*dnsDiscovery, error) {
-	if expectedCount < 1 {
-		return nil, errors.New("expected_count cannot be negative")
+	switch expectedCount {
+	case 3, 5:
+	default:
+		return nil, fmt.Errorf("for optimal raft clusters, cluster size must be 3 or 5, got %d", expectedCount)
 	}
 
 	if namespace == "" {

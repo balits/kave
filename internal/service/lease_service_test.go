@@ -32,7 +32,7 @@ func newTestLeaseService(t *testing.T) *testLeaseService {
 	t.Helper()
 	logger := slog.Default()
 	reg := metrics.InitTestPrometheus()
-	backend := backend.New(reg, storage.StorageOptions{
+	backend := backend.New(reg, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})
@@ -145,16 +145,19 @@ func Test_LeaseService_Revoke(t *testing.T) {
 	t.Parallel()
 	ls := newTestLeaseService(t)
 
-	resg := ls.mustGrant(0, 10)
+	resg := ls.mustGrant(1, 10)
+	require.Equal(t, int64(1), resg.LeaseID)
 	require.Equal(t, int64(10), resg.TTL)
 
 	resr := ls.mustRevoke(resg.LeaseID)
 	require.True(t, resr.Found)
 	require.True(t, resr.Revoked)
 
-	resr = ls.mustRevoke(resg.LeaseID)
-	require.False(t, resr.Found)
-	require.False(t, resr.Revoked)
+	res, err := ls.Revoke(ls.ctx, api.LeaseRevokeRequest{
+		LeaseID: resg.LeaseID,
+	})
+	require.Error(t, err, "expected lease not foudn")
+	require.Nil(t, res)
 
 	resg = ls.mustGrant(1, 1)
 	require.Equal(t, int64(1), resg.LeaseID)
@@ -190,6 +193,7 @@ func Test_LeaseService_Lookup(t *testing.T) {
 	require.Equal(t, resLookup.OriginalTTL, resGranted.TTL)
 	require.Equal(t, resLookup.RemainingTTL, resGranted.TTL)
 
-	_, err := ls.Lookup(ls.ctx, api.LeaseLookupRequest{LeaseID: 0})
-	require.Error(ls.t, err)
+	l, err := ls.Lookup(ls.ctx, api.LeaseLookupRequest{LeaseID: 0})
+	require.Error(t, err)
+	require.Nil(t, l)
 }

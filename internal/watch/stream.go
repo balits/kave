@@ -81,7 +81,7 @@ func (s *stream) Watch(ctx context.Context, req api.WatchCreateRequest) (res api
 		return
 	}
 
-	w, err := s.hub.NewWatcher(ctx, req.WatchID, req.StartRevision, req.Key, req.End, req.Filter, req.PrevEntry)
+	w, err := s.hub.NewWatcher(ctx, req)
 	if err != nil {
 		res.Error = err
 		s.logger.Info("failed to create watcher", "error", res.Error)

@@ -22,8 +22,7 @@ type SmartRevisionGetter interface {
 }
 
 type StoreMetaReader interface {
-	SmartRevisionGetter
-	RaftMeta() (logIndex, logTerm uint64)
+	Meta() (currentRev kv.Revision, compactedRev int64, logIndex, logTerm uint64)
 }
 
 type ReadOnlyStore interface {
@@ -67,6 +66,12 @@ func (s *KvStore) Revisions() (currentRev kv.Revision, compacted int64) {
 	s.revMu.RLock()
 	defer s.revMu.RUnlock()
 	return s.currentRev, s.compactedMainRev
+}
+
+func (s *KvStore) Meta() (currentRev kv.Revision, compactedRev int64, logIndex, logTerm uint64) {
+	s.revMu.RLock()
+	defer s.revMu.RUnlock()
+	return s.currentRev, s.compactedMainRev, s.applyIndex, s.raftTerm
 }
 
 // Writer acquires RLock so multiple writers can proceed concurrently
@@ -147,7 +152,16 @@ func (s *KvStore) Restore(r io.Reader) error {
 	if err != nil {
 		s.logger.Error("restore error: failed to get raft index", "error", err)
 	}
+	finishedCompactedRevBytes, err := rtx.UnsafeGet(schema.BucketMeta, schema.KeyFinishedCompactedRev)
+	if err != nil {
+		s.logger.Error("restore error: failed to get finished compacted rev", "error", err)
+	}
+	scheduledCompactedRevBytes, err := rtx.UnsafeGet(schema.BucketMeta, schema.KeyScheduledCompactedRev)
+	if err != nil {
+		s.logger.Error("restore error: failed to get schedueld compacted rev", "error", err)
+	}
 	rtx.RUnlock()
+
 	term, err := util.DecodeUint64(raftTermBytes)
 	if err != nil {
 		s.logger.Error("restore error: failed to decode raft term", "error", err)
@@ -155,6 +169,14 @@ func (s *KvStore) Restore(r io.Reader) error {
 	raftIndex, err := util.DecodeUint64(raftIndexBytes)
 	if err != nil {
 		s.logger.Error("restore error: failed to decode raft index", "error", err)
+	}
+	finishedCompactedRev, err := util.DecodeInt64(finishedCompactedRevBytes)
+	if err != nil {
+		s.logger.Error("restore error: failed to decode finished compacted rev", "error", err)
+	}
+	scheduledCompactedRev, err := util.DecodeInt64(scheduledCompactedRevBytes)
+	if err != nil {
+		s.logger.Error("restore error: failed to decode scheduled compacted rev", "error", err)
 	}
 
 	s.rwlock.Lock()
@@ -164,6 +186,12 @@ func (s *KvStore) Restore(r io.Reader) error {
 
 	s.revMu.Lock()
 	s.currentRev = lastRev
+	if scheduledCompactedRev > finishedCompactedRev {
+		s.compactedMainRev = scheduledCompactedRev
+	} else {
+		s.compactedMainRev = finishedCompactedRev
+	}
+
 	s.revMu.Unlock()
 
 	return nil
@@ -182,7 +210,7 @@ func (s *KvStore) Compact(rev int64) (<-chan struct{}, error) {
 	s.revMu.Lock()
 	defer s.revMu.Unlock() // lock rev for the whole compaction, so that no other gorutine could schedule a compaction
 	if rev < 0 {
-		return nil, fmt.Errorf("compaction error: compaction target revision must be  be negative")
+		return nil, fmt.Errorf("compaction error: compaction target revision cannot be negative")
 	} else if rev > s.currentRev.Main {
 		return nil, fmt.Errorf("compaction error: compaction target revision cannot be higher than current revision")
 	} else if rev <= s.compactedMainRev {
@@ -194,7 +222,7 @@ func (s *KvStore) Compact(rev int64) (<-chan struct{}, error) {
 		wtx := s.backend.WriteTx()
 		wtx.Lock()
 		revBytes := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: rev}, kv.NewRevBytes())
-		if err := wtx.UnsafePut(schema.BucketMeta, schema.KeyCompactionScheduled, revBytes); err != nil {
+		if err := wtx.UnsafePut(schema.BucketMeta, schema.KeyScheduledCompactedRev, revBytes); err != nil {
 			wtx.Unlock()
 			s.logger.Warn("compaction error: failed to persist compaction revisions", "error", err)
 			return nil, err
@@ -276,7 +304,7 @@ func (s *KvStore) doCompact(rev int64) {
 		if done {
 			// persist meta
 			revBytes := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: rev}, kv.NewRevBytes())
-			if err := wtx.UnsafePut(schema.BucketMeta, schema.KeyCompactionFinished, revBytes); err != nil {
+			if err := wtx.UnsafePut(schema.BucketMeta, schema.KeyFinishedCompactedRev, revBytes); err != nil {
 				s.logger.Error("compaction error: failed to persist KeyCompactionFinished to meta bucket", "error", err)
 			}
 		}

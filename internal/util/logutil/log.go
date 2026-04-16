@@ -7,8 +7,10 @@ import (
 	"io"
 	"log"
 	"log/slog"
+	"os"
 	"regexp"
 	"strings"
+	"testing"
 
 	"github.com/hashicorp/go-hclog"
 )
@@ -50,6 +52,22 @@ func (l LoggerLevel) ToSlogLevel() (out slog.Level) {
 	return // 0 -> info
 }
 
+func ToLogutilLevel(l slog.Level) (out LoggerLevel) {
+	switch l {
+	case slog.LevelDebug:
+		out = LevelDebug
+	case slog.LevelInfo:
+		out = LevelInfo
+	case slog.LevelWarn:
+		out = LevelWarn
+	case slog.LevelError:
+		out = LevelError
+	default:
+		out = LevelInfo
+	}
+	return
+}
+
 type LoggerKind string
 
 const (
@@ -83,6 +101,10 @@ func NewLogger(out io.Writer, opts Options) *slog.Logger {
 		handler = slog.NewTextHandler(NullWriter{}, handlerOpts)
 	}
 	return slog.New(handler)
+}
+
+func NewTestLogger(tb testing.TB, l slog.Level) *slog.Logger {
+	return NewLogger(os.Stdout, Options{Kind: LoggerKindText, Level: ToLogutilLevel(l)})
 }
 
 type NullWriter struct{}

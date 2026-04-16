@@ -37,6 +37,10 @@ func (ls *leaseSvc) Grant(ctx context.Context, req api.LeaseGrantRequest) (*api.
 			"ttl", req.TTL,
 		)
 
+	if req.LeaseID == 0 {
+		req.LeaseID = util.NextNonNullID()
+	}
+
 	result, err := ls.propse(ctx, command.Command{
 		Kind:       command.KindLeaseGrant,
 		LeaseGrant: &req,

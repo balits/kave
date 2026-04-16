@@ -20,10 +20,9 @@ type Result struct {
 
 	// =====  private, internal results =====
 
-	LeaseExpire          *ResultLeaseExpire
-	Compact              *ResultCompact
-	OtWriteAll           *ResultOTWriteAll
-	OtGenerateClusterKey *ResultOTGenerateClusterKey
+	LeaseExpire *ResultLeaseExpire
+	Compaction  *CompactionResult
+	OtWriteAll  *ResultOTWriteAll
 }
 
 // A ResultHeader minden eredmény közös metaadatait tartalmazza

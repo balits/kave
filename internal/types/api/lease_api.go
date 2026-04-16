@@ -33,6 +33,7 @@ type LeaseLookupRequest struct {
 }
 
 type LeaseLookupResponse struct {
+	// LeaseID can only be 0 if lease was not found
 	LeaseID      int64 `json:"id"`
 	OriginalTTL  int64 `json:"original_ttl"`
 	RemainingTTL int64 `json:"remaining_ttl"`

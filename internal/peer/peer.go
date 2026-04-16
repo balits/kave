@@ -15,6 +15,10 @@ type Peer struct {
 	HttpPort string `json:"http_port"` // http port of the node
 }
 
+func (p *Peer) String() string {
+	return fmt.Sprintf("%s:%s:%s:%s", p.NodeID, p.Hostname, p.RaftPort, p.HttpPort)
+}
+
 func (p *Peer) GetRaftAddress() raft.ServerAddress {
 	if p.Hostname == "" {
 		return raft.ServerAddress(p.NodeID + ":" + p.RaftPort)
@@ -57,8 +61,4 @@ func (p *Peer) Check() error {
 		return errors.New("http port is required")
 	}
 	return nil
-}
-
-func (p Peer) String() string {
-	return fmt.Sprintf("Peer{NodeID: %s, Hostname: %s, RaftPort: %s, HttpPort: %s}", p.NodeID, p.Hostname, p.RaftPort, p.HttpPort)
 }

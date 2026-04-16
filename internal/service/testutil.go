@@ -21,8 +21,11 @@ func (m *MockRaftService) RegisterPeers(_ []peer.Peer) error                    
 func (m *MockRaftService) Bootstrap(_ context.Context, _ peer.Peer) error                { return nil }
 func (m *MockRaftService) JoinCluster(_ context.Context, _ peer.Peer) error              { return nil }
 func (m *MockRaftService) AddToCluster(_ context.Context, _ transport.JoinRequest) error { return nil }
-func (m *MockRaftService) Leader() (peer.Peer, error)                                    { return m.Leader_, m.ErrLeader }
-func (m *MockRaftService) Stats() map[string]string                                      { return map[string]string{"state": "Leader"} }
-func (m *MockRaftService) RaftState() raft.RaftState                                     { return m.State_ }
-func (m *MockRaftService) VerifyLeader(_ context.Context) error                          { return m.ErrVerifyLeader }
-func (m *MockRaftService) LaggingBehind() error                                          { return m.ErrLag }
+func (m *MockRaftService) Leader(_ context.Context) (peer.Peer, error)                   { return m.Leader_, m.ErrLeader }
+func (m *MockRaftService) RaftConfiguration(_ context.Context) (c raft.Configuration, e error) {
+	return
+}
+func (m *MockRaftService) Stats() map[string]string             { return map[string]string{"state": "Leader"} }
+func (m *MockRaftService) RaftState() raft.RaftState            { return m.State_ }
+func (m *MockRaftService) VerifyLeader(_ context.Context) error { return m.ErrVerifyLeader }
+func (m *MockRaftService) LaggingBehind() error                 { return m.ErrLag }

@@ -3,6 +3,7 @@ package watch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/metrics"
 	"github.com/balits/kave/internal/mvcc"
+	"github.com/balits/kave/internal/types/api"
 	"github.com/balits/kave/internal/util"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -129,22 +131,53 @@ func (h *WatchHub) UnsyncedWatchesLen() int {
 // If the startRev is less than the current store revision,
 // the watch starts out in the unsynced group (see [UnsyncedLoop]).
 // Otherwise it is treaded as synced, and will recieve events on commit.
-func (h *WatchHub) NewWatcher(ctx context.Context, requestedID, startRev int64, key, end []byte, f *kv.EventFilter, prevEntry bool) (*watcher, error) {
+func (h *WatchHub) NewWatcher(ctx context.Context, req api.WatchCreateRequest) (*watcher, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	var id int64
-	if requestedID == 0 {
+	if req.WatchID == 0 {
 		id = util.NextNonNullID()
 	} else {
-		id = requestedID
+		id = req.WatchID
 	}
 
-	// todo: "synced" means watcher is caught up to its keys revision, not to the global revision
-	currentRev, _ := h.store.Revisions()
+	var key, end []byte
+	if req.Key == nil {
+		key = []byte{}
+	} else {
+		key = req.Key
+	}
+
+	end = req.End
+	if req.Prefix {
+		end = kv.PrefixEnd(req.Key)
+	}
+
+	// fix: "synced" means watcher is caught up to its keys revision, not to the global revision
+	var lastRevision int64
+	if end != nil {
+		// range or prefix watch, default to main rev,
+		// and unsynced loop will feed all needed events
+		r, _, _, _ := h.store.Meta()
+		lastRevision = r.Main
+		fmt.Println("last rev for range/prefix is store rev:", r.Main)
+	} else {
+		_, _, rev, err := h.store.NewReader().Range(req.Key, nil, 0, 0)
+		fmt.Println("last rev for single key:", rev)
+		if err != nil {
+			h.logger.Error("new watcher failed",
+				"error", ErrWatcherIDConflict.Error(),
+			)
+			return nil, err
+		}
+
+		lastRevision = rev
+	}
+
 	group := h.unsynced
 	synced := false
-	if startRev >= currentRev.Main {
+	if req.StartRevision >= lastRevision {
 		group = h.synced
 		synced = true
 	}
@@ -153,39 +186,34 @@ func (h *WatchHub) NewWatcher(ctx context.Context, requestedID, startRev int64, 
 		h.logger.Error("new watcher failed",
 			"error", ErrWatcherIDConflict.Error(),
 			"id", id,
-			"key", key,
-			"end", end,
-			"start_rev", startRev,
+			"key", req.Key,
+			"end", req.End,
+			"start_rev", req.StartRevision,
 			"up_to_date", synced,
 		)
 		return nil, ErrWatcherIDConflict
 	}
 
-	if key == nil {
-		key = []byte{}
-	}
-
 	derivedCtx, cancel := context.WithCancel(ctx)
-
 	w := &watcher{
 		id:         id,
-		startRev:   startRev,
-		currentRev: startRev,
+		startRev:   req.StartRevision,
+		currentRev: req.StartRevision,
 		keyStart:   key,
 		keyEnd:     end,
-		filter:     f,
+		filter:     req.Filter,
 		ctx:        derivedCtx,
 		cancel:     cancel,
-		prevEntry:  prevEntry,
+		prevEntry:  req.PrevEntry,
 		c:          make(chan kv.Event, watcherChannelBufferSize),
 	}
 	group[w.id] = w
 
 	h.logger.Info("new watcher",
 		"id", id,
-		"key", key,
-		"end", end,
-		"start_rev", startRev,
+		"key", req.Key,
+		"end", req.End,
+		"start_rev", req.StartRevision,
 		"up_to_date", synced,
 	)
 
@@ -203,7 +231,6 @@ type removal struct {
 // If an error happens while sending the events to a watcher, it is marked for demotion if its overloaded,
 // or deletion if another type of error occured.
 func (h *WatchHub) OnCommit(changes []*kv.Entry) {
-	// fmt.Println("CHANGES: ", changes)
 	events := kv.ToKvEvents(changes)
 	removals := make([]removal, 0)
 

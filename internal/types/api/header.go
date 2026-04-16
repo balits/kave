@@ -4,6 +4,8 @@ package api
 type ResponseHeader struct {
 	// Revision az írás végrehajtása utáni revíziót tartalmazza. Olvasás esetén ez a revízió, amin a lekérdezést kiszolgáltuk
 	Revision int64 `json:"revision"`
+	// Revision a legujtóbbi kompaktált revizió
+	CompactedRev int64 `json:"compacted_revision"`
 	// NodeID a végrahtó node azonosítója
 	NodeID string `json:"node_id"`
 	// RaftTerm a jelenlegi raft term

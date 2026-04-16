@@ -113,7 +113,7 @@ func Test_Stream_Watch_EventsFlowToOutput(t *testing.T) {
 
 	got := collectStreamEvents(t, ws, 1)
 	require.Equal(t, res.WatchID, got[0].Wid)
-	require.Equal(t, StreamWatchPut, got[0].Kind)
+	require.Equal(t, kv.EventPut, got[0].Event.Kind)
 
 	ev := got[0].Event
 	require.Equal(t, "foo", string(ev.Entry.Key))
@@ -130,7 +130,7 @@ func Test_Stream_Watch_DeleteEventFlowsToOutput(t *testing.T) {
 
 	got := collectStreamEvents(t, ws, 1)
 	require.Equal(t, res.WatchID, got[0].Wid)
-	require.Equal(t, StreamWatchDelete, got[0].Kind)
+	require.Equal(t, kv.EventDelete, got[0].Event.Kind)
 }
 
 func Test_Stream_Watch_MultipleEventsInOneCommit(t *testing.T) {
@@ -366,7 +366,7 @@ func Test_Stream_ToStreamEvent_PutMapping(t *testing.T) {
 	se := putEvent(42, kv.Event{Kind: kv.EventPut, Entry: putEntry("foo", "bar", 1)})
 
 	require.Equal(t, int64(42), se.Wid)
-	require.Equal(t, StreamWatchPut, se.Kind)
+	require.Equal(t, kv.EventPut, se.Event.Kind)
 
 	event := se.Event
 	require.Equal(t, "bar", string(event.Entry.Value))
@@ -376,7 +376,7 @@ func Test_Stream_ToStreamEvent_DeleteMapping(t *testing.T) {
 	se := deleteEvent(42, kv.Event{Kind: kv.EventDelete, Entry: testTombstoneEntry("foo", 3)})
 
 	require.Equal(t, int64(42), se.Wid)
-	require.Equal(t, StreamWatchDelete, se.Kind)
+	require.Equal(t, kv.EventDelete, se.Event.Kind)
 }
 
 func Test_Stream_RapidWatchCancel(t *testing.T) {

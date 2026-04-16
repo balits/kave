@@ -25,7 +25,7 @@ func lmWithClock(t *testing.T, c util.Clock) *LeaseManager {
 func newTestLm(t *testing.T) *LeaseManager {
 	logger := slog.Default()
 	reg := metrics.InitTestPrometheus()
-	backend := backend.New(reg, storage.StorageOptions{
+	backend := backend.New(reg, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})
@@ -47,7 +47,7 @@ func Test_LeaseManager_Grant(t *testing.T) {
 			ttl: 5,
 		},
 		{
-			id:  0,
+			id:  2,
 			ttl: 5,
 		},
 	}
@@ -58,7 +58,8 @@ func Test_LeaseManager_Grant(t *testing.T) {
 		require.Equal(t, test.ttl, l.TTL, "lease grant")
 		require.Equal(t, test.ttl, l.remainingTTL, "lease grant")
 
-		l2 := lm.Lookup(l.ID)
+		l2, err := lm.Lookup(l.ID)
+		require.NoError(t, err, "lease lookup")
 		require.Equal(t, l.ID, l2.ID, "after Lookup inmem")
 		require.Equal(t, l.TTL, l2.TTL, "after Lookup inmem")
 		t.Logf("new lease with ID: requested=%d, got=%d", test.id, l.ID)
@@ -71,10 +72,13 @@ func Test_LeaseManager_Grant(t *testing.T) {
 	_, err := lm.Grant(tests[0].id, tests[0].ttl)
 	require.Error(t, err, "lease grant: wanted error on id conflict")
 
-	_, err = lm.Grant(0, -5)
-	require.Error(t, err, "lease grant: wanted error on negative ttl")
+	_, err = lm.Grant(-1, -5)
+	require.ErrorIs(t, err, ErrLeaseInvalidTTL, "lease grant: wanted error on negative ttl")
 
-	l, err := lm.Grant(0, maxTTL+100)
+	_, err = lm.Grant(0, 2)
+	require.ErrorIs(t, err, ErrLeaseIdZero, "lease grant: wanted error on zero id")
+
+	l, err := lm.Grant(-2, maxTTL+100)
 	require.NoError(t, err, "lease grant")
 	require.Equal(t, maxTTL, l.TTL, "lease grant: wanted l.TTL to be maxTTL")
 }
@@ -85,12 +89,12 @@ func Test_LeaseManager_Revoke(t *testing.T) {
 
 	l, err := lm.Grant(1, 5)
 	require.NoError(t, err, "lease grant")
-	l2 := lm.Lookup(l.ID)
+	l2, _ := lm.Lookup(l.ID)
 	require.Equal(t, l.ID, l2.ID)
 	require.Equal(t, l.TTL, l2.TTL)
 
 	found, revoked, err := lm.Revoke(0)
-	require.NoError(t, err, "lease revoke: unexpected error")
+	require.ErrorIs(t, err, ErrLeaseNotFound, "lease revoke: expected lease not found error")
 	require.False(t, found, "lease revoke: expected false values after revoking non existent lease")
 	require.False(t, revoked, "lease revoke: expected false values after revoking non existent lease")
 
@@ -100,15 +104,16 @@ func Test_LeaseManager_Revoke(t *testing.T) {
 	require.True(t, revoked, "lease revoke: expected true values after revoking existing lease")
 	require.Nil(t, unsafeGetFromBackend(lm, l.ID), "lease revoke: expected nil from backend after revoking existing lease")
 
-	l3 := lm.Lookup(l.ID)
-	require.Nil(t, l3, "lease revoke: wanted nil on looking up revoked lease")
+	l3, err := lm.Lookup(l.ID)
+	require.Error(t, err, "lease lookup")
+	require.Nil(t, l3, "lease lookup: wanted nil on looking up revoked lease")
 }
 
 func Test_LeaseManager_KeepAlive(t *testing.T) {
 	t.Parallel()
 	lm := newTestLm(t)
 
-	l, err := lm.Grant(0, 5)
+	l, err := lm.Grant(1, 5)
 	require.NoError(t, err, "lease grant")
 	oldExpiry := l.expiry
 	time.After(time.Second * 2)
@@ -120,13 +125,13 @@ func Test_LeaseManager_KeepAlive(t *testing.T) {
 	require.GreaterOrEqual(t, rem, l.remainingTTL, "lease keep alive: remTTL shouldve updated")
 
 	_, err = lm.KeepAlive(-2)
-	require.Error(t, err, "lease keep alive: wanted error on lease not found")
+	require.ErrorIs(t, err, ErrLeaseNotFound, "lease keep alive: wanted error on lease not found")
 }
 
 func Test_LeaseManager_AttachKey(t *testing.T) {
 	t.Parallel()
 	lm := newTestLm(t)
-	l, err := lm.Grant(0, 5)
+	l, err := lm.Grant(1, 5)
 	require.NoError(t, err, "lease grant")
 
 	lm.AttachKey(l.ID, []byte("foo"))
@@ -138,7 +143,7 @@ func Test_LeaseManager_AttachKey(t *testing.T) {
 func Test_LeaseManager_DetachKey(t *testing.T) {
 	t.Parallel()
 	lm := newTestLm(t)
-	l, err := lm.Grant(0, 5)
+	l, err := lm.Grant(1, 5)
 	require.NoError(t, err, "lease grant")
 
 	lm.AttachKey(l.ID, []byte("foo"))
@@ -162,7 +167,10 @@ func Test_LeaseManager_Checkpoint(t *testing.T) {
 	require.Equal(t, 4, len(cs), "checkpoint")
 	for _, c := range cs {
 		t.Log(c.LeaseID, c.RemainingTTL)
-		require.Equal(t, c.RemainingTTL, lm.Lookup(c.LeaseID).remainingTTL, "wanted remaining ttl to be update")
+
+		l, err := lm.Lookup(c.LeaseID)
+		require.NoError(t, err, "lease lookup")
+		require.Equal(t, c.RemainingTTL, l.remainingTTL, "wanted remaining ttl to be update")
 	}
 
 	advancedSec := 5
@@ -178,7 +186,9 @@ func Test_LeaseManager_Checkpoint(t *testing.T) {
 	lm.ApplyCheckpoint(command.CmdLeaseCheckpoint{Checkpoints: cs})
 	for _, c := range cs {
 		t.Log(c.LeaseID, c.RemainingTTL)
-		require.Equal(t, c.RemainingTTL, lm.Lookup(c.LeaseID).remainingTTL, "wanted remaining ttl to be update")
+		l, err := lm.Lookup(c.LeaseID)
+		require.NoError(t, err, "lease lookup")
+		require.Equal(t, c.RemainingTTL, l.remainingTTL, "wanted remaining ttl to be update")
 	}
 
 	c.AdvanceSeconds(5)
@@ -233,7 +243,9 @@ func Test_LeaseManager_ApplyExpired(t *testing.T) {
 	require.Equal(t, len(ids), res.RemovedLeaseCount)
 
 	for _, id := range ids {
-		require.Nil(t, lm.Lookup(id), "expected lease to be deleted after ApplyExpired")
+		l, err := lm.Lookup(id)
+		require.Error(t, err, "lease lookup")
+		require.Nil(t, l, "expected lease to be deleted after ApplyExpired")
 	}
 }
 
@@ -248,7 +260,8 @@ func Test_Restore_BasicRoundTrip_NoKeys(t *testing.T) {
 	simulateRestart(t, lm)
 
 	for _, want := range []*Lease{l1, l2, l3} {
-		got := lm.Lookup(want.ID)
+		got, err := lm.Lookup(want.ID)
+		require.NoError(t, err, "lease lookup")
 		require.NotNil(t, got, "lease %d should exist after restore", want.ID)
 		require.Equal(t, want.TTL, got.TTL, "TTL should be preserved for lease %d", want.ID)
 		require.Greater(t, got.remainingTTL, int64(0), "remainingTTL should be positive for lease %d", want.ID)
@@ -302,7 +315,9 @@ func Test_LeaseManager_Restore_BasicRoundTrip_WithKeys(t *testing.T) {
 	lm.ApplyCheckpoint(command.CmdLeaseCheckpoint{Checkpoints: cs})
 	for _, c := range cs {
 		t.Log(c.LeaseID, c.RemainingTTL)
-		require.Equal(t, c.RemainingTTL, lm.Lookup(c.LeaseID).remainingTTL, "wanted remaining ttl to be update")
+		got, err := lm.Lookup(c.LeaseID)
+		require.NoError(t, err, "lease lookup")
+		require.Equal(t, c.RemainingTTL, got.remainingTTL, "wanted remaining ttl to be update")
 	}
 	ids := make([]int64, 0, 2)
 	for _, l := range lm.DrainExpiredLeases() {
@@ -312,19 +327,35 @@ func Test_LeaseManager_Restore_BasicRoundTrip_WithKeys(t *testing.T) {
 		ExpiredIDs: ids,
 	})
 	require.NoError(t, err, "apply expired")
-	require.NotNil(t, lm.Lookup(3), "lease3 shouldve survived restore (was kept alive)")
-	require.NotNil(t, lm.Lookup(4), "lease4 shouldve survived restore (ttl was larger than clock.Advance())")
+	got, err := lm.Lookup(3)
+	require.NoError(t, err, "lease lookup")
+	require.NotNil(t, got, "lease3 shouldve survived restore (was kept alive)")
+	got, err = lm.Lookup(4)
+	require.NoError(t, err, "lease lookup")
+	require.NotNil(t, got, "lease4 shouldve survived restore (ttl was larger than clock.Advance())")
 
 	simulateRestart(t, lm)
 
-	require.Nil(t, lm.Lookup(1), "lease1 shouldve been dropped while restoring")
-	require.Nil(t, lm.Lookup(2), "lease2 shouldve been dropped while restoring")
-	require.Equal(t, len(ids), res.RemovedLeaseCount, "two leases shouldve been expired")
-	require.NotNil(t, lm.Lookup(3), "lease3 shouldve survived restore (was kept alive)")
-	require.NotNil(t, lm.Lookup(4), "lease4 shouldve survived restore (ttl was larger than clock.Advance())")
+	got, err = lm.Lookup(1)
+	require.Error(t, err, "lease lookup")
+	require.Nil(t, got, "lease1 shouldve been dropped while restoring")
 
-	t.Log(lm.Lookup(3).keySet)
-	require.Equal(t, 2, len(lm.Lookup(3).keySet), "lease3 keyset should have 2 keys")
+	got, err = lm.Lookup(2)
+	require.Error(t, err, "lease lookup")
+	require.Nil(t, got, "lease2 shouldve been dropped while restoring")
+	require.Equal(t, len(ids), res.RemovedLeaseCount, "two leases shouldve been expired")
+
+	got, err = lm.Lookup(3)
+	require.NoError(t, err, "lease lookup")
+	require.NotNil(t, got, "lease3 shouldve survived restore (was kept alive)")
+
+	got, err = lm.Lookup(4)
+	require.NoError(t, err, "lease lookup")
+	require.NotNil(t, got, "lease4 shouldve survived restore (ttl was larger than clock.Advance())")
+
+	got, err = lm.Lookup(3)
+	require.NoError(t, err, "lease lookup")
+	require.Equal(t, 2, len(got.keySet), "lease3 keyset should have 2 keys")
 }
 
 func Test_LeaseManager_Restore_ExpiredLeaseIsNotRestored(t *testing.T) {
@@ -339,7 +370,9 @@ func Test_LeaseManager_Restore_ExpiredLeaseIsNotRestored(t *testing.T) {
 
 	simulateRestart(t, lm)
 
-	require.Nil(t, lm.Lookup(99))
+	got, err := lm.Lookup(99)
+	require.Error(t, err, "lease lookup")
+	require.Nil(t, got)
 }
 
 func Test_Restore_HeapOrderIsPreserved(t *testing.T) {
@@ -378,8 +411,9 @@ func Test_Restore_OrphanedKeyIsSkipped(t *testing.T) {
 		simulateRestart(t, lm)
 	}, "Restore should not panic on orphaned key")
 
-	require.Nil(t, lm.Lookup(nonExistentLeaseID),
-		"non-existent lease should not appear after restore")
+	got, err := lm.Lookup(nonExistentLeaseID)
+	require.Error(t, err, "lease lookup")
+	require.Nil(t, got, "non-existent lease should not appear after restore")
 }
 
 func Test_Restore_CorruptLeaseRecordIsSkipped(t *testing.T) {
@@ -400,9 +434,18 @@ func Test_Restore_CorruptLeaseRecordIsSkipped(t *testing.T) {
 	}
 
 	require.NoError(t, lm.Restore(), "restore should not fail on a single corrupt record")
-	require.NotNil(t, lm.Lookup(10), "lease10 shouldve survived")
-	require.NotNil(t, lm.Lookup(20), "lease20 should survive")
-	require.Nil(t, lm.Lookup(15), "corrupt record should return a valid lease")
+
+	got, err := lm.Lookup(10)
+	require.NoError(t, err, "lease lookup")
+	require.NotNil(t, got, "lease10 shouldve survived")
+
+	got, err = lm.Lookup(20)
+	require.NoError(t, err, "lease lookup")
+	require.NotNil(t, got, "lease20 should survive")
+
+	got, err = lm.Lookup(15)
+	require.Error(t, err, "lease lookup")
+	require.Nil(t, got, "corrupt record should return a valid lease")
 }
 
 func simulateRestart(t *testing.T, lm *LeaseManager) {

@@ -50,14 +50,13 @@ func (s *otSvc) Init(ctx context.Context, _ api.OTInitRequest) (*api.OTInitRespo
 		return nil, fmt.Errorf("init failed: %w", err)
 	}
 
-	raftIndex, raftTerm := s.store.RaftMeta()
-	currRev, _ := s.store.Revisions()
-
+	currRev, compactedRev, raftIndex, raftTerm := s.store.Meta()
 	header := api.ResponseHeader{
-		Revision:  currRev.Main,
-		RaftTerm:  raftTerm,
-		RaftIndex: raftIndex,
-		NodeID:    s.me.NodeID,
+		Revision:     currRev.Main,
+		CompactedRev: compactedRev,
+		RaftTerm:     raftTerm,
+		RaftIndex:    raftIndex,
+		NodeID:       s.me.NodeID,
 	}
 
 	res := api.OTInitResponseNoHeader{
@@ -87,14 +86,13 @@ func (s *otSvc) Transfer(ctx context.Context, req api.OTTransferRequest) (*api.O
 		return nil, fmt.Errorf("transfer failed: %w", err)
 	}
 
-	raftIndex, raftTerm := s.store.RaftMeta()
-	currRev, _ := s.store.Revisions()
-
+	currRev, compactedRev, raftIndex, raftTerm := s.store.Meta()
 	header := api.ResponseHeader{
-		Revision:  currRev.Main,
-		RaftTerm:  raftTerm,
-		RaftIndex: raftIndex,
-		NodeID:    s.me.NodeID,
+		Revision:     currRev.Main,
+		CompactedRev: compactedRev,
+		RaftTerm:     raftTerm,
+		RaftIndex:    raftIndex,
+		NodeID:       s.me.NodeID,
 	}
 
 	res := api.OTTransferResponseNoHeader{

@@ -78,7 +78,7 @@ func Test_ComparisonEvalEqual(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorEqual,
-				TargetField: FieldCreate,
+				TargetField: FieldCreateRev,
 				TargetValue: CompareTargetUnion{
 					CreateRevision: 100,
 				},
@@ -280,7 +280,7 @@ func Test_ComparisonEvalGreaterThan(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorGreaterThan,
-				TargetField: FieldCreate,
+				TargetField: FieldCreateRev,
 				TargetValue: CompareTargetUnion{
 					CreateRevision: 100,
 				},
@@ -468,7 +468,7 @@ func Test_ComparisonEvalLessThan(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorLessThan,
-				TargetField: FieldCreate,
+				TargetField: FieldCreateRev,
 				TargetValue: CompareTargetUnion{
 					CreateRevision: 150,
 				},
@@ -617,7 +617,7 @@ func Test_MatchZeroValue(t *testing.T) {
 			comparison: Comparison{
 				Key:         []byte("test_key"),
 				Operator:    OperatorEqual,
-				TargetField: FieldCreate,
+				TargetField: FieldCreateRev,
 				TargetValue: CompareTargetUnion{
 					CreateRevision: 0,
 				},
@@ -682,7 +682,7 @@ func Test_ComparisonOperatorConstants(t *testing.T) {
 func Test_CompareTargetFieldConstants(t *testing.T) {
 	targets := []CompareTargetField{
 		FieldValue,
-		FieldCreate,
+		FieldCreateRev,
 		FieldMod,
 		FieldVersion,
 	}

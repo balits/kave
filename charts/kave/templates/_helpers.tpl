@@ -18,5 +18,4 @@
 {{- define "kave.labels" -}}
 helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 app.kubernetes.io/name: {{ include "kave.name" . }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}

@@ -15,7 +15,7 @@ import (
 func newTestOTManager(t *testing.T, opts *Options) *OTManager {
 	t.Helper()
 	reg := metrics.InitTestPrometheus()
-	backend := backend.New(reg, storage.StorageOptions{
+	backend := backend.New(reg, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: []storage.Bucket{schema.BucketOT},
 	})
@@ -34,19 +34,14 @@ func newTestOTManager(t *testing.T, opts *Options) *OTManager {
 		panic(err)
 	}
 
-	res, err := om.ApplyGenerateClusterKey()
-	require.NoError(t, err)
-	require.NotNil(t, res)
-	require.Len(t, res.Key, ClusterKeySize, "key length = %d, want %d", len(res.Key), ClusterKeySize)
-
-	err = om.InitTokenCodec()
+	err = om.ApplyGenerateClusterKey()
 	require.NoError(t, err)
 	return om
 }
 
 func mustWriteBlob(t *testing.T, om *OTManager) []byte {
 	t.Helper()
-	blob := FakeBlob(t, om)
+	blob := FakeBlob(t, om.opts)
 	_, err := om.ApplyWriteAll(command.CmdOTWriteAll{Blob: blob})
 	require.NoError(t, err)
 	return blob
@@ -60,7 +55,7 @@ func Test_OTManager_GenerateClusterKey(t *testing.T) {
 func Test_OTManager_GenerateClusterKey_OnlyOne(t *testing.T) {
 	t.Parallel()
 	om := newTestOTManager(t, nil)
-	_, err := om.ApplyGenerateClusterKey()
+	err := om.ApplyGenerateClusterKey()
 	require.Error(t, err, "generating cluster key twice should fail")
 }
 
@@ -141,14 +136,14 @@ func Test_OTManager_CheckBlob_WrongSize(t *testing.T) {
 func Test_OTManager_CheckBlob_Valid(t *testing.T) {
 	t.Parallel()
 	om := newTestOTManager(t, nil)
-	blob := FakeBlob(t, om)
+	blob := FakeBlob(t, om.opts)
 	require.NoError(t, om.CheckBlob(blob))
 }
 
 func Test_OTManager_ApplyWriteAll(t *testing.T) {
 	t.Parallel()
 	om := newTestOTManager(t, nil)
-	blob := FakeBlob(t, om)
+	blob := FakeBlob(t, om.opts)
 	_, err := om.ApplyWriteAll(command.CmdOTWriteAll{Blob: blob})
 	require.NoError(t, err)
 }
@@ -167,7 +162,7 @@ func Test_OTManager_ApplyWriteAll_RejectsInvalidBlob(t *testing.T) {
 func Test_OTManager_BlobToSlots_AllSlotsPresent(t *testing.T) {
 	t.Parallel()
 	om := newTestOTManager(t, nil)
-	blob := FakeBlob(t, om)
+	blob := FakeBlob(t, om.opts)
 
 	slots, err := om.blobToSlots(blob)
 	require.NoError(t, err)
@@ -190,7 +185,7 @@ func Test_OTManager_E2E_ChosenSlotDecrypts(t *testing.T) {
 
 	// 1 idx -> 2. elem
 	choiceIdx := 1
-	pointB, scalarB := cl.Choose(pointA, choiceIdx)
+	pointB, scalarB := cl.BlindedChoice(pointA, choiceIdx)
 
 	ciphertexts, err := om.Transfer(token, pointB)
 	require.NoError(t, err)
@@ -211,7 +206,7 @@ func Test_OTManager_EndToEnd_NonChosenSlotsFail(t *testing.T) {
 	require.NoError(t, err)
 
 	choice := 0
-	pointB, scalarB := cl.Choose(pointA, choice)
+	pointB, scalarB := cl.BlindedChoice(pointA, choice)
 
 	ciphertexts, err := om.Transfer(token, pointB)
 	require.NoError(t, err)
@@ -235,7 +230,7 @@ func Test_OTManager_EndToEnd_AllChoicesWork(t *testing.T) {
 		pointA, token, err := om.Init()
 		require.NoError(t, err)
 
-		pointB, scalarB := cl.Choose(pointA, choice)
+		pointB, scalarB := cl.BlindedChoice(pointA, choice)
 		ciphertexts, err := om.Transfer(token, pointB)
 		require.NoError(t, err)
 
@@ -258,7 +253,7 @@ func Test_OTManager_EndToEnd_FirstAndLastSlot(t *testing.T) {
 		pointA, token, err := om.Init()
 		require.NoError(t, err)
 
-		pointB, scalarB := cl.Choose(pointA, choice)
+		pointB, scalarB := cl.BlindedChoice(pointA, choice)
 		ciphertexts, err := om.Transfer(token, pointB)
 		require.NoError(t, err)
 

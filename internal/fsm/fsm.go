@@ -33,6 +33,7 @@ type Fsm struct {
 	logger         *slog.Logger
 }
 
+// NewWithEngine creates an fsm with the supplied engine
 func NewWithEngine(logger *slog.Logger, me peer.Peer, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager, engine *mvcc.Engine) *Fsm {
 	f := &Fsm{
 		me:     me,
@@ -45,6 +46,7 @@ func NewWithEngine(logger *slog.Logger, me peer.Peer, store *mvcc.KvStore, lm *l
 	return f
 }
 
+// New creates an fsm with a newly created engine
 func New(logger *slog.Logger, me peer.Peer, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager) *Fsm {
 	return NewWithEngine(logger, me, store, lm, om, mvcc.NewEngine(store, lm))
 }
@@ -85,9 +87,9 @@ func (f *Fsm) Apply(log *raft.Log) interface{} {
 	switch cmd.Kind {
 	case command.KindPut, command.KindDelete, command.KindTxn:
 		res = f.applyKv(cmd)
-	case command.KindLeaseGrant, command.KindLeaseRevoke, command.KindLeaseKeepAlive, command.KindLeaseLookup, command.KindLeaseCheckpoint:
+	case command.KindLeaseGrant, command.KindLeaseRevoke, command.KindLeaseKeepAlive, command.KindLeaseLookup, command.KindLeaseCheckpoint, command.KindLeaseExpire:
 		res = f.applyLease(cmd)
-	case command.KindCompact:
+	case command.KindCompaction:
 		res = f.applyCompaction(cmd)
 	case command.KindOTWriteAll, command.KindOTGenerateClusterKey:
 		res = f.applyOT(cmd)
@@ -126,12 +128,6 @@ func (f *Fsm) applyKv(cmd command.Command) command.Result {
 }
 
 func (f *Fsm) applyLease(cmd command.Command) (res command.Result) {
-	switch cmd.Kind {
-	case command.KindLeaseGrant, command.KindLeaseRevoke, command.KindLeaseKeepAlive, command.KindLeaseLookup, command.KindLeaseCheckpoint:
-	default:
-		panic(fmt.Sprintf("applyLease called with non-lease command: %s", cmd.Kind))
-	}
-
 	var err error
 	switch cmd.Kind {
 	case command.KindLeaseGrant:
@@ -165,15 +161,14 @@ func (f *Fsm) applyLease(cmd command.Command) (res command.Result) {
 		}
 
 	case command.KindLeaseLookup:
-		l := f.lm.Lookup(cmd.LeaseLookup.LeaseID)
-		if l != nil {
+		var l *lease.Lease
+		l, err = f.lm.Lookup(cmd.LeaseLookup.LeaseID)
+		if err == nil {
 			res.LeaseLookup = &command.ResultLeaseLookup{
 				LeaseID:      l.ID,
 				OriginalTTL:  l.TTL,
 				RemainingTTL: l.RemainingTTL(),
 			}
-		} else {
-			err = lease.ErrLeaseNotFound
 		}
 
 	case command.KindLeaseCheckpoint:
@@ -186,9 +181,6 @@ func (f *Fsm) applyLease(cmd command.Command) (res command.Result) {
 			res.LeaseExpire = subres
 		}
 
-	case "":
-		panic("Command Kind not specified")
-
 	default:
 		panic(fmt.Sprintf("Unsupported lease command type: %v", cmd.Kind))
 	}
@@ -200,13 +192,13 @@ func (f *Fsm) applyLease(cmd command.Command) (res command.Result) {
 }
 
 func (f *Fsm) applyCompaction(cmd command.Command) command.Result {
-	if cmd.Kind != command.KindCompact {
+	if cmd.Kind != command.KindCompaction {
 		panic(fmt.Sprintf("applyCompaction called with non-compaction command: %s", cmd.Kind))
 	}
 
-	doneC, err := f.store.Compact(cmd.Compact.TargetRev)
+	doneC, err := f.store.Compact(cmd.Compaction.TargetRev)
 	return command.Result{
-		Compact: &command.ResultCompact{
+		Compaction: &command.CompactionResult{
 			DoneC: doneC,
 			Error: err,
 		},
@@ -214,26 +206,18 @@ func (f *Fsm) applyCompaction(cmd command.Command) command.Result {
 }
 
 func (f *Fsm) applyOT(cmd command.Command) (res command.Result) {
-	switch cmd.Kind {
-	case command.KindOTGenerateClusterKey, command.KindOTWriteAll:
-	default:
-		panic(fmt.Sprintf("applyOT called with non-OT command: %s", cmd.Kind))
-	}
-
 	var err error
 	switch cmd.Kind {
 	case command.KindOTGenerateClusterKey:
-		var sub *command.ResultOTGenerateClusterKey
-		sub, err = f.om.ApplyGenerateClusterKey()
-		if err == nil {
-			res.OtGenerateClusterKey = sub
-		}
+		err = f.om.ApplyGenerateClusterKey()
 	case command.KindOTWriteAll:
 		var sub *command.ResultOTWriteAll
 		sub, err = f.om.ApplyWriteAll(*cmd.OTWriteAll)
 		if err == nil {
 			res.OtWriteAll = sub
 		}
+	default:
+		panic(fmt.Sprintf("applyOT called with non-OT command: %s", cmd.Kind))
 	}
 
 	if err != nil {
@@ -250,9 +234,14 @@ func (f *Fsm) Snapshot() (raft.FSMSnapshot, error) {
 // Restore can be slower, it will never run concurrently with Apply.
 // Also, no metrics should be replayed during restoration!
 func (f *Fsm) Restore(snapshot io.ReadCloser) error {
-	err := f.store.Restore(snapshot)
-	if err != nil {
+	if err := f.store.Restore(snapshot); err != nil {
 		return err
 	}
-	return f.lm.Restore()
+	if err := f.lm.Restore(); err != nil {
+		return err
+	}
+	if err := f.om.Restore(); err != nil {
+		return err
+	}
+	return nil
 }

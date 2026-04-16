@@ -24,26 +24,28 @@ type Command struct {
 
 	// =====  private, internal commands =====
 
-	LeaseCheckpoint      *CmdLeaseCheckpoint
-	LeaseExpired         *CmdLeaseExpire
-	Compact              *CompactCmd
-	OTWriteAll           *CmdOTWriteAll
-	OTGenerateClusterKey *CmdOTGenerateClusterKey
+	LeaseCheckpoint *CmdLeaseCheckpoint
+	LeaseExpired    *CmdLeaseExpire
+	Compaction      *CompactionCmd
+	OTWriteAll      *CmdOTWriteAll
 }
 
 type CmdKind string
 
 const (
-	KindPut                  CmdKind = "KV_PUT"
-	KindDelete               CmdKind = "KV_DEL"
-	KindTxn                  CmdKind = "KV_TXN"
-	KindLeaseGrant           CmdKind = "LEASE_GRANT"
-	KindLeaseRevoke          CmdKind = "LEASE_REVOKE"
-	KindLeaseKeepAlive       CmdKind = "LEASE_KEEP_ALIVE"
-	KindLeaseLookup          CmdKind = "LEASE_LOOKUP"
-	KindLeaseCheckpoint      CmdKind = "LEASE_CHECKPOINT"
-	KindLeaseExpire          CmdKind = "LEASE_EXPIRE"
-	KindCompact              CmdKind = "INTERNAL_COMPACT"
+	KindPut    CmdKind = "KV_PUT"
+	KindDelete CmdKind = "KV_DEL"
+	KindTxn    CmdKind = "KV_TXN"
+
+	KindLeaseGrant      CmdKind = "LEASE_GRANT"
+	KindLeaseRevoke     CmdKind = "LEASE_REVOKE"
+	KindLeaseKeepAlive  CmdKind = "LEASE_KEEP_ALIVE"
+	KindLeaseLookup     CmdKind = "LEASE_LOOKUP"
+	KindLeaseCheckpoint CmdKind = "LEASE_CHECKPOINT"
+	KindLeaseExpire     CmdKind = "LEASE_EXPIRE"
+
+	KindCompaction CmdKind = "COMPACTION"
+
 	KindOTWriteAll           CmdKind = "OT_WRITE_ALL"
 	KindOTGenerateClusterKey CmdKind = "OT_GENERATE_CLUSTER_KEY"
 )

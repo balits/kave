@@ -57,7 +57,8 @@ func Test_ExpiryLoop_Run(t *testing.T) {
 	ex, resultC := newTestExpiryLoop(t, lm, ft, true)
 	loop(t, ex)
 
-	l1, _ := lm.Grant(0, 10)
+	l1, err := lm.Grant(1, 10)
+	require.NoError(t, err, "lease grant")
 	fc.AdvanceSeconds(11)
 	ft.FakeTick()
 
@@ -66,7 +67,9 @@ func Test_ExpiryLoop_Run(t *testing.T) {
 		t.Fatal("apply result timed out after 500ms")
 	case res := <-resultC:
 		require.Equal(t, 1, res.RemovedLeaseCount, "expected expiry loop to remove lease")
-		require.Nil(t, lm.Lookup(l1.ID), "expected backend to no longer contain revoked lease")
+		got, err := lm.Lookup(l1.ID)
+		require.Error(t, err)
+		require.Nil(t, got, "expected backend to no longer contain revoked lease")
 	}
 
 	fc.AdvanceSeconds(1)
@@ -88,7 +91,8 @@ func Test_ExpiryLoop_StartAsNonLeader_NoProposals(t *testing.T) {
 	ex, resultC := newTestExpiryLoop(t, lm, ft, false)
 	loop(t, ex)
 
-	lm.Grant(0, 10)
+	_, err := lm.Grant(1, 10)
+	require.NoError(t, err, "lease grant")
 	fc.AdvanceSeconds(11)
 
 	select {
@@ -108,14 +112,17 @@ func Test_ExpiryLoop_LosesLeadership_StopsProposing(t *testing.T) {
 	loop(t, ex)
 
 	// as leader, tick
-	l1, _ := lm.Grant(0, 10)
+	l1, err := lm.Grant(1, 10)
+	require.NoError(t, err, "lease grant")
 	fc.AdvanceSeconds(11)
 	ft.FakeTick()
 
 	select {
 	case res := <-resultC:
 		require.Equal(t, 1, res.RemovedLeaseCount, "expected revoke to succeed as leader")
-		require.Nil(t, lm.Lookup(l1.ID))
+		got, err := lm.Lookup(l1.ID)
+		require.Error(t, err)
+		require.Nil(t, got)
 	case <-time.After(50 * time.Millisecond):
 		t.Errorf("timed out waiting for revoke as leader")
 	}
@@ -123,7 +130,8 @@ func Test_ExpiryLoop_LosesLeadership_StopsProposing(t *testing.T) {
 	ex.OnLeadershipLost()
 	time.Sleep(50 * time.Millisecond)
 
-	l2, _ := lm.Grant(0, 10)
+	l2, err := lm.Grant(2, 10)
+	require.NoError(t, err, "lease grant")
 	fc.AdvanceSeconds(11)
 	go func() {
 		defer func() {
@@ -138,7 +146,10 @@ func Test_ExpiryLoop_LosesLeadership_StopsProposing(t *testing.T) {
 		t.Errorf("expected no revoke after losing leadership")
 	case <-time.After(50 * time.Millisecond):
 	}
-	require.NotNil(t, lm.Lookup(l2.ID), "expected lease to still live as no revoke shouldve been called as non leader")
+
+	got, err := lm.Lookup(l2.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got, "expected lease to still live as no revoke shouldve been called as non leader")
 }
 
 func Test_ExpiryLoop_RegainsLeadership_ResumesProposing(t *testing.T) {
@@ -156,14 +167,17 @@ func Test_ExpiryLoop_RegainsLeadership_ResumesProposing(t *testing.T) {
 	ex.OnLeadershipGranted()
 	time.Sleep(20 * time.Millisecond)
 
-	l, _ := lm.Grant(0, 10)
+	l, err := lm.Grant(1, 10)
+	require.NoError(t, err, "lease grant")
 	fc.AdvanceSeconds(11)
 	ft.FakeTick()
 
 	select {
 	case res := <-resultC:
 		require.Equal(t, 1, res.RemovedLeaseCount, "expected revoke after regaining leadership")
-		require.Nil(t, lm.Lookup(l.ID))
+		got, err := lm.Lookup(l.ID)
+		require.Error(t, err)
+		require.Nil(t, got)
 	case <-time.After(50 * time.Millisecond):
 		t.Fatal("timed out waiting for revoke after regaining leadership")
 	}
@@ -179,15 +193,14 @@ func Test_ExpiryLoop_NoExpiredLeases(t *testing.T) {
 	ex, resultC := newTestExpiryLoop(t, lm, ft, true)
 	loop(t, ex)
 
-	lm.Grant(0, 3600)
+	_, err := lm.Grant(1, 3600)
+	require.NoError(t, err, "lease grant")
 	ft.FakeTick()
 
 	select {
-	case res := <-resultC:
-		require.Equal(t, 0, res.RemovedLeaseCount)
-		require.Equal(t, 0, res.RemovedKeyCount)
+	case <-resultC:
+		t.Fatal("0 expired leases should not result in a proposal to the fsm")
 	case <-time.After(50 * time.Millisecond):
-		t.Fatal("expected empty proposal")
 	}
 }
 
@@ -199,9 +212,12 @@ func Test_ExpiryLoop_MultipleLeases_OnlyExpiredProposed(t *testing.T) {
 	ex, resultC := newTestExpiryLoop(t, lm, ft, true)
 	loop(t, ex)
 
-	expired1, _ := lm.Grant(0, 5)
-	expired2, _ := lm.Grant(0, 8)
-	live, _ := lm.Grant(0, 3600)
+	expired1, err := lm.Grant(1, 5)
+	require.NoError(t, err, "lease grant")
+	expired2, err := lm.Grant(2, 8)
+	require.NoError(t, err, "lease grant")
+	live, err := lm.Grant(3, 3600)
+	require.NoError(t, err, "lease grant")
 
 	fc.AdvanceSeconds(10)
 	ft.FakeTick()
@@ -212,9 +228,17 @@ func Test_ExpiryLoop_MultipleLeases_OnlyExpiredProposed(t *testing.T) {
 	case <-resultC:
 	}
 
-	require.Nil(t, lm.Lookup(expired1.ID), "expired1 should be revoked")
-	require.Nil(t, lm.Lookup(expired2.ID), "expired2 should be revoked")
-	require.NotNil(t, lm.Lookup(live.ID), "live lease must not be revoked")
+	got, err := lm.Lookup(expired1.ID)
+	require.Error(t, err)
+	require.Nil(t, got, "expired1 should be revoked")
+
+	got, err = lm.Lookup(expired2.ID)
+	require.Error(t, err)
+	require.Nil(t, got, "expired2 should be revoked")
+
+	got, err = lm.Lookup(live.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got, "live lease must not be revoked")
 
 	select {
 	case res := <-resultC:
@@ -233,11 +257,12 @@ func Test_ExpiryLoop_KeepAlive_PreventsExpiry(t *testing.T) {
 	ex, resultC := newTestExpiryLoop(t, lm, ft, true)
 	loop(t, ex)
 
-	l, _ := lm.Grant(0, 10)
+	l, err := lm.Grant(1, 10)
+	require.NoError(t, err, "lease grant")
 
 	fc.AdvanceSeconds(9)
-	_, err := lm.KeepAlive(l.ID)
-	require.NoError(t, err)
+	_, err = lm.KeepAlive(l.ID)
+	require.NoError(t, err, "lease lookup")
 
 	fc.AdvanceSeconds(5) // past original TTL, keepalive reset it
 	ft.FakeTick()
@@ -245,7 +270,9 @@ func Test_ExpiryLoop_KeepAlive_PreventsExpiry(t *testing.T) {
 	select {
 	case res := <-resultC:
 		require.Equal(t, 0, res.RemovedLeaseCount)
-		require.NotNil(t, lm.Lookup(l.ID))
+		got, err := lm.Lookup(l.ID)
+		require.NoError(t, err)
+		require.NotNil(t, got)
 	case <-time.After(50 * time.Millisecond):
 	}
 }
@@ -260,7 +287,8 @@ func Test_ExpiryLoop_ExpiredLease_ProposedOnlyOnce(t *testing.T) {
 	ex, resultC := newTestExpiryLoop(t, lm, ft, true)
 	loop(t, ex)
 
-	l, _ := lm.Grant(0, 10)
+	l, err := lm.Grant(1, 10)
+	require.NoError(t, err, "lease grant")
 	fc.AdvanceSeconds(11)
 
 	ft.FakeTick()
@@ -269,15 +297,16 @@ func Test_ExpiryLoop_ExpiredLease_ProposedOnlyOnce(t *testing.T) {
 		t.Fatal("timed out waiting for first tick")
 	case res := <-resultC:
 		require.Equal(t, 1, res.RemovedLeaseCount)
-		require.Nil(t, lm.Lookup(l.ID))
+		got, err := lm.Lookup(l.ID)
+		require.Error(t, err)
+		require.Nil(t, got)
 	}
 
 	ft.FakeTick()
 	select {
-	case res := <-resultC:
-		require.Equal(t, 0, res.RemovedLeaseCount)
+	case <-resultC:
+		t.Fatal("second tick has no expired leases, still proposed")
 	case <-time.After(50 * time.Millisecond):
-		t.Fatal("timed out waiting for second tick")
 	}
 }
 
@@ -291,8 +320,10 @@ func Test_ExpiryLoop_ExpiryAcrossTwoTicks(t *testing.T) {
 	ex, resultC := newTestExpiryLoop(t, lm, ft, true)
 	loop(t, ex)
 
-	l1, _ := lm.Grant(0, 5)
-	l2, _ := lm.Grant(0, 15)
+	l1, err := lm.Grant(1, 5)
+	require.NoError(t, err, "lease grant")
+	l2, err := lm.Grant(2, 15)
+	require.NoError(t, err, "lease grant")
 
 	fc.AdvanceSeconds(6)
 	ft.FakeTick()
@@ -300,8 +331,13 @@ func Test_ExpiryLoop_ExpiryAcrossTwoTicks(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 		t.Fatal("timed out waiting for l1 revoke")
 	case <-resultC:
-		require.Nil(t, lm.Lookup(l1.ID), "l1 should be revoked on first tick")
-		require.NotNil(t, lm.Lookup(l2.ID), "l2 should still be alive after first tick")
+		got, err := lm.Lookup(l1.ID)
+		require.Error(t, err)
+		require.Nil(t, got, "l1 should be revoked on first tick")
+
+		got, err = lm.Lookup(l2.ID)
+		require.NoError(t, err)
+		require.NotNil(t, got, "l2 should still be alive after first tick")
 	}
 
 	fc.AdvanceSeconds(10)
@@ -310,7 +346,9 @@ func Test_ExpiryLoop_ExpiryAcrossTwoTicks(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 		t.Fatal("timed out waiting for l2 revoke")
 	case <-resultC:
-		require.Nil(t, lm.Lookup(l2.ID), "l2 should be revoked on second tick")
+		got, err := lm.Lookup(l2.ID)
+		require.Error(t, err)
+		require.Nil(t, got, "l2 should be revoked on second tick")
 	}
 }
 
@@ -328,10 +366,9 @@ func Test_ExpiryLoop_EmptyManager_NoProposals(t *testing.T) {
 	ft.FakeTick()
 
 	select {
-	case res := <-resultC:
-		require.Equal(t, 0, res.RemovedLeaseCount)
+	case <-resultC:
+		t.Errorf("empty manager still got proposal after no lease couldve expired")
 	case <-time.After(50 * time.Millisecond):
-		t.Errorf("timed out waiting for proposal")
 	}
 }
 

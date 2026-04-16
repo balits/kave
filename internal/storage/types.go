@@ -46,7 +46,7 @@ const (
 	StorageKindBoltdb StorageKind = "boltdb"
 )
 
-type StorageOptions struct {
+type Options struct {
 	// A mappa, ahol megnyílik majd az adatbázis, inmem tárolónál figyelmen kívül van hagyva
 	Dir string `json:"data_dir"`
 
@@ -58,7 +58,7 @@ type StorageOptions struct {
 	InitialBuckets []Bucket
 }
 
-func (o *StorageOptions) Check() error {
+func (o *Options) Check() error {
 	if o.Dir == "" {
 		return errors.New("data dir is required")
 	}

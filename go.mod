@@ -14,7 +14,6 @@ require (
 	go.etcd.io/bbolt v1.4.3
 	golang.org/x/sync v0.19.0
 	golang.org/x/time v0.15.0
-	github.com/coder/websocket v1.8.14
 )
 
 require (
@@ -33,6 +32,7 @@ require (
 	github.com/mattn/go-colorable v0.1.12 // indirect
 	github.com/mattn/go-isatty v0.0.14 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/neilotoole/slogt v1.1.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.66.1 // indirect

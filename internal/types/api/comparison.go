@@ -26,7 +26,7 @@ func (c *Comparison) Check() error {
 		return fmt.Errorf("invalid comparison operator: %s", c.Operator)
 	}
 	switch c.TargetField {
-	case FieldValue, FieldCreate, FieldMod, FieldVersion:
+	case FieldValue, FieldCreateRev, FieldMod, FieldVersion:
 		// ok
 	default:
 		return fmt.Errorf("invalid comparison target field: %s", c.TargetField)
@@ -44,7 +44,7 @@ func (c *Comparison) Eval(target *kv.Entry) (result bool) {
 	switch c.TargetField {
 	case FieldVersion:
 		t = CompareTargetUnion{Version: target.Version}
-	case FieldCreate:
+	case FieldCreateRev:
 		t = CompareTargetUnion{CreateRevision: target.CreateRev}
 	case FieldMod:
 		t = CompareTargetUnion{ModRevision: target.ModRev}
@@ -69,10 +69,10 @@ const (
 type CompareTargetField string
 
 const (
-	FieldValue   CompareTargetField = "VALUE"
-	FieldCreate  CompareTargetField = "CREATE"
-	FieldMod     CompareTargetField = "MOD"
-	FieldVersion CompareTargetField = "VERSION"
+	FieldValue     CompareTargetField = "VALUE"
+	FieldCreateRev CompareTargetField = "CREATE"
+	FieldMod       CompareTargetField = "MOD"
+	FieldVersion   CompareTargetField = "VERSION"
 )
 
 type CompareTargetUnion struct {
@@ -106,7 +106,7 @@ func eq(target CompareTargetField, a, b CompareTargetUnion) bool {
 	switch target {
 	case FieldValue:
 		return bytes.Equal(a.Value, b.Value)
-	case FieldCreate:
+	case FieldCreateRev:
 		return a.CreateRevision == b.CreateRevision
 	case FieldMod:
 		return a.ModRevision == b.ModRevision
@@ -122,7 +122,7 @@ func gt(target CompareTargetField, a, b CompareTargetUnion) bool {
 	switch target {
 	case FieldValue:
 		return bytes.Compare(a.Value, b.Value) > 0
-	case FieldCreate:
+	case FieldCreateRev:
 		return a.CreateRevision > b.CreateRevision
 	case FieldMod:
 		return a.ModRevision > b.ModRevision
@@ -138,7 +138,7 @@ func lt(target CompareTargetField, a, b CompareTargetUnion) bool {
 	switch target {
 	case FieldValue:
 		return bytes.Compare(a.Value, b.Value) < 0
-	case FieldCreate:
+	case FieldCreateRev:
 		return a.CreateRevision < b.CreateRevision
 	case FieldMod:
 		return a.ModRevision < b.ModRevision

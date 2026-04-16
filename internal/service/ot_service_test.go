@@ -31,11 +31,10 @@ type testOTService struct {
 }
 
 func newTestOTService(t *testing.T) (*testOTService, ot.MockOTClient) {
-	t.Helper()
 	logger := slog.Default()
 	me := peer.TestPeer()
 	reg := metrics.InitTestPrometheus()
-	be := backend.New(reg, storage.StorageOptions{
+	be := backend.New(reg, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})
@@ -68,16 +67,10 @@ func newTestOTService(t *testing.T) (*testOTService, ot.MockOTClient) {
 		return &result, nil
 	}
 
-	genRes, err := propose(context.Background(), command.Command{
-		Kind:                 command.KindOTGenerateClusterKey,
-		OTGenerateClusterKey: &command.CmdOTGenerateClusterKey{},
+	_, err = propose(t.Context(), command.Command{
+		Kind: command.KindOTGenerateClusterKey,
 	})
 	require.NoError(t, err)
-	require.NoError(t, genRes.Error, "FSM should not return an error for cluster key generation")
-	require.NotNil(t, genRes.OtGenerateClusterKey)
-	require.Len(t, genRes.OtGenerateClusterKey.Key, ot.ClusterKeySize)
-
-	require.NoError(t, om.InitTokenCodec())
 
 	peerSvc := &MockRaftService{
 		Me_:     me,
@@ -174,7 +167,7 @@ func Test_OTService_Transfer_ReturnsNSlotCiphertexts(t *testing.T) {
 
 	initRes := ts.mustInit()
 	choice := 0
-	pointB, _ := c.Choose(initRes.PointA, choice)
+	pointB, _ := c.BlindedChoice(initRes.PointA, choice)
 
 	transferRes, err := ts.Transfer(ts.ctx, api.OTTransferRequest{
 		Token:  initRes.Token,
@@ -189,7 +182,7 @@ func Test_OTService_Transfer_NoBlobWritten_Fails(t *testing.T) {
 	ts, c := newTestOTService(t)
 	initRes := ts.mustInit()
 
-	pointB, _ := c.Choose(initRes.PointA, 0)
+	pointB, _ := c.BlindedChoice(initRes.PointA, 0)
 	_, err := ts.Transfer(ts.ctx, api.OTTransferRequest{
 		Token:  initRes.Token,
 		PointB: pointB,
@@ -218,7 +211,7 @@ func Test_OTService_Transfer_TamperedToken_Fails(t *testing.T) {
 	ts.mustWriteAll(blob)
 
 	initRes := ts.mustInit()
-	pointB, _ := c.Choose(initRes.PointA, 0)
+	pointB, _ := c.BlindedChoice(initRes.PointA, 0)
 
 	tampered := make([]byte, len(initRes.Token))
 	copy(tampered, initRes.Token)
@@ -241,7 +234,7 @@ func Test_OTService_E2E_ChosenSlotDecrypts(t *testing.T) {
 
 	initRes := ts.mustInit()
 	choice := 5
-	pointB, b := c.Choose(initRes.PointA, choice)
+	pointB, b := c.BlindedChoice(initRes.PointA, choice)
 
 	transferRes, err := ts.Transfer(ts.ctx, api.OTTransferRequest{
 		Token:  initRes.Token,
@@ -264,7 +257,7 @@ func Test_OTService_E2E_NonChosenSlotsFail(t *testing.T) {
 
 	initRes := ts.mustInit()
 	choice := 3
-	pointB, b := c.Choose(initRes.PointA, choice)
+	pointB, b := c.BlindedChoice(initRes.PointA, choice)
 
 	transferRes, err := ts.Transfer(ts.ctx, api.OTTransferRequest{
 		Token:  initRes.Token,
