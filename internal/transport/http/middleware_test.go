@@ -41,7 +41,7 @@ func Test_WriteMiddleware_ProxiesToLeader_AsFollower(t *testing.T) {
 	require.Equal(t, val, kv.Value)
 }
 
-func Test_WriteMiddleware_LeaderUnreachable_AsFollower_Returns502(t *testing.T) {
+func Test_WriteMiddleware_LeaderUnreachable_AsFollower_Returns503(t *testing.T) {
 	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	dead.Close()
 
@@ -52,7 +52,7 @@ func Test_WriteMiddleware_LeaderUnreachable_AsFollower_Returns502(t *testing.T) 
 		Key:   []byte("k"),
 		Value: []byte("v")},
 	)
-	require.Equal(t, http.StatusBadGateway, resp.StatusCode)
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 }
 
 func Test_WriteMiddleware_OriginalBodyReachesLeader_AsFollower(t *testing.T) {

@@ -193,7 +193,7 @@ func Test_LeaseService_Lookup(t *testing.T) {
 	require.Equal(t, resLookup.OriginalTTL, resGranted.TTL)
 	require.Equal(t, resLookup.RemainingTTL, resGranted.TTL)
 
-	resLookup2, err := ls.Lookup(ls.ctx, api.LeaseLookupRequest{LeaseID: 0})
-	require.NoError(t, err)
-	require.Zero(t, resLookup2.LeaseID, "expected lookup on non-existent lease to have ID = 0 (invalid ID)")
+	l, err := ls.Lookup(ls.ctx, api.LeaseLookupRequest{LeaseID: 0})
+	require.Error(t, err)
+	require.Nil(t, l)
 }

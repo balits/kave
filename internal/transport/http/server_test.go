@@ -108,12 +108,10 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 		return &result, nil
 	}
 	genRes, err := propose(t.Context(), command.Command{
-		Kind:                 command.KindOTGenerateClusterKey,
-		OTGenerateClusterKey: &command.CmdOTGenerateClusterKey{},
+		Kind: command.KindOTGenerateClusterKey,
 	})
 	require.NoError(t, err)
 	require.NoError(t, genRes.Error, "FSM returned error for cluster key gen")
-	require.NotNil(t, genRes.OtGenerateClusterKey, "OtGenerateClusterKey result is nil")
 
 	discoverySvc := &mockDiscoveryService{me}
 	kvSvc := service.NewKVService(logger, me, kvstore, raftService, kvOpts, propose)
@@ -581,11 +579,11 @@ func Test_LeaseRevoke_OK(t *testing.T) {
 	require.True(t, res.Revoked)
 }
 
-func Test_LeaseRevoke_NonExistent_FoundIsFalse(t *testing.T) {
+func Test_LeaseRevoke_NonExistent_Returns404(t *testing.T) {
 	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodDelete, RouteLeaseRevoke, api.LeaseRevokeRequest{LeaseID: 999})
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 
 	var res api.LeaseRevokeResponse
 	ts.decodeJSON(resp, &res)
@@ -606,11 +604,11 @@ func Test_LeaseKeepAlive_OK(t *testing.T) {
 	require.InDelta(t, 30, res.TTL, 2)
 }
 
-func Test_LeaseKeepAlive_NotFound_Returns400(t *testing.T) {
+func Test_LeaseKeepAlive_NotFound_Returns404(t *testing.T) {
 	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodPost, RouteLeaseKeepAlive, api.LeaseKeepAliveRequest{LeaseID: 404})
-	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
 func Test_LeaseLookup_OK(t *testing.T) {
@@ -628,11 +626,11 @@ func Test_LeaseLookup_OK(t *testing.T) {
 	require.Equal(t, int64(60), res.OriginalTTL)
 }
 
-func Test_LeaseLookup_NotFound_Returns400(t *testing.T) {
+func Test_LeaseLookup_NotFound_Returns404(t *testing.T) {
 	t.Parallel()
 	ts := newTestServer(t, true)
 	resp := ts.do(http.MethodGet, RouteLeaseLookup, api.LeaseLookupRequest{LeaseID: 0})
-	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
 func Test_Livez_OK(t *testing.T) {
