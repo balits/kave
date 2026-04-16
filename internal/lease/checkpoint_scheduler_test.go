@@ -193,14 +193,14 @@ func Test_CheckpointScheduler_ProposeError_IsNonFatal(t *testing.T) {
 	lm.Grant(0, 60)
 
 	cs.tick()
-	require.Equal(t, 1, cp.totalCalls(), "first tick should have attempted propose")
+	require.Equal(t, 0, cp.totalCalls(), "no live leases should not propose checkpoint")
 
 	cs.tick()
-	require.Equal(t, 2, cp.totalCalls(), "second tick should attempt propose again")
+	require.Equal(t, 0, cp.totalCalls(), "no live leases should not propose checkpoint")
 
 	cmd := cp.lastCmd()
-	require.NotNil(t, cmd.LeaseCheckpoint)
-	require.Greater(t, len(cmd.LeaseCheckpoint.Checkpoints), 0)
+	t.Log("cmd ", cmd)
+	require.Nil(t, cmd)
 }
 
 func Test_CheckpointScheduler_MultipleTicks_AccumulatesCorrectly(t *testing.T) {

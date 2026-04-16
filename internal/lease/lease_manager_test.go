@@ -47,7 +47,7 @@ func Test_LeaseManager_Grant(t *testing.T) {
 			ttl: 5,
 		},
 		{
-			id:  0,
+			id:  2,
 			ttl: 5,
 		},
 	}
@@ -71,10 +71,13 @@ func Test_LeaseManager_Grant(t *testing.T) {
 	_, err := lm.Grant(tests[0].id, tests[0].ttl)
 	require.Error(t, err, "lease grant: wanted error on id conflict")
 
-	_, err = lm.Grant(0, -5)
-	require.Error(t, err, "lease grant: wanted error on negative ttl")
+	_, err = lm.Grant(-1, -5)
+	require.ErrorIs(t, err, ErrLeaseInvalidTTL, "lease grant: wanted error on negative ttl")
 
-	l, err := lm.Grant(0, maxTTL+100)
+	_, err = lm.Grant(0, 2)
+	require.ErrorIs(t, err, ErrLeaseIdZero, "lease grant: wanted error on zero id")
+
+	l, err := lm.Grant(-2, maxTTL+100)
 	require.NoError(t, err, "lease grant")
 	require.Equal(t, maxTTL, l.TTL, "lease grant: wanted l.TTL to be maxTTL")
 }
@@ -90,7 +93,7 @@ func Test_LeaseManager_Revoke(t *testing.T) {
 	require.Equal(t, l.TTL, l2.TTL)
 
 	found, revoked, err := lm.Revoke(0)
-	require.NoError(t, err, "lease revoke: unexpected error")
+	require.ErrorIs(t, err, ErrLeaseNotFound, "lease revoke: expected lease not found error")
 	require.False(t, found, "lease revoke: expected false values after revoking non existent lease")
 	require.False(t, revoked, "lease revoke: expected false values after revoking non existent lease")
 
@@ -108,7 +111,7 @@ func Test_LeaseManager_KeepAlive(t *testing.T) {
 	t.Parallel()
 	lm := newTestLm(t)
 
-	l, err := lm.Grant(0, 5)
+	l, err := lm.Grant(1, 5)
 	require.NoError(t, err, "lease grant")
 	oldExpiry := l.expiry
 	time.After(time.Second * 2)
@@ -120,13 +123,13 @@ func Test_LeaseManager_KeepAlive(t *testing.T) {
 	require.GreaterOrEqual(t, rem, l.remainingTTL, "lease keep alive: remTTL shouldve updated")
 
 	_, err = lm.KeepAlive(-2)
-	require.Error(t, err, "lease keep alive: wanted error on lease not found")
+	require.ErrorIs(t, err, ErrLeaseNotFound, "lease keep alive: wanted error on lease not found")
 }
 
 func Test_LeaseManager_AttachKey(t *testing.T) {
 	t.Parallel()
 	lm := newTestLm(t)
-	l, err := lm.Grant(0, 5)
+	l, err := lm.Grant(1, 5)
 	require.NoError(t, err, "lease grant")
 
 	lm.AttachKey(l.ID, []byte("foo"))
@@ -138,7 +141,7 @@ func Test_LeaseManager_AttachKey(t *testing.T) {
 func Test_LeaseManager_DetachKey(t *testing.T) {
 	t.Parallel()
 	lm := newTestLm(t)
-	l, err := lm.Grant(0, 5)
+	l, err := lm.Grant(1, 5)
 	require.NoError(t, err, "lease grant")
 
 	lm.AttachKey(l.ID, []byte("foo"))

@@ -160,8 +160,7 @@ func (n *Node) Run(parentCtx context.Context) error {
 	})
 
 	g.Go(func() error {
-		n.RaftEventWatcher.Run(groupCtx)
-		return nil
+		return n.RaftEventWatcher.Run(groupCtx)
 	})
 
 	g.Go(func() error {
