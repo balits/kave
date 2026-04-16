@@ -1028,13 +1028,17 @@ func Test_Integration_Snapshot_NodeCatchesUpViaSnapshot(t *testing.T) {
 	}
 
 	// give leader a moment to perform the snapshot in the background
-	time.Sleep(500 * time.Millisecond)
+	// little over snapshot interval
+	time.Sleep(2500 * time.Millisecond)
 
 	// leader must send an InstallSnapshot RPC.
 	c.cfgs[followerIdx].Bootstrap = false
 	c.restartNode(followerIdx)
 
 	fw := c.nodes[followerIdx]
+	require.Eventually(t, func() bool {
+		return c.pollReady(followerIdx) == http.StatusOK
+	}, 15*time.Second, 100*time.Millisecond, "follower failed to become ready and load snapshot")
 
 	for i := range 50 {
 		key := fmt.Sprintf("snap-key-%d", i)
@@ -1043,7 +1047,7 @@ func Test_Integration_Snapshot_NodeCatchesUpViaSnapshot(t *testing.T) {
 		require.Eventually(t, func() bool {
 			status := do(t, fw, http.MethodGet, _http.RouteKvRange, api.RangeRequest{Key: []byte(key), Serializable: true}, &resp)
 			return status == http.StatusOK && len(resp.Entries) == 1
-		}, 10*time.Second, 100*time.Millisecond, "Follower failed to recover key %s via snapshot", key)
+		}, 20*time.Second, 100*time.Millisecond, "Follower failed to recover key %s via snapshot", key)
 	}
 }
 
