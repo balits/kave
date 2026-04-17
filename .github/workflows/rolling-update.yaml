@@ -15,7 +15,7 @@ env:
 
 jobs:
   test:
-    name: Lint & Test
+    name: Lint & run Unit and Ingegration Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,6 +48,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/kind-smoke-test
         with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           image_registry: ${{ env.REGISTRY }}
           image_repo: ${{ env.IMAGE_NAME }}
           image_tag: latest

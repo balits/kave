@@ -14,6 +14,9 @@ inputs:
     description: tag of the image
     default: "latest"
     required: true
+  github_token:
+    description: secret github token
+    required: true
 
 runs:
   using: composite
@@ -28,10 +31,19 @@ runs:
       with:
         cluster_name: "kave"
   
+    # so we can pull image in next step
+    - name: Log in to GHCR
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ inputs.image_registry }}
+        username: ${{ github.actor }}
+        password: ${{ inputs.github_token }}
+  
     - name: Install Chart to Kind
       shell: bash
       run: |
         IMAGE=${{ inputs.image_registry }}/${{ inputs.image_repo }}:${{ inputs.image_tag }}
+        docker pull $IMAGE
         kind load docker-image $IMAGE --name kave
 
     - name: Install Helm Chart
