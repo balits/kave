@@ -1,7 +1,6 @@
 name: Test kave
 description: Lint and format the code, then run unit and integration tests
 
-
 runs:
   using: composite
   steps:

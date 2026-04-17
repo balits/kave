@@ -1,5 +1,6 @@
 image:
-  repository: ghcr.io/balits/kave
+  registry: "ghcr.io"
+  repository: "balits/kave"
   tag: "latest"
   pullPolicy: Always
 

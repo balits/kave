@@ -1,6 +1,20 @@
 name: Smoke test for the Kubernetes cluster
 description: Checks that cluster forms, pods are ready and basic apis work
 
+inputs:
+  image_registry:
+    description: name of the container registry
+    default: "ghcr.io"
+    required: true
+  image_repo:
+    description: name of the image repository
+    default: "balits/kave"
+    required: true
+  image_tag:
+    description: tag of the image
+    default: "latest"
+    required: true
+
 runs:
   using: composite
   steps:
@@ -16,32 +30,39 @@ runs:
   
     - name: Install Chart to Kind
       shell: bash
-      run: kind load docker-image ghcr.io/balits/kave:latest --name ghcr.io/balits/kave:latest
+      run: |
+        IMAGE=${{ inputs.image_registry }}/${{ inputs.image_repo }}:${{ inputs.image_tag }}
+        kind load docker-image $IMAGE --name kave
 
     - name: Install Helm Chart
       shell: bash
       run: |
+        # contains registry/img_name from the arguments
         helm install kave ./charts/kave \
           --namespace kave \
           --create-namespace \
           --set image.pullPolicy=Never \
+          --set image.registry=${{ inputs.image_registry}} \
+          --set image.repository=${{ inputs.image_repo}} \
+          --set image.tag=${{ inputs.image_tag }} \
           --set voters.replicas=3 \
           --timeout 2m
 
     - name: Wait for cluster readiness
       shell: bash
+      env:
+        STATEFULSET_NAME: statefulset/kave-voter
       run: |
-        kubectl rollout status statefulset/kave-release-kave \
-          --namespace kave
+        kubectl rollout status $STATEFULSET_NAME \
+          --namespace kave \
           --timeout 2m
 
     - name: Port-forward kave service in the background
       shell: bash
       run: |
         kubectl port-forward svc/kave 8080:80 \
-          --namespace kave-smoke &
+          --namespace kave &
         sleep 5
-        # 7. Run your smoke tests!
 
     - name: Run Smoke Tests
       shell: bash

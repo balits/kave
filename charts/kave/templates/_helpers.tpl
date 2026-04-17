@@ -10,9 +10,9 @@
 
 {{- define "kave.image" -}}
 {{- if not .Values.image.tag -}}
-{{- fail "image.tag must be set explicitly with --set image.tag=<sha>" -}}
+{{- fail "image.tag must be set explicitly with --set image.tag=<sha>|latest" -}}
 {{- end -}}
-{{ .Values.image.repository }}:{{ .Values.image.tag }}
+{{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag }}
 {{- end }}
 
 {{- define "kave.labels" -}}

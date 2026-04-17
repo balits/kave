@@ -1,20 +1,14 @@
-name: Setup helm and configure Kubernetes
-description: Installs helm and sets the k8s config into the KUBECONFIG env var
+name: Setup kubeconfig
+description: Sets the kubeconfig config into the KUBECONFIG env var
 
 inputs:
   kubeconfig_b64:
     description: Base64 encoded kubeconfig
     required: true
 
-
 runs:
   using: composite
   steps:
-    - name: Install Helm
-      uses: azure/setup-helm@v4
-      with:
-        version: v3.14.0
-
     - name: Configure kube config
       shell: bash
       run: |
