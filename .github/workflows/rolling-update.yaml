@@ -46,8 +46,10 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
+
       - uses: ./.github/actions/smoke-test
         with:
+          app_name: "kave"
           github_token: ${{ secrets.GITHUB_TOKEN }}
           image_registry: ${{ env.REGISTRY }}
           image_repo: ${{ env.IMAGE_NAME }}
@@ -77,5 +79,5 @@ jobs:
       - name: Upgrading helm chart
         run: make helm-upgrade-install
       
-      - name: Wait until cluster is ready (statfulset pods are running + all nodes ready + quorom is formed)
+      - name: Wait until cluster is ready (pods are running + all nodes ready + quorom is formed)
         run: make wait-cluster-ready
