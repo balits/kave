@@ -1,5 +1,8 @@
 name: Smoke test for the Kubernetes cluster
-description: Checks that cluster forms, pods are ready and basic apis work
+description: |
+  Spins up a kind cluster and asserts that the cluster forms, pods start up without issue,
+  quorum forms and leader is elected, killing (and the k8s restart of) a leader eventually
+  elects a new leader, rolling updates are working as expected.
 
 inputs:
   image_registry:
@@ -24,6 +27,18 @@ runs:
     - name: Verify kubectl is installed
       shell: bash
       run: kubectl version --client
+
+    - name: Install Kind
+      shell: bash
+      run: |
+        KIND_VERSION=v0.26.0
+        curl -sSLo /usr/local/bin/kind \
+          "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+        chmod +x /usr/local/bin/kind
+        kind version
+    
+    - name: Install Helm
+      uses: azure/setup-helm@v4
 
     # this should set KUBECONFIG
     - name: Create Kind cluster

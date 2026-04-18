@@ -34,7 +34,7 @@ func newTestOTService(t *testing.T) (*testOTService, ot.MockOTClient) {
 	logger := slog.Default()
 	me := peer.TestPeer()
 	reg := metrics.InitTestPrometheus()
-	be := backend.New(reg, storage.Options{
+	be := backend.New(reg, logger, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})

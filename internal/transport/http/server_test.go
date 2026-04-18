@@ -76,7 +76,7 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 		Level: slog.LevelDebug,
 	}))
 	reg := metrics.InitTestPrometheus()
-	backend := backend.New(reg, storage.Options{
+	backend := backend.New(reg, logger, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})

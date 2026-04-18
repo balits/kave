@@ -32,7 +32,7 @@ func newTestLeaseService(t *testing.T) *testLeaseService {
 	t.Helper()
 	logger := slog.Default()
 	reg := metrics.InitTestPrometheus()
-	backend := backend.New(reg, storage.Options{
+	backend := backend.New(reg, logger, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})

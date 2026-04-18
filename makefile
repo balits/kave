@@ -73,7 +73,7 @@ test-smoke:
 		--set image.registry=$(REGISTRY) \
 		--set image.repository=$(REPO) \
 		--set image.tag=$(SMOKE_TAG) \
-		--set config.storage.kind=inmemory \
+		--set config.storage.kind=boltdb \
 		--set config.ratelimiter.read.rps=2000 \
 		--set config.ratelimiter.read.burst=2000 \
 		--set config.ratelimiter.write.rps=2000 \
@@ -114,9 +114,6 @@ test-smoke:
 
 	@echo "> 6. cleaning up port-forward..."
 	-fuser -k 8080/tcp || true
-
-	@echo "> 7. deleting kind cluster..."
-	kind delete cluster --name $(APP_NAME)
 
 test-race:
 	go test -v -race -count=3 ./internal/... 

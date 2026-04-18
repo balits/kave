@@ -17,17 +17,18 @@ import (
 
 func newTestKVStore(t *testing.T) *KvStore {
 	reg := metrics.InitTestPrometheus()
+	logger := slog.Default()
 	// b := backend.NewBackend(reg, storage.StorageOptions{
 	// 	Kind:           storage.StorageKindInmemory,
 	// 	InitialBuckets: schema.AllBuckets,
 	// })
-	b := backend.New(reg, storage.Options{
+	b := backend.New(reg, logger, storage.Options{
 		Kind:           storage.StorageKindBoltdb,
 		Dir:            t.TempDir(),
 		InitialBuckets: schema.AllBuckets,
 	})
 	t.Cleanup(func() { b.Close() })
-	return NewKvStore(reg, slog.Default(), b)
+	return NewKvStore(reg, logger, b)
 }
 
 func Test_KVStoreRevisionInitial(t *testing.T) {
@@ -221,11 +222,11 @@ func Test_KVStoreRestoreInmem(t *testing.T) {
 	t.Parallel()
 	reg1 := prometheus.NewRegistry()
 	reg2 := prometheus.NewRegistry()
-	s := NewKvStore(reg1, slog.Default(), backend.New(reg2, storage.Options{
+	s := NewKvStore(reg1, slog.Default(), backend.New(reg2, slog.Default(), storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	}))
-	s2 := NewKvStore(reg2, slog.Default(), backend.New(reg1, storage.Options{
+	s2 := NewKvStore(reg2, slog.Default(), backend.New(reg1, slog.Default(), storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	}))
@@ -263,7 +264,7 @@ func Test_KVStoreRestoreBoltdb(t *testing.T) {
 	opts1 := storage.Options{Kind: storage.StorageKindBoltdb, Dir: dir1, InitialBuckets: schema.AllBuckets}
 	opts2 := storage.Options{Kind: storage.StorageKindBoltdb, Dir: dir2, InitialBuckets: schema.AllBuckets}
 
-	b1 := backend.New(prometheus.NewRegistry(), opts1)
+	b1 := backend.New(prometheus.NewRegistry(), slog.Default(), opts1)
 	s1 := NewKvStore(prometheus.NewRegistry(), slog.Default(), b1)
 
 	s1.UpdateRaftMeta(10, 3)
@@ -276,7 +277,7 @@ func Test_KVStoreRestoreBoltdb(t *testing.T) {
 	sink := &sink{buf: &buf} // implements raft.SnapshotSink
 	require.NoError(t, snap.Persist(sink))
 
-	b2 := backend.New(prometheus.NewRegistry(), opts2)
+	b2 := backend.New(prometheus.NewRegistry(), slog.Default(), opts2)
 	s2 := NewKvStore(prometheus.NewRegistry(), slog.Default(), b2)
 
 	require.NoError(t, s2.Restore(&buf))

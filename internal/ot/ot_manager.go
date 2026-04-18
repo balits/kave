@@ -303,14 +303,14 @@ func (om *OTManager) ApplyGenerateClusterKey() error {
 		return fmt.Errorf("%w: %w", ErrClusterKeyGen, err)
 	}
 
-	om.logger.Info("Initiating OT token codec")
-	if err := om.unsafeInitTokenCodec(wtx); err != nil {
-		return fmt.Errorf("%w: failed to init token codec: %w", ErrClusterKeyGen, err)
-	}
-
 	if _, err := wtx.Commit(); err != nil {
 		wtx.Rollback()
 		return fmt.Errorf("%w: %w", ErrClusterKeyGen, err)
+	}
+
+	om.logger.Info("Initiating OT token codec")
+	if err := om.unsafeInitTokenCodec(om.backend.ReadTx()); err != nil {
+		return fmt.Errorf("%w: failed to init token codec: %w", ErrClusterKeyGen, err)
 	}
 
 	return nil

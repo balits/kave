@@ -29,7 +29,7 @@ func newTestScheduler(t *testing.T, threshold int64, ticker util.Ticker, isLeade
 
 	logger := slog.Default()
 	reg := metrics.InitTestPrometheus()
-	backend := backend.New(reg, storage.Options{
+	backend := backend.New(reg, slog.Default(), storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})

@@ -72,6 +72,12 @@ func (cs *CheckpointScheduler) Run(ctx context.Context) {
 }
 
 func (cs *CheckpointScheduler) run() {
+	defer func() {
+		if r := recover(); r != nil {
+			cs.logger.Error("goroutine panicked", "error", r)
+		}
+	}()
+
 	var tickerC <-chan time.Time
 
 	if cs.isLeader() {

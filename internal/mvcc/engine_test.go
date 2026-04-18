@@ -65,7 +65,7 @@ func newTestEngine(t *testing.T) *Engine {
 	t.Helper()
 	reg := metrics.InitTestPrometheus()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	b := backend.New(reg, storage.Options{
+	b := backend.New(reg, logger, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})

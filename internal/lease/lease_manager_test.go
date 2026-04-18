@@ -25,7 +25,7 @@ func lmWithClock(t *testing.T, c util.Clock) *LeaseManager {
 func newTestLm(t *testing.T) *LeaseManager {
 	logger := slog.Default()
 	reg := metrics.InitTestPrometheus()
-	backend := backend.New(reg, storage.Options{
+	backend := backend.New(reg, slog.Default(), storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})

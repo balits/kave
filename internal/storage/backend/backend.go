@@ -3,6 +3,7 @@ package backend
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"sync"
 
 	"github.com/balits/kave/internal/metrics"
@@ -42,10 +43,11 @@ type backend struct {
 	store   bytestore.ByteStore
 	batch   bytestore.Batch
 	metrics *metrics.BackendMetrics
+	logger  *slog.Logger
 	obs     BackendObserver
 }
 
-func New(reg prometheus.Registerer, opts storage.Options) Backend {
+func New(reg prometheus.Registerer, logger *slog.Logger, opts storage.Options) Backend {
 	var s bytestore.ByteStore
 	switch opts.Kind {
 	case storage.StorageKindBoltdb:
@@ -59,14 +61,16 @@ func New(reg prometheus.Registerer, opts storage.Options) Backend {
 	}
 
 	b := &backend{
-		store: s,
-		batch: nil,
+		store:  s,
+		batch:  nil,
+		logger: logger.With("component", "backend", "storage_kind", opts.Kind),
 	}
 	sizeBytesFn := func() float64 {
 		return float64(b.SizeBytes())
 	}
 	b.metrics = metrics.NewBackendMetrics(reg, sizeBytesFn)
 	b.obs = &observer{metrics: b.metrics}
+	b.logger.Info("Backend instantiated")
 
 	return b
 }

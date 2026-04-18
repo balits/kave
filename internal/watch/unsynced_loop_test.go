@@ -28,7 +28,7 @@ func newTestLoop(t *testing.T) (*UnsyncedLoop, *WatchHub, *mvcc.KvStore) {
 	t.Helper()
 	logger := testLogger()
 	reg := metrics.InitTestPrometheus()
-	b := backend.New(reg, storage.Options{
+	b := backend.New(reg, logger, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})

@@ -36,7 +36,7 @@ func newTestKVService(t *testing.T) *testKVService {
 	me := peer.TestPeer()
 	logger := slog.Default()
 	reg := metrics.InitTestPrometheus()
-	backend := backend.New(reg, storage.Options{
+	backend := backend.New(reg, logger, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})

@@ -73,6 +73,12 @@ func (ex *ExpiryLoop) Run(ctx context.Context) {
 }
 
 func (ex *ExpiryLoop) run() {
+	defer func() {
+		if r := recover(); r != nil {
+			ex.logger.Error("goroutine panicked", "error", r)
+		}
+	}()
+
 	var tickerC <-chan time.Time
 
 	if ex.isLeader() {

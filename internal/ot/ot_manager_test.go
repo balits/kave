@@ -15,7 +15,8 @@ import (
 func newTestOTManager(t *testing.T, opts *Options) *OTManager {
 	t.Helper()
 	reg := metrics.InitTestPrometheus()
-	backend := backend.New(reg, storage.Options{
+	logger := slog.Default()
+	backend := backend.New(reg, logger, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: []storage.Bucket{schema.BucketOT},
 	})
@@ -29,7 +30,7 @@ func newTestOTManager(t *testing.T, opts *Options) *OTManager {
 		o = *opts
 	}
 
-	om, err := NewOTManager(reg, slog.Default(), backend, o)
+	om, err := NewOTManager(reg, logger, backend, o)
 	if err != nil {
 		panic(err)
 	}

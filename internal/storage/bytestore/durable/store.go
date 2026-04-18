@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
+	"time"
 
 	"github.com/balits/kave/internal/storage"
 	"github.com/balits/kave/internal/storage/bytestore"
@@ -34,7 +35,9 @@ func NewStore(opts storage.Options) (bytestore.ByteStore, error) {
 	}
 
 	dbpath := filepath.Join(opts.Dir, dbFileName)
-	db, err := bolt.Open(dbpath, 0600, nil)
+	db, err := bolt.Open(dbpath, 0600, &bolt.Options{
+		Timeout: 5 * time.Second,
+	})
 	if err != nil {
 		return nil, err
 	}

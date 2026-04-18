@@ -292,7 +292,7 @@ func (n *Node) Shutdown(ctx context.Context) error {
 }
 
 func (n *Node) initStorage(reg prometheus.Registerer, storageOpts storage.Options, otOpts ot.Options) error {
-	n.Backend = backend.New(reg, storageOpts)
+	n.Backend = backend.New(reg, n.Logger, storageOpts)
 	n.KvIndex = kv.NewTreeIndex(n.Logger)
 	n.KvStore = mvcc.NewKvStoreWithIndex(reg, n.Logger, n.Backend, n.KvIndex)
 	n.LeaseManager = lease.NewManager(reg, n.Logger, n.KvStore, n.Backend)
