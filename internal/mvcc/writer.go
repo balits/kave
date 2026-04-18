@@ -224,7 +224,7 @@ func (w *writer) deleteKey(key []byte) error {
 
 func (w *writer) Abort() {
 	w.changes = nil
-	w.writeTx.Abort()
+	w.writeTx.Rollback()
 	w.writeTx.Unlock()       // release db lock
 	w.store.rwlock.RUnlock() // release store lock
 }

@@ -242,7 +242,7 @@ func (rs *raftSvc) Leader(ctx context.Context) (peer.Peer, error) {
 
 	var foundLeader bool
 	for _, srv := range conf.Servers {
-		if srv.Address == addr && srv.ID == id {
+		if srv.ID == id {
 			foundLeader = true
 			break
 		}

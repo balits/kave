@@ -102,7 +102,8 @@ func NewHTTPServer(
 	readLimitConfig ratelimiterConfig,
 	writeLimitConfig ratelimiterConfig,
 ) *HttpServer {
-	addr := me.GetHttpAdvertisedAddress()
+	advAddr := me.GetHttpAdvertisedAddress()
+	listenAddr := me.GetHttpListenAddress()
 	mux := http.NewServeMux()
 	s := &HttpServer{
 		me:         me,
@@ -111,10 +112,10 @@ func NewHTTPServer(
 		otSvc:      otService,
 		raftSvc:    raftService,
 		watchHub:   watchHub,
-		logger:     logger.With("component", "http_server", "addr", addr),
+		logger:     logger.With("component", "http_server", "addr", advAddr),
 		rootLogger: logger,
 		server: &http.Server{
-			Addr:    addr,
+			Addr:    listenAddr,
 			Handler: mux,
 		},
 	}
@@ -122,6 +123,12 @@ func NewHTTPServer(
 	// TODO(ratelimiter): run real benchmarks to determine rps and burst: something around 75% of peak capacity
 	s.readLimiter = newRateLimiter(readLimitConfig)
 	s.writeLimiter = newRateLimiter(writeLimitConfig)
+	s.logger.Info("Rate limits initialized",
+		"read_rps", readLimitConfig.Rps,
+		"write_rps", writeLimitConfig.Rps,
+		"read_burst", readLimitConfig.Burst,
+		"write_burst", writeLimitConfig.Burst,
+	)
 
 	// kv
 	mux.HandleFunc("GET "+RouteKvRange, s.readChain(s.handleKvRange))
@@ -146,7 +153,7 @@ func NewHTTPServer(
 
 	// admin | protected routes (auth WIP):
 	// cluster
-	mux.HandleFunc("POST "+RouteClusterJoin, s.writeChain(s.handleJoin))
+	mux.HandleFunc("POST "+RouteClusterJoin, chain(s.handleJoin, s.requestLoggingMiddleware))
 	// manual compaction trigger
 	mux.HandleFunc("POST "+RouteCompactionTrigger, s.writeChain(s.handleCompactionTrigger))
 

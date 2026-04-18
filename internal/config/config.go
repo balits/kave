@@ -32,7 +32,7 @@ type Config struct {
 	CompactionOpts            compaction.Options
 	OtOpts                    ot.Options
 	CheckpointIntervalMinutes time.Duration
-	RatelimiterOpts           http.RatelimitOpions
+	RatelimiterOpts           http.RatelimitOptions
 	RaftCfg                   *raft.Config
 }
 
@@ -45,7 +45,7 @@ type ConfigJson struct {
 	CompactionOpts            compaction.Options    `json:"compaction"`
 	OtOpts                    ot.Options            `json:"ot"`
 	CheckpointIntervalMinutes time.Duration         `json:"checkpoint_interval_minutes"`
-	RatelimiterOpts           http.RatelimitOpions  `json:"ratelimiter"`
+	RatelimiterOpts           http.RatelimitOptions `json:"ratelimiter"`
 }
 
 func (cj *ConfigJson) check() error {
@@ -87,6 +87,7 @@ func (cj *ConfigJson) ToConfig() (*Config, error) {
 		CompactionOpts:            cj.CompactionOpts,
 		OtOpts:                    cj.OtOpts,
 		StorageOpts:               cj.StorageOpts,
+		RatelimiterOpts:           cj.RatelimiterOpts,
 	}
 
 	c.StorageOpts.InitialBuckets = schema.AllBuckets

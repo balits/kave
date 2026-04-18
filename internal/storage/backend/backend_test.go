@@ -299,7 +299,7 @@ func Test_WriteTxAbort(t *testing.T) {
 		wtx = b.WriteTx()
 		wtx.Lock()
 		wtx.UnsafePut(testBucket, []byte("aborted"), []byte("no"))
-		wtx.Abort()
+		wtx.Rollback()
 		wtx.Unlock()
 
 		rtx := b.ReadTx()
@@ -495,7 +495,7 @@ func Test_WriteTxCanRead(t *testing.T) {
 		if !bytes.Equal(val, []byte("rv")) {
 			t.Errorf("WriteTx read: val = %q, want %q", val, "rv")
 		}
-		wtx.Abort()
+		wtx.Rollback()
 	})
 }
 
@@ -521,7 +521,7 @@ func Test_WriteTxUnsafeScan(t *testing.T) {
 			keys = append(keys, string(k))
 			return nil
 		})
-		wtx.Abort()
+		wtx.Rollback()
 
 		if err != nil {
 			t.Fatalf("WriteTx.UnsafeScan: %v", err)
@@ -745,7 +745,7 @@ func Test_WriteTxRejectsEmptyKey(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for empty key, got nil")
 		}
-		wtx.Abort()
+		wtx.Rollback()
 	})
 }
 

@@ -5,25 +5,30 @@ CHART = ./charts/kave
 KUBECONFIG ?= .kube/config
 
 DOCKERFILE = docker/Dockerfile
-COMPOSE1 = docker-compose1.yaml
 COMPOSE3 = docker-compose3.yaml
-COMPOSE5 = docker-compose5.yaml
-IMG_NAME = ghcr.io/balits/kave
+
+REGISTRY = ghcr.io
+REPO = balits/kave
+IMG_NAME_NO_REGISTRY=$(REPO)
+IMG_NAME = $(REGISTRY)/$(IMG_NAME_NO_REGISTRY)
+SMOKE_TAG      ?= latest
 
 .DEFAULT_GOAL := help
 
 build-go: ## Build Go binary
-	@echo ">> building ${APP_NAME}..."
+	@echo "> building ${APP_NAME}..."
 	go build -o bin/${APP_NAME} cmd/kave/main.go
 
 build-img: ## Build Docker image
-	@echo ">> builing img: ${IMG_NAME}..."
+	@echo "> builing img: ${IMG_NAME}..."
 	$(MAKE) build
 	docker build -t ${IMG_NAME}:latest .
 
 build-img-push:
 	$(MAKE) build-img
-	@echo ">> pushing img to ghcr: ${IMG_NAME}..."
+	@echo "> loggin in to ghcr.io..."
+	gh auth token | docker login ghcr.io -u balits --password-stdin
+	@echo "> pushing img to ghcr: ${IMG_NAME}..."
 	docker push ${IMG_NAME}:latest
 
 
@@ -51,7 +56,67 @@ test-integ:
 	go test ./test/integration/... --timeout 5m -p 1
 
 test-smoke:
-	go test -v ./test/smoke/...
+	@echo "> 1.1 init: deleting previous Kind cluster..."
+	kind delete cluster --name $(APP_NAME) || true
+
+	@echo "> 1.2 init: creating local Kind cluster..."
+	kind create cluster --name $(APP_NAME)
+
+	@echo "> 1.3 init: load image to Kind"
+	kind load docker-image $(IMG_NAME):latest --name $(APP_NAME)
+	
+	@echo "> 2. installing Helm Chart..."
+	helm upgrade --install $(APP_NAME) ./charts/kave \
+		--namespace $(APP_NAME) \
+		--create-namespace \
+		--set image.pullPolicy=Never \
+		--set image.registry=$(REGISTRY) \
+		--set image.repository=$(REPO) \
+		--set image.tag=$(SMOKE_TAG) \
+		--set config.storage.kind=inmemory \
+		--set config.ratelimiter.read.rps=2000 \
+		--set config.ratelimiter.read.burst=2000 \
+		--set config.ratelimiter.write.rps=2000 \
+		--set config.ratelimiter.write.burst=2000 \
+ 		--set voters.replicas=3 \
+		--wait \
+		--timeout=3m
+
+	@echo "> 4 piping kind kubeconfig..."
+	kind get kubeconfig --name $(APP_NAME) > /tmp/kind-kubeconfig-$(APP_NAME).yaml
+
+	# kill any existing port-forwards on 8080
+	-fuser -k 8080/tcp || true
+	sleep 5
+
+	@echo "> 5.2 Smoke Tests: running smoke tests..."
+	@( \
+	echo "Starting resilient port-forward in background..."; \
+		(while true; do \
+			kubectl port-forward svc/kave-external 8080:80 \
+				--namespace $(APP_NAME) \
+				--kubeconfig /tmp/kind-kubeconfig-$(APP_NAME).yaml > /dev/null 2>&1; \
+			sleep 1; \
+		done) & \
+		LOOP_PID=$$!; \
+		echo "Port-forward loop PID: $$LOOP_PID. Waiting 5 seconds..."; \
+		sleep 5; \
+		KUBECONFIG=/tmp/kind-kubeconfig-$(APP_NAME).yaml \
+		NAMESPACE=$(APP_NAME) \
+		CLUSTER_SIZE=3 \
+		URL=http://localhost:8080 \
+		go test ./test/smoke/... -v -count=1 --timeout 5m; \
+		test_result=$$?; \
+		echo "Cleaning up port-forward loop..."; \
+		kill -9 $$LOOP_PID 2>/dev/null || true; \
+		fuser -k 8080/tcp 2>/dev/null || true; \
+		exit $$test_result)
+
+	@echo "> 6. cleaning up port-forward..."
+	-fuser -k 8080/tcp || true
+
+	@echo "> 7. deleting kind cluster..."
+	kind delete cluster --name $(APP_NAME)
 
 test-race:
 	go test -v -race -count=3 ./internal/... 

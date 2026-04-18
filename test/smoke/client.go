@@ -30,30 +30,38 @@ func httpClient(t testing.TB) *client {
 	}
 }
 
-func (c *client) do(method, path string, body any, dst any) *http.Response {
+func (c *client) tryDo(method, path string, body any, dst any) (*http.Response, error) {
 	c.tb.Helper()
 	var r io.Reader
 	if body != nil {
 		bs, err := json.Marshal(body)
-		require.NoError(c.tb, err, "marshal request")
+		if err != nil {
+			return nil, err
+		}
 		r = bytes.NewReader(bs)
 	}
 
 	req, err := http.NewRequest(method, c.url+path, r)
-	require.NoError(c.tb, err, "create request")
+	if err != nil {
+		return nil, err
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
 	resp, err := c.httpClient.Do(req)
-	require.NoError(c.tb, err, "%s %s", method, path)
+	if err != nil {
+		return nil, err
+	}
 
 	if dst != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		err := json.NewDecoder(resp.Body).Decode(dst)
-		require.NoError(c.tb, err, "decode %s %s", method, path)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return resp
+	return resp, nil
 }
 
 func readBody(resp *http.Response) string {
@@ -64,32 +72,34 @@ func readBody(resp *http.Response) string {
 	return string(bs)
 }
 
-func (c *client) put(key, value string) (api.PutResponse, *http.Response) {
+func (c *client) put(key, value string) (api.PutResponse, *http.Response, error) {
 	c.tb.Helper()
 	var out api.PutResponse
-	resp := c.do(http.MethodPost, _http.RouteKvPut,
+	resp, err := c.tryDo(http.MethodPost, _http.RouteKvPut,
 		api.PutRequest{Key: []byte(key), Value: []byte(value)}, &out)
-	return out, resp
+	return out, resp, err
 }
 
-func (c *client) get(key string) (api.RangeResponse, *http.Response) {
+func (c *client) get(key string) (api.RangeResponse, *http.Response, error) {
 	c.tb.Helper()
 	var out api.RangeResponse
-	resp := c.do(http.MethodGet, _http.RouteKvRange,
-		api.RangeRequest{Key: []byte(key), Serializable: true}, &out)
-	return out, resp
+	resp, err := c.tryDo(http.MethodGet, _http.RouteKvRange,
+		api.RangeRequest{Key: []byte(key), Serializable: false}, &out)
+	return out, resp, err
 }
 
 func (c *client) mustPut(key, value string) api.PutResponse {
 	c.tb.Helper()
-	out, resp := c.put(key, value)
+	out, resp, err := c.put(key, value)
+	require.NoError(c.tb, err, "PUT %s failed", key)
 	require.Equal(c.tb, 200, resp.StatusCode, "PUT %s failed: %s", key, readBody(resp))
 	return out
 }
 
 func (c *client) mustGet(key string) api.RangeResponse {
 	c.tb.Helper()
-	out, resp := c.get(key)
+	out, resp, err := c.get(key)
+	require.NoError(c.tb, err, "GET %s failed", key)
 	require.Equal(c.tb, 200, resp.StatusCode, "GET %s failed: %s", key, readBody(resp))
 	return out
 }
@@ -99,6 +109,23 @@ func (c *client) mustGetVal(key, expectedValue string) {
 	out := c.mustGet(key)
 	require.Equal(c.tb, 1, out.Count, "expected 1 entry for key %q, got %d", key, out.Count)
 	require.Equal(c.tb, expectedValue, string(out.Entries[0].Value))
+}
+
+func (c *client) waitGetVal(key, expectedValue string, timeout time.Duration) {
+	c.tb.Helper()
+	require.Eventually(c.tb, func() bool {
+		out, resp, err := c.get(key)
+		if err != nil {
+			return false
+		}
+		if resp.StatusCode != 200 {
+			return false
+		}
+		if out.Count != 1 {
+			return false
+		}
+		return string(out.Entries[0].Value) == expectedValue
+	}, timeout, timeout/10, "waitGetValu: failed to get value %s for key %s in %s", expectedValue, key, timeout)
 }
 
 func (c *client) readyz() (int, error) {
@@ -113,10 +140,13 @@ func (c *client) readyz() (int, error) {
 	return resp.StatusCode, nil
 }
 
-func (c *client) stats() (out map[string]string, status int) {
+func (c *client) stats() (out map[string]string, status int, err error) {
 	c.tb.Helper()
-	resp := c.do(http.MethodGet, _http.RouteStats, nil, &out)
-	return out, resp.StatusCode
+	resp, err := c.tryDo(http.MethodGet, _http.RouteStats, nil, &out)
+	if err != nil {
+		return nil, 0, err
+	}
+	return out, resp.StatusCode, nil
 }
 
 func (c *client) waitReady(timeout time.Duration) {

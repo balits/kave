@@ -31,7 +31,7 @@ runs:
       with:
         cluster_name: "kave"
   
-    # so we can pull image in next step
+    # so we can pull image in next step(s)
     - name: Log in to GHCR
       uses: docker/login-action@v3
       with:
@@ -39,12 +39,13 @@ runs:
         username: ${{ github.actor }}
         password: ${{ inputs.github_token }}
   
-    - name: Install Chart to Kind
-      shell: bash
-      run: |
-        IMAGE=${{ inputs.image_registry }}/${{ inputs.image_repo }}:${{ inputs.image_tag }}
-        docker pull $IMAGE
-        kind load docker-image $IMAGE --name kave
+    # handled by make command
+    # - name: Install Chart to Kind
+    #   shell: bash
+    #   run: |
+    #     IMAGE=${{ inputs.image_registry }}/${{ inputs.image_repo }}:${{ inputs.image_tag }}
+    #     docker pull $IMAGE
+    #     kind load docker-image $IMAGE --name kave
 
     - name: Install Helm Chart
       shell: bash
@@ -84,4 +85,7 @@ runs:
         CLUSTER_SIZE: 3
         URL: "http://localhost:8080" 
       run: |
-        go test ./test/smoke/... -v -count=1 --timeout 5m
+        make smoke-test \
+          SMOKE_REGISTRY=${{ inputs.image_registry }} \
+          SMOKE_REPO=${{ inputs.image_repo }} \
+          SMOKE_TAG=${{ inputs.image_tag }}

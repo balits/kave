@@ -24,11 +24,11 @@ type WriteTx interface {
 	// [Abort] the transaction.
 	Commit() (storage.CommitInfo, error)
 
-	// Abort discards all previous changes made in the transaction.
+	// Rollback discards all previous changes made in the transaction.
 	//
 	// NOTE: this does not release the backend mutex.
-	// the caller should call Unlock after Abort manually.
-	Abort()
+	// the caller should call Unlock after Rollback manually.
+	Rollback()
 }
 
 // TODO: impl batching to reduce fsyncs in the future
@@ -76,7 +76,7 @@ func (w *writetx) Commit() (storage.CommitInfo, error) {
 	return info, err
 }
 
-func (w *writetx) Abort() {
+func (w *writetx) Rollback() {
 	defer func() {
 		w.b.batch = nil
 	}()

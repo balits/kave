@@ -228,6 +228,7 @@ func (s *KvStore) Compact(rev int64) (<-chan struct{}, error) {
 			return nil, err
 		}
 		if _, err := wtx.Commit(); err != nil {
+			wtx.Rollback()
 			wtx.Unlock()
 			s.logger.Warn("compaction error: failed to persist compaction revisions", "error", err)
 			return nil, err
@@ -311,6 +312,7 @@ func (s *KvStore) doCompact(rev int64) {
 
 		if _, err := wtx.Commit(); err != nil {
 			s.logger.Error("compaction error: commit failed", "error", err)
+			wtx.Rollback()
 			wtx.Unlock()
 			return
 		}

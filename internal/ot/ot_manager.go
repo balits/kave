@@ -263,13 +263,13 @@ func (om *OTManager) ApplyWriteAll(cmd command.CmdOTWriteAll) (*command.ResultOT
 	defer wtx.Unlock()
 
 	if err := wtx.UnsafePut(schema.BucketOT, schema.KeyOTBlob, cmd.Blob); err != nil {
-		wtx.Abort()
+		wtx.Rollback()
 		om.metrics.WriteAllErrorsTotal.Inc()
 		return nil, fmt.Errorf("failed to write blob: %w", err)
 	}
 
 	if _, err := wtx.Commit(); err != nil {
-		wtx.Abort()
+		wtx.Rollback()
 		om.metrics.WriteAllErrorsTotal.Inc()
 		return nil, fmt.Errorf("failed to commit blob write: %w", err)
 	}
@@ -287,11 +287,11 @@ func (om *OTManager) ApplyGenerateClusterKey() error {
 	defer wtx.Unlock()
 	existingKey, err := wtx.UnsafeGet(schema.BucketOT, schema.KeyOTClusterKey)
 	if err != nil {
-		wtx.Abort()
+		wtx.Rollback()
 		return fmt.Errorf("%w: failed to read previous cluster key: %w", ErrClusterKeyGen, err)
 	}
 	if existingKey != nil {
-		wtx.Abort()
+		wtx.Rollback()
 		return fmt.Errorf("%w: cluster key already exists", ErrClusterKeyGen)
 	}
 
@@ -299,17 +299,18 @@ func (om *OTManager) ApplyGenerateClusterKey() error {
 	_, _ = rand.Read(key) // never returns error, only panics
 
 	if err := wtx.UnsafePut(schema.BucketOT, schema.KeyOTClusterKey, key); err != nil {
-		wtx.Abort()
-		return fmt.Errorf("%w: %w", ErrClusterKeyGen, err)
-	}
-	if _, err := wtx.Commit(); err != nil {
-		wtx.Abort()
+		wtx.Rollback()
 		return fmt.Errorf("%w: %w", ErrClusterKeyGen, err)
 	}
 
 	om.logger.Info("Initiating OT token codec")
 	if err := om.unsafeInitTokenCodec(wtx); err != nil {
 		return fmt.Errorf("%w: failed to init token codec: %w", ErrClusterKeyGen, err)
+	}
+
+	if _, err := wtx.Commit(); err != nil {
+		wtx.Rollback()
+		return fmt.Errorf("%w: %w", ErrClusterKeyGen, err)
 	}
 
 	return nil
@@ -407,11 +408,11 @@ func (om *OTManager) Restore() error {
 	wtx.Lock()
 	defer wtx.Unlock()
 	if err := wtx.UnsafePut(schema.BucketOT, schema.KeyOTBlob, blob); err != nil {
-		wtx.Abort()
+		wtx.Rollback()
 		return fmt.Errorf("OT restore: %w", err)
 	}
 	if _, err := wtx.Commit(); err != nil {
-		wtx.Abort()
+		wtx.Rollback()
 		return fmt.Errorf("OT restore: %w", err)
 	}
 

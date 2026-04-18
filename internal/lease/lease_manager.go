@@ -374,14 +374,14 @@ func (lm *LeaseManager) ApplyExpired(cmd command.CmdLeaseExpire) (*command.Resul
 				"error", err,
 				"lease_id", id,
 			)
-			wtx.Abort()
+			wtx.Rollback()
 			return nil, err
 		}
 	}
 
 	if _, err := wtx.Commit(); err != nil {
 		lm.logger.Error("apply expired: failed to commit deleted keys", "error", err)
-		wtx.Abort()
+		wtx.Rollback()
 		return nil, err
 	}
 
@@ -593,11 +593,11 @@ func (lm *LeaseManager) unsafePersistToBackend(lease *Lease) error {
 	wtx.Lock()
 	defer wtx.Unlock()
 	if err := wtx.UnsafePut(schema.BucketLease, bucketKey, leaseBytes); err != nil {
-		wtx.Abort()
+		wtx.Rollback()
 		return fmt.Errorf("%v: %w", errLease, err)
 	}
 	if _, err := wtx.Commit(); err != nil {
-		wtx.Abort()
+		wtx.Rollback()
 		return fmt.Errorf("%v: %w", errLease, err)
 	}
 
@@ -612,11 +612,11 @@ func (lm *LeaseManager) unsafeRemoveFromBackend(lease *Lease) error {
 	wtx.Lock()
 	defer wtx.Unlock()
 	if err := wtx.UnsafeDelete(schema.BucketLease, bucketKey); err != nil {
-		wtx.Abort()
+		wtx.Rollback()
 		return fmt.Errorf("%v: %w", errLease, err)
 	}
 	if _, err := wtx.Commit(); err != nil {
-		wtx.Abort()
+		wtx.Rollback()
 		return fmt.Errorf("%v: %w", errLease, err)
 	}
 

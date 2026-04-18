@@ -411,7 +411,7 @@ func defaultNodeConfig() *config.Config {
 		CompactionOpts:            compaction.DefaultOptions,
 		CheckpointIntervalMinutes: 2 * time.Second, // not actually minutes, we cant afford to be that slow
 		// set to a gorbillion since were testing the FSM/DB not the ratelimiter
-		RatelimiterOpts: _http.RatelimitOpions{
+		RatelimiterOpts: _http.RatelimitOptions{
 			Read:  _http.NewRateLimiterConfig(99999, 99999),
 			Write: _http.NewRateLimiterConfig(99999, 99999),
 		},

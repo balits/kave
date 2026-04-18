@@ -7,7 +7,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-type RatelimitOpions struct {
+type RatelimitOptions struct {
 	Read  ratelimiterConfig `json:"read"`
 	Write ratelimiterConfig `json:"write"`
 }

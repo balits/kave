@@ -14,7 +14,7 @@ var env struct {
 }
 
 func parseEnv() {
-	env.url = os.Getenv("ENV")
+	env.url = os.Getenv("URL")
 	env.namespace = os.Getenv("NAMESPACE")
 	env.kubeconfig = os.Getenv("KUBECONFIG")
 	clusterSize := os.Getenv("CLUSTER_SIZE")

@@ -239,11 +239,13 @@ func (n *Node) bootstrap(ctx context.Context, me peer.Peer) error {
 			select {
 			case <-keyGenCtx.Done():
 				waitUntilLeaderC <- keyGenCtx.Err()
+				return
 			default:
 			}
 
 			if n.RaftService.RaftState() == raft.Leader {
 				waitUntilLeaderC <- nil
+				return
 			}
 		}
 	}()
