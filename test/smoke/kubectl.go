@@ -48,6 +48,27 @@ func (k *kubectl) tryRun(args ...string) (string, error) {
 	return stdout.String(), nil
 }
 
+func (k *kubectl) tryRunStdin(stdin string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(k.tb.Context(), time.Minute*3)
+	defer cancel()
+
+	fullArgs := append(args, "--namespace", env.namespace, "--kubeconfig", env.kubeconfig)
+	cmd := exec.CommandContext(ctx, "kubectl", fullArgs...)
+	cmd.Stdin = strings.NewReader(stdin)
+	var (
+		stdout bytes.Buffer
+		stderr bytes.Buffer
+	)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		return stdout.String(), fmt.Errorf("kubectl %s:\nstderr: %s", strings.Join(args, " "), stderr.String())
+	}
+	return stdout.String(), nil
+}
+
 func (k *kubectl) printClusterInfo(verbose bool) {
 	k.tb.Helper()
 	k.tb.Logf("\ncluster-info:%s\n", k.run("cluster-info"))
@@ -78,10 +99,32 @@ func (k *kubectl) getPodID(name string) string {
 	return strings.TrimSpace(out)
 }
 
-func (k *kubectl) deletePod(name string) {
+func (k *kubectl) deletePod(name string, force bool) {
 	k.tb.Helper()
-	k.run("delete", "pod", name, "--wait=false")
-	k.tb.Logf("pod %s deleted", name)
+	if force {
+		k.run("delete", "pod", name, "--wait=false", "--force", "--grace-period=0")
+		k.tb.Logf("pod %s force-deleted", name)
+	} else {
+		k.run("delete", "pod", name, "--wait=false")
+		k.tb.Logf("pod %s deleted", name)
+	}
+}
+
+// PDB enforcement ONLY applies to the eviction api. A direct "kubectl delete pod"
+// bypasses the PDB entirely, which is why we can't use deletePod here.
+// When the PDB blocks the eviction (disruptionsAllowed == 0), the API server
+// returns 429 and kubectl exits non zero with stderr containing
+// "Cannot evict pod as it would violate the pod's disruption budget."
+// The return value is nil on a successful eviction, or a nonnil error whose
+// message contains "disruption budget" when the PDB blocks it.
+func (k *kubectl) tryEvictPod(name string) error {
+	k.tb.Helper()
+	evictionJSON := fmt.Sprintf(
+		`{"apiVersion":"policy/v1","kind":"Eviction","metadata":{"name":%q,"namespace":%q}}`,
+		name, env.namespace,
+	)
+	_, err := k.tryRunStdin(evictionJSON, "create", "-f", "-")
+	return err
 }
 
 func (k *kubectl) waitPodReplaced(name string, oldID string, timeout time.Duration) {

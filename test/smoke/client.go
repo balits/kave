@@ -72,7 +72,7 @@ func readBody(resp *http.Response) string {
 	return string(bs)
 }
 
-func (c *client) put(key, value string) (api.PutResponse, *http.Response, error) {
+func (c *client) tryPut(key, value string) (api.PutResponse, *http.Response, error) {
 	c.tb.Helper()
 	var out api.PutResponse
 	resp, err := c.tryDo(http.MethodPost, _http.RouteKvPut,
@@ -80,7 +80,7 @@ func (c *client) put(key, value string) (api.PutResponse, *http.Response, error)
 	return out, resp, err
 }
 
-func (c *client) get(key string) (api.RangeResponse, *http.Response, error) {
+func (c *client) tryGet(key string) (api.RangeResponse, *http.Response, error) {
 	c.tb.Helper()
 	var out api.RangeResponse
 	resp, err := c.tryDo(http.MethodGet, _http.RouteKvRange,
@@ -90,7 +90,7 @@ func (c *client) get(key string) (api.RangeResponse, *http.Response, error) {
 
 func (c *client) mustPut(key, value string) api.PutResponse {
 	c.tb.Helper()
-	out, resp, err := c.put(key, value)
+	out, resp, err := c.tryPut(key, value)
 	require.NoError(c.tb, err, "PUT %s failed", key)
 	require.Equal(c.tb, 200, resp.StatusCode, "PUT %s failed: %s", key, readBody(resp))
 	return out
@@ -98,7 +98,7 @@ func (c *client) mustPut(key, value string) api.PutResponse {
 
 func (c *client) mustGet(key string) api.RangeResponse {
 	c.tb.Helper()
-	out, resp, err := c.get(key)
+	out, resp, err := c.tryGet(key)
 	require.NoError(c.tb, err, "GET %s failed", key)
 	require.Equal(c.tb, 200, resp.StatusCode, "GET %s failed: %s", key, readBody(resp))
 	return out
@@ -114,7 +114,7 @@ func (c *client) mustGetVal(key, expectedValue string) {
 func (c *client) waitGetVal(key, expectedValue string, timeout time.Duration) {
 	c.tb.Helper()
 	require.Eventually(c.tb, func() bool {
-		out, resp, err := c.get(key)
+		out, resp, err := c.tryGet(key)
 		if err != nil {
 			return false
 		}
@@ -155,4 +155,25 @@ func (c *client) waitReady(timeout time.Duration) {
 		code, err := c.readyz()
 		return err == nil && code == 200
 	}, timeout, timeout/10, "service not ready after %s", timeout.String())
+}
+
+func (c *client) waitLeaderChanged(oldLeaderID string, timeout time.Duration) string {
+	c.tb.Helper()
+	var newLeaderID string
+	require.Eventually(c.tb, func() bool {
+		stats, status, err := c.stats()
+		if err != nil {
+			return false
+		}
+		if status != http.StatusOK {
+			return false
+		}
+		id := stats["leader_id"]
+		if id == "" || id == oldLeaderID {
+			return false
+		}
+		newLeaderID = id
+		return true
+	}, timeout, 2*time.Second, "leader did not change from %s within %s", oldLeaderID, timeout)
+	return newLeaderID
 }
