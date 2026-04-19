@@ -1465,7 +1465,7 @@ func Test_Integration_Stress_ReadWriteMix(t *testing.T) {
 				key := fmt.Sprintf("mix-%d-%d", writerID, j)
 				status := do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte(key), Value: []byte("val")}, nil)
 				if status != http.StatusOK {
-					writerErrCh <- fmt.Errorf("writer %d failed on key %s with status", writerID, key, status)
+					writerErrCh <- fmt.Errorf("writer %d failed on key %s with status %d", writerID, key, status)
 				}
 			}
 		}(i)
