@@ -33,6 +33,7 @@
 	},
 	"type": "module",
 	"dependencies": {
-		"@noble/curves": "^2.2.0"
+		"@noble/curves": "^2.2.0",
+		"@sveltejs/adapter-static": "^3.0.10"
 	}
 }
