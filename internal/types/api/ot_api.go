@@ -1,7 +1,7 @@
 package api
 
 type OTWriteAllRequest struct {
-	Blob []byte
+	Blob []byte `json:"blob"`
 }
 
 // Only here for future proofing and to adhere to the packages conversions
@@ -31,7 +31,7 @@ type OTInitResponseNoHeader struct {
 
 type OTTransferRequest struct {
 	Token        []byte `json:"token"`
-	PointB       []byte `json:"point_B"`
+	PointB       []byte `json:"point_b"`
 	Serializable bool   `json:"serializable"`
 }
 
