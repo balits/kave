@@ -3,7 +3,7 @@ import * as kv from './kv';
 
 export class KaveClient {
 	constructor(
-		private readonly baseURL: string,
+		public readonly baseURL: string,
 		public readonly otOptions: otlib.OTOptions
 	) {}
 

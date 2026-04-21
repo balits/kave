@@ -205,7 +205,7 @@ export interface OTWriteAllResponse {
 	header: ResponseHeader;
 }
 
-export type OTInitRequest = unknown
+export type OTInitRequest = unknown;
 export interface OTInitResponse {
 	header: ResponseHeader;
 	point_a: Uint8Array;
@@ -230,7 +230,22 @@ export interface OTFetchResult {
 }
 
 export interface KaveStats {
-	[key: string]: string;
+	state: string;
+	term: number;
+	last_log_index: number;
+	last_log_term: number;
+	commit_index: number;
+	applied_index: number;
+	fsm_pending: number;
+	last_snapshot_index: number;
+	last_snapshot_term: number;
+	protocol_version: number;
+	protocol_version_min: number;
+	protocol_version_max: number;
+	snapshot_version_min: number;
+	snapshot_version_max: number;
+	leader_id: string;
+	leader_addr: string;
 }
 
 export function b64ToStr(bs: string): string {

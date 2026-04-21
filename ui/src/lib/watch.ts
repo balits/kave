@@ -1,4 +1,5 @@
 import { decodeEntry } from './kv';
+import { strToB64 } from './kv';
 import type { RawEntry, Entry } from './kv';
 
 const WATCH_SUBPROTOCOL = 'ws_watch_protocol';
@@ -94,6 +95,10 @@ export interface WatchClientOptions {
 
 export type WatchEventHandler = (event: WatchEvent) => void;
 
+export function toWsUrl(baseURL: string): string {
+	return baseURL.replace(/^https/, 'wss').replace(/^http/, 'ws');
+}
+
 //   const wc = new WatchClient("ws://kave.example.com/v1/watch")
 //   await wc.ready()
 //   const { watchId } = await wc.watch({ key: "foo" }, ev => console.log(ev))
@@ -117,11 +122,14 @@ export class WatchClient {
 	private readonly onErrorCallback?: (message: string) => void;
 	private readonly onCloseCallback?: () => void;
 
-	constructor(url: string, opts: WatchClientOptions = {}) {
+	constructor(
+		private readonly baseURL: string,
+		opts: WatchClientOptions = {}
+	) {
 		this.onErrorCallback = opts.onError;
 		this.onCloseCallback = opts.onClose;
 
-		this.ws = new WebSocket(url, WATCH_SUBPROTOCOL);
+		this.ws = new WebSocket(toWsUrl(baseURL), WATCH_SUBPROTOCOL);
 
 		this.connected = new Promise((resolve, reject) => {
 			this.ws.onopen = () => resolve();
@@ -146,6 +154,10 @@ export class WatchClient {
 			this.pendingCreates = [];
 			this.onCloseCallback?.();
 		};
+	}
+
+	get wsUrl(): string {
+		return toWsUrl(this.baseURL);
 	}
 
 	// esolves when the WebSocket handshake is complete.
