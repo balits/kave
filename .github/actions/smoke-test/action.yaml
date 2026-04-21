@@ -75,7 +75,8 @@ runs:
 
     - name: Run smoke tests
       env:
-        KUBECONFIG: ${{ env.KUBECONFIG }}
+        # this should be the path to which kind-action export its conf
+        KUBECONFIG: /home/runner/.kube/config
         NAMESPACE: ${{ inputs.app_name }} 
         CLUSTER_SIZE: 3
         URL: "http://localhost:8080"
