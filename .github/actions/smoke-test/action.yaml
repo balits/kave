@@ -79,7 +79,7 @@ runs:
         KUBECONFIG: /home/runner/.kube/config
         NAMESPACE: ${{ inputs.app_name }} 
         CLUSTER_SIZE: 3
-        URL: "http://localhost:8080"
+        URL: "http://127.0.0.1:8080" # force IPv4
       shell: bash
       run: |
         # forwards the port in a loop to survice node kills

@@ -92,17 +92,31 @@ func (c *client) tryGet(key string) (api.RangeResponse, *http.Response, error) {
 
 func (c *client) mustPut(key, value string) api.PutResponse {
 	c.tb.Helper()
-	out, resp, err := c.tryPut(key, value)
-	require.NoError(c.tb, err, "PUT %s failed", key)
-	require.Equal(c.tb, 200, resp.StatusCode, "PUT %s failed: %s", key, readBody(resp))
+	var out api.PutResponse
+	var resp *http.Response
+	var err error
+
+	// retry bcs of network failures
+	require.Eventually(c.tb, func() bool {
+		out, resp, err = c.tryPut(key, value)
+		return err == nil && resp.StatusCode == 200
+	}, 5*time.Second, 500*time.Millisecond, "PUT %s failed repeatedly", key)
+
 	return out
 }
 
 func (c *client) mustGet(key string) api.RangeResponse {
 	c.tb.Helper()
-	out, resp, err := c.tryGet(key)
-	require.NoError(c.tb, err, "GET %s failed", key)
-	require.Equal(c.tb, 200, resp.StatusCode, "GET %s failed: %s", key, readBody(resp))
+	var out api.RangeResponse
+	var resp *http.Response
+	var err error
+
+	// retry bcs of network failures
+	require.Eventually(c.tb, func() bool {
+		out, resp, err = c.tryGet(key)
+		return err == nil && resp.StatusCode == 200
+	}, 5*time.Second, 500*time.Millisecond, "PUT %s failed repeatedly", key)
+
 	return out
 }
 
