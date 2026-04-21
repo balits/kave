@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/balits/kave/internal/command"
 	"github.com/balits/kave/internal/compaction"
 	"github.com/balits/kave/internal/config"
 	"github.com/balits/kave/internal/kv"
@@ -112,13 +113,49 @@ func _newcluster(tb testing.TB, n int, nodeConfig *config.Config, raftConfig *ra
 }
 
 func (c *cluster) run() {
+	c.connectNetworks()
+	servers := make([]raft.Server, c.n)
+
+	for i, n := range c.nodes {
+		servers[i] = raft.Server{
+			ID:       raft.ServerID(n.Me.NodeID),
+			Address:  n.Me.GetRaftAddress(),
+			Suffrage: raft.Voter,
+		}
+	}
+	cfg := raft.Configuration{Servers: servers}
+
+	for _, n := range c.nodes {
+		// testnode-0 wins, rest see existing state
+		err := n.Raft.BootstrapCluster(cfg).Error()
+		if err != nil {
+			c.tb.Fatalf("failed to run cluster: failed to bootstrap cluster %v", err)
+		}
+	}
+
 	for i, n := range c.nodes {
 		go func(ctx context.Context) {
 			_ = n.Run(ctx)
 		}(c.nodeContexts[i])
 	}
-	c.connectNetworks()
 	c.waitClusterReady(10 * time.Second)
+
+	leader, _ := c.waitLeader(5 * time.Second)
+	_, err := leader.ProposeFunc(c.ctx, command.Command{Kind: command.KindOTGenerateClusterKey})
+	require.NoError(c.tb, err)
+	rtx := leader.Backend.ReadTx()
+	rtx.RLock()
+	require.NoError(c.tb, leader.OtManager.UnsafeInitTokenCodec(rtx))
+	rtx.RUnlock()
+
+	// Wait for replication, then init codec on ALL nodes
+	time.Sleep(200 * time.Millisecond)
+	for _, n := range c.nodes {
+		rtx := n.Backend.ReadTx()
+		rtx.RLock()
+		require.NoError(c.tb, n.OtManager.UnsafeInitTokenCodec(rtx))
+		rtx.RUnlock()
+	}
 }
 
 func (c *cluster) waitLeader(timeout time.Duration) (*node.Node, int) {
@@ -180,7 +217,7 @@ func (c *cluster) waitClusterReady(timeout time.Duration) {
 		}
 
 		for i := range c.n {
-			if http.StatusOK != c.requireReady(i) {
+			if s, err := c.tryReady(i); err != nil || s != http.StatusOK {
 				return false
 			}
 		}
