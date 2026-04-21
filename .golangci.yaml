@@ -1,6 +1,9 @@
 version: "2"
 run:
   go: "1.26"
+  build-tags:
+    - smoke
+    - stress
 linters:
   exclusions:
    rules:
