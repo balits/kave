@@ -1036,9 +1036,7 @@ func Test_Integration_Snapshot_NodeCatchesUpViaSnapshot(t *testing.T) {
 	c.restartNode(followerIdx)
 
 	fw := c.nodes[followerIdx]
-	require.Eventually(t, func() bool {
-		return c.pollReady(followerIdx) == http.StatusOK
-	}, 15*time.Second, 100*time.Millisecond, "follower failed to become ready and load snapshot")
+	c.waitReady(followerIdx)
 
 	for i := range 50 {
 		key := fmt.Sprintf("snap-key-%d", i)

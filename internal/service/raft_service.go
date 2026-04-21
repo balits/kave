@@ -124,13 +124,22 @@ func (rs *raftSvc) AddToCluster(ctx context.Context, req transport.JoinRequest) 
 	raftConfig := configFut.Configuration()
 	for _, node := range raftConfig.Servers {
 		if string(node.ID) == req.Peer.NodeID {
+			if node.Address == req.Peer.GetRaftAddress() {
+				rs.logger.WithGroup("peer").
+					Info("Peer is already a member",
+						"id", req.Peer.NodeID,
+						"raft_addr", req.Peer.GetRaftAddress(),
+					)
+				return nil
+			}
+			// same id, different address -> AddVoter update it
 			rs.logger.WithGroup("peer").
-				Info("Peer is already a member",
+				Info("Peer re-joining with new address",
 					"id", req.Peer.NodeID,
-					"hostname", req.Peer.Hostname,
-					"raft_addr", req.Peer.GetRaftAddress(),
+					"old_addr", node.Address,
+					"new_addr", req.Peer.GetRaftAddress(),
 				)
-			return nil
+			break
 		}
 	}
 

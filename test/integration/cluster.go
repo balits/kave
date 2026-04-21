@@ -367,7 +367,7 @@ func (c *cluster) requireReady(i int) int {
 	return resp.StatusCode
 }
 
-func (c *cluster) pollReady(i int) int {
+func (c *cluster) tryReady(i int) (int, error) {
 	if i < 0 || i >= len(c.nodes) {
 		c.tb.Fatalf("tried to access node %d, lenght is %d", i, len(c.nodes))
 	}
@@ -375,17 +375,22 @@ func (c *cluster) pollReady(i int) int {
 	url := c.nodes[i].Me.HttpURL()
 	resp, err := http.Get(url + "/readyz")
 	if err != nil {
-		return 500
+		return 0, err
 	}
 	defer func() {
 		_ = resp.Body.Close()
 	}()
-	return resp.StatusCode
+	return resp.StatusCode, nil
 }
 
 func (c *cluster) waitReady(i int) {
-	require.Eventually(c.tb, func() bool { return c.pollReady(i) == http.StatusOK },
-		15*time.Second, 500*time.Millisecond, "node failed to become ready")
+	require.Eventually(c.tb, func() bool {
+		s, err := c.tryReady(i)
+		if err != nil {
+			return false
+		}
+		return s == http.StatusOK
+	}, 15*time.Second, 500*time.Millisecond, "node failed to become ready")
 }
 
 func defaultNodeConfig() *config.Config {
