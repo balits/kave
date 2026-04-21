@@ -40,4 +40,4 @@ bin/
 # testdata related files and directories
 testdata/
 
-.kube
+civo-kave-kubeconfig

@@ -16,6 +16,10 @@ runs:
     - name: Install helm
       uses: azure/setup-helm@v4
 
+    - name: Lint helm chart
+      shell: bash
+      run: make helm-lint
+
     - name: Configure kubeconfig
       shell: bash
       run: |
@@ -26,6 +30,7 @@ runs:
 
     - name: Upgrading helm chart
       shell: bash
+      # sets .values.traefik.enabled = true
       run: make helm-upgrade-install
     
     - name: Wait until cluster is ready (pods are running, all nodes are ready, quorom is formed)

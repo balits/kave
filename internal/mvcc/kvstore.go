@@ -84,8 +84,9 @@ func (s *KvStore) Meta() (currentRev kv.Revision, compactedRev int64, logIndex, 
 func (s *KvStore) NewWriter() Writer {
 	// locks gets released in writer.End()
 	s.rwlock.RLock()
-	w := newWriter(s, s.backend.WriteTx(), s.currentRev)
-	w.writeTx.Lock()
+	wtx := s.backend.WriteTx()
+	wtx.Lock()
+	w := newWriter(s, wtx, s.currentRev)
 	return w
 }
 

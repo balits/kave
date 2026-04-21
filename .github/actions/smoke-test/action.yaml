@@ -30,37 +30,24 @@ runs:
     - name: Verify kubectl is installed
       shell: bash
       run: kubectl version --client
-
-    - name: Install Kind
-      shell: bash
-      run: |
-        KIND_VERSION=v0.31.0
-        curl -sSLo /usr/local/bin/kind \
-          "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
-        chmod +x /usr/local/bin/kind
-        kind version
     
     - name: Install Helm
-      shell: bash
-      run: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      uses: azure/setup-helm@v5.0.0
 
-    # this should set KUBECONFIG
-    - name: Create Kind cluster
-      shell: bash
-      run: kind create cluster --name ${{ inputs.app_name }}
-  
-    # so we can pull image in next step(s)
-    - name: Log in to GHCR
-      shell: bash
-      run: |
-        echo "${{ inputs.github_token }}" | docker login ${{ inputs.image_registry }} \
-          -u ${{ github.actor }} --password-stdin
-  
+    # this should set KUBECONFIG inside the smoke job,
+    - name: Create kind cluster
+      uses: helm/kind-action@v1
+      with:
+        cluster_name: ${{ inputs.app_name }}
+
     - name: Pull and load image into kind
       shell: bash
+      env:
+        IMAGE: ${{ inputs.image_registry }}/${{ inputs.image_repo }}:${{ inputs.image_tag }}
       run: |
-        IMAGE=${{ inputs.image_registry }}/${{ inputs.image_repo }}:${{ inputs.image_tag }}
-        docker pull $IMAGE; \
+        echo "${{ inputs.github_token }}" | \
+           docker login ${{ inputs.image_registry }} -u ${{ github.actor }} --password-stdin
+        docker pull $IMAGE
         kind load docker-image $IMAGE --name ${{ inputs.app_name }}
 
     - name: Install Helm Chart
@@ -81,30 +68,24 @@ runs:
           --wait \
           --timeout=3m
 
-    - name: Export kind kubeconfig
-      shell: bash
-      run: |
-        KUBECONFIG_PATH=/tmp/kind-kubeconfig-${{ inputs.app_name }}.yaml
-        kind get kubeconfig --name ${{ inputs.app_name }} > $KUBECONFIG_PATH
-
     - name: Run smoke tests
+      env:
+        # the tests will pick up the KUBECONFIG set by the previous helm/action-kind
+        # KUBECONFIG: "$KUBECONFIG_PATH"
+        NAMESPACE: ${{ inputs.app_name }} 
+        CLUSTER_SIZE: 3
+        URL: "http://localhost:8080"
       shell: bash
       run: |
-        KUBECONFIG_PATH=/tmp/kind-kubeconfig-${{ inputs.app_name }}.yaml
-
+        # forwards the port in a loop to survice node kills
         (while true; do
           kubectl port-forward svc/${{ inputs.app_name }}-external 8080:80 \
-            --namespace ${{ inputs.app_name }} \
-            --kubeconfig "$KUBECONFIG_PATH" > /dev/null 2>&1
+            --namespace ${{ inputs.app_name }} > /dev/null 2>&1
           sleep 1
         done) &
         LOOP_PID=$!
         sleep 5
 
-        KUBECONFIG="$KUBECONFIG_PATH" \
-        NAMESPACE=${{ inputs.app_name }} \
-        CLUSTER_SIZE=3 \
-        URL=http://localhost:8080 \
         go test ./test/smoke/... -v -count=1 --timeout 5m
         TEST_RESULT=$?
 
@@ -115,17 +96,12 @@ runs:
       if: failure()
       shell: bash
       run: |
-        KUBECONFIG_PATH=/tmp/kind-kubeconfig-${{ inputs.app_name }}.yaml \
-        kubectl get pods -n ${{ inputs.app_name }} \
-          --kubeconfig $KUBECONFIG_PATH
+        kubectl get pods -n ${{ inputs.app_name }}
         
         for pod in $(kubectl get pods -n ${{ inputs.app_name }} \
-            --kubeconfig $KUBECONFIG_PATH \
             -o jsonpath='{.items[*].metadata.name}'); do
           echo "===== logs for pod $pod ====="
-          kubectl logs "$pod" -n ${{ inputs.app_name }} \
-            --kubeconfig $KUBECONFIG_PATH \
-            --tail=100 || true
+          kubectl logs "$pod" -n ${{ inputs.app_name }} --tail=100 || true
         done
 
 

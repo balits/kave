@@ -4,14 +4,6 @@
 {{ .Chart.Name }}
 {{- end }}
 
-{{- define "kave.headlessServiceName" -}}
-{{ .Chart.Name }}-headless
-{{- end }}
-
-{{- define "kave.externalServiceName" -}}
-{{ .Chart.Name }}-external
-{{- end }}
-
 {{- define "kave.image" -}}
 {{- if not .Values.image.tag -}}
 {{- fail "image.tag must be set explicitly with --set image.tag=<sha>|latest" -}}

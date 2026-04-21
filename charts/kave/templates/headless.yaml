@@ -5,7 +5,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "kave.headlessServiceName" . }}
+  name: {{ .Values.serviceConfig.headlessService.name }}
   labels:
     {{- include "kave.labels" . | nindent 4  }}
 spec:

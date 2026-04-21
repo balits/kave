@@ -2,7 +2,7 @@ KAVE = kave
 APP_NAME = $(KAVE)
 NAMESPACE = $(APP_NAME)
 CHART = ./charts/kave
-KUBECONFIG ?= .kube/config
+KUBECONFIG ?= civo-kave-kubeconfig # overriden on github actions
 
 DOCKERFILE = docker/Dockerfile
 COMPOSE3 = docker-compose3.yaml
@@ -132,18 +132,29 @@ helm-lint: ## Lint for mistakes
 
 helm-uninstall:
 	@echo ">> uninstalling chart: ${APP_NAME}..."
-	helm uninstall kave -n kave --ignore-not-found --kubeconfig .kube/config
+	helm uninstall kave -n kave --ignore-not-found --kubeconfig $(KUBECONFIG)
 
 helm-upgrade-install:
 	@echo ">> upgrading/installing chart: ${APP_NAME}..."
-	helm upgrade $(APP_NAME) $(CHART) --install --namespace $(NAMESPACE)
+	helm upgrade $(APP_NAME) $(CHART) --install \
+		--kubeconfig $(KUBECONFIG) \
+		--namespace $(NAMESPACE) \
+		--create-namespace \
+		--set traefik.enabled=true \
+		--wait \
+		--timeout 3m
+
+helm-upgrade-install-no-traefik:
+	@echo ">> upgrading/installing chart: ${APP_NAME}..."
+	helm upgrade $(APP_NAME) $(CHART) --install --namespace $(NAMESPACE) \
+		--kubeconfig $(KUBECONFIG) \
 		--create-namespace \
 		--wait \
 		--timeout 3m
 
 local-helm-recreate:
 	$(MAKE) helm-uninstall
-	$(MAKE) helm-upgrade-install
+	$(MAKE) helm-upgrade-install-no-traefik
 
 gh-ci:
 	gh workflow run ci.yaml --ref feature/ci
@@ -175,10 +186,15 @@ wipe-recreate-cluster: ## Wipe and redeploy helm chart
 
 wait-cluster-ready:
 	@echo ">> 1. waiting on rollout status"
-	kubectl rollout status statefulset/kave-voter -n $(NAMESPACE) --timeout=3m
+	kubectl rollout status statefulset/kave-voter \
+		--namespace $(NAMESPACE) \
+		--kubeconfig $(KUBECONFIG) \
+		--timeout=3m
 
 	@echo ">> 2. printing final pod state"
-	kubectl get pods -n $(NAMESPACE)
+	kubectl get pods \
+		--namespace $(NAMESPACE) \
+		--kubeconfig $(KUBECONFIG)
 
 k9s:
 	./bin/k9s --kubeconfig .kube/config 
@@ -186,5 +202,8 @@ fmt:
 	./bin/golangci-lint fmt
 lint:
 	./bin/golangci-lint run
+
+loc: ## prints total lines of code
+	git ls-files | xargs wc -l
 
 .PHONY: build build-img up3 down3 up3build test test-race kluster-create, kluster-verify helm-validate helm-lint helm-uninstall gh-ci

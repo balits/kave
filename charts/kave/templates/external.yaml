@@ -7,7 +7,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "kave.externalServiceName" . }}
+  name: {{ .Values.serviceConfig.externalService.name }}
   labels:
     {{- include "kave.labels" . | nindent 4 }}
 spec:
@@ -17,6 +17,6 @@ spec:
     kave/role: voter   # only route to voters, not learners
   ports:
     - name: http
-      port: 80
+      port: {{ .Values.serviceConfig.externalService.port }}
       targetPort: http
       protocol: TCP

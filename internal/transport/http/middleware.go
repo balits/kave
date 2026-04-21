@@ -165,6 +165,23 @@ func (s *HttpServer) requestLoggingMiddleware(next http.HandlerFunc) http.Handle
 	}
 }
 
+// corsMuxMiddleware sets general CORS headers on the servers Multiplexer,
+// instead of sprinkling it on individual routes.
+func (s *HttpServer) corsMuxMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.logger.Info(fmt.Sprintf("cors middleware: request.method=%s, request.url=%s", r.Method, r.URL.Path))
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			s.logger.Warn("cors middleware: method OPTIONS -> response_status=NoContent")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 type statusCodeInterceptor struct {
 	w          http.ResponseWriter
 	statusCode int

@@ -115,9 +115,9 @@ func (w *writer) Put(key []byte, value []byte, leaseID int64) error {
 
 func (w *writer) put(key, value []byte, leaseID int64) error {
 	nextRev := w.startRev.Main + 1
-	createRev := nextRev // create revision defaults to this nextRev
-
-	// Check if key already exists — reuse its create revision
+	createRev := nextRev
+	// create revision defaults to nextRev
+	// or existings keys createrRev
 	created, _, version, err := w.store.kvIndex.Get(key, nextRev)
 	if err == nil {
 		createRev = created.Main

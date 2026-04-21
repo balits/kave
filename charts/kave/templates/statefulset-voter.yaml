@@ -14,7 +14,7 @@ metadata:
     {{- include "kave.labels" . | nindent 4 }}
     kave/role: voter
 spec:
-  serviceName: {{ include "kave.headlessServiceName" . }}
+  serviceName: {{ .Values.serviceConfig.headlessService.name }}
   replicas: {{ .Values.voters.replicas }}
   # podManagementPolicy: OrderedReady
   podManagementPolicy: Parallel # needed otherwise kave-voter-0 will not see any other nodes during peer discovery
@@ -50,7 +50,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: POD_FQDN
-              value: $(POD_NAME).{{ include "kave.headlessServiceName" . }}.$(POD_NAMESPACE).svc.cluster.local
+              value: $(POD_NAME).{{ .Values.serviceConfig.headlessService.name }}.$(POD_NAMESPACE).svc.cluster.local
             - name: RAFT_PORT
               value: {{ .Values.ports.raft | quote }}
             - name: HTTP_PORT

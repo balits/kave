@@ -39,7 +39,13 @@ config:
     write: 
       rps: 100
       burst: 300
-        
+
+serviceConfig:
+  externalService:
+    port: 80
+    name: "kave-external"
+  headlessService:
+    name: "kave-headless"
 
 storage:
   size: 20Gi #out of 40 on a small civo vm

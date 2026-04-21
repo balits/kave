@@ -114,10 +114,10 @@ func NewHTTPServer(
 		watchHub:   watchHub,
 		logger:     logger.With("component", "http_server", "addr", advAddr),
 		rootLogger: logger,
-		server: &http.Server{
-			Addr:    listenAddr,
-			Handler: mux,
-		},
+	}
+	s.server = &http.Server{
+		Addr:    listenAddr,
+		Handler: s.corsMuxMiddleware(mux),
 	}
 
 	// TODO(ratelimiter): run real benchmarks to determine rps and burst: something around 75% of peak capacity
@@ -158,10 +158,12 @@ func NewHTTPServer(
 	mux.HandleFunc("POST "+RouteCompactionTrigger, s.writeChain(s.handleCompactionTrigger))
 
 	// health / debug
-	mux.HandleFunc("GET "+RouteStats, s.handleStats)                                  // stats
-	mux.Handle("GET "+RouteMetrics, promhttp.HandlerFor(reg, promhttp.HandlerOpts{})) // prometheus metrics
-	mux.HandleFunc("GET "+RouteLivez, s.handleLivez)                                  // k8s /livez
-	mux.HandleFunc("GET "+RouteReadyz, s.handleReadyz)                                // k8s /readyz
+	mux.HandleFunc("GET "+RouteStats, s.handleStats)         // stats
+	mux.HandleFunc("GET "+RouteLivez, s.handleLivez)         // k8s /livez
+	mux.HandleFunc("GET "+RouteReadyz, s.handleReadyz)       // k8s /readyz
+	mux.Handle("GET "+RouteMetrics, promhttp.HandlerFor(reg, // prometheus metrics
+		promhttp.HandlerOpts{},
+	))
 
 	return s
 }
@@ -486,7 +488,8 @@ func (s *HttpServer) handleReadyz(w http.ResponseWriter, r *http.Request) {
 
 func (s *HttpServer) handleWatch(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		Subprotocols: []string{watch.WatchSubprotocol},
+		Subprotocols:   []string{watch.WatchSubprotocol},
+		OriginPatterns: []string{"*"}, // for the frontend, might be risky
 	})
 
 	if err != nil {

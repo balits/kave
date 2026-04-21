@@ -152,3 +152,28 @@ func Test_ReadMiddleware_BadJSON_Returns400(t *testing.T) {
 	resp := ts.do(http.MethodGet, RouteKvRange, map[string]string{"bad": "json"})
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
+
+func Test_CORSMiddleware_Preflight_Returns204(t *testing.T) {
+	ts := newTestServer(t, true)
+	req := httptest.NewRequest(http.MethodOptions, RouteKvPut, nil)
+	w := httptest.NewRecorder()
+	ts.srv.Config.Handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNoContent, w.Code)
+	require.Equal(t, "*", w.Header().Get("Access-Control-Allow-Origin"))
+}
+
+func Test_CORSMiddleware_HeadersPresentOnNormalRequest(t *testing.T) {
+	ts := newTestServer(t, true)
+	resp := ts.do(http.MethodGet, "/stats", nil)
+	require.Equal(t, "*", resp.Header.Get("Access-Control-Allow-Origin"))
+	require.Contains(t, resp.Header.Get("Access-Control-Allow-Methods"), "POST")
+}
+
+func Test_CORSMiddleware_Preflight_DoesNotInvokeHandler(t *testing.T) {
+	ts := newTestServer(t, true)
+	ts.raftService.ErrLeader = fmt.Errorf("no quorum") // would cause 503 if handler ran
+	req := httptest.NewRequest(http.MethodOptions, RouteKvPut, nil)
+	w := httptest.NewRecorder()
+	ts.srv.Config.Handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNoContent, w.Code)
+}
