@@ -31,6 +31,11 @@ runs:
       shell: bash
       run: kubectl version --client
     
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+        cache: true
+    
     - name: Install Helm
       uses: azure/setup-helm@v5.0.0
 
@@ -70,8 +75,7 @@ runs:
 
     - name: Run smoke tests
       env:
-        # the tests will pick up the KUBECONFIG set by the previous helm/action-kind
-        # KUBECONFIG: "$KUBECONFIG_PATH"
+        KUBECONFIG: ${{ env.KUBECONFIG }}
         NAMESPACE: ${{ inputs.app_name }} 
         CLUSTER_SIZE: 3
         URL: "http://localhost:8080"
