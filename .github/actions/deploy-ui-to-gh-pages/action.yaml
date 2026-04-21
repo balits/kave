@@ -1,10 +1,27 @@
 name: Deploy to Github Pages
 description: Deploys the ui of the key-value store to github pages
 
+inputs:
+  cluster_url:
+    required: true
+    description: url of the k8s cluster, supplied to the frontend kv client
+  kave_ot_slot_size:
+    required: true
+    description: slot size of the OT api 
+  kave_ot_slot_count:
+    required: true
+    description: slot count of the OT api 
+
+outputs:
+  page_url:
+    description: url of the deployed site
+    value: ${{ steps.deploy-gh-pages.outputs.page_url }}
+
 runs:
   using: composite
   steps:
-    # - name: Checkout should be done in the workflow prior to calling the action
+    # - name: checkout should be done in the workflow prior to calling the action
+
     - name: Install bun
       uses: oven-sh/setup-bun@v2
 
@@ -15,6 +32,9 @@ runs:
     - name: Build site
       env:
         BASE_PATH: "/${{ github.event.repository.name }}"
+        KAVE_CLUSTER_URL: ${{ inputs.cluster_url }}
+        KAVE_OT_SLOT_SIZE: ${{ inputs.kave_ot_slot_size }}
+        KAVE_OT_SLOT_COUNT: ${{ inputs.kave_ot_slot_count }}
       shell: bash
       run: bun run build --cwd=./ui
 
@@ -24,6 +44,7 @@ runs:
         path: "ui/build/"
 
     - name: Deploy to Github Pages        
+      id: deploy-gh-pages
       uses: actions/deploy-pages@v4
         
 

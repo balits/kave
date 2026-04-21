@@ -53,7 +53,7 @@ test-unit:
 	go test -v ./internal/... --timeout=90s
 
 test-integ:
-	go test ./test/integration/... --timeout 5m -p 1
+	go test ./test/integration/... --timeout 5m -p 1 --tags=stress
 
 test-smoke:
 	@echo "> 1.1 init: deleting previous Kind cluster..."
