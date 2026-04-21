@@ -9,7 +9,10 @@ const config = {
 	kit: {
 		adapter: adapter({
 			fallback: ''
-		})
+		}),
+		paths: {
+			base: process.env.BASE_PATH || ''
+		}
 	}
 };
 

@@ -1,235 +1,250 @@
 export class KaveError extends Error {
-    constructor(
-        message: string,
-        public readonly cause?: string | undefined,
-        public readonly status?: number | undefined,
-    ) {
-        super(message)
-        this.name = "KaveError"
-    }
+	constructor(
+		message: string,
+		public readonly cause?: string | undefined,
+		public readonly status?: number | undefined
+	) {
+		super(message);
+		this.name = 'KaveError';
+	}
 }
 
 // api types
 export interface ResponseHeader {
-    revision: number
-    compacted_revision: number
-    node_id: string
-    raft_term: number
-    raft_index: number
+	revision: number;
+	compacted_revision: number;
+	node_id: string;
+	raft_term: number;
+	raft_index: number;
 }
 
 // Decoded entry with plain strings as fields
 export interface Entry {
-    key: string
-    value: string
-    create_revision: number
-    mod_revision: number
-    version: number
-    lease_id: number
+	key: string;
+	value: string;
+	create_revision: number;
+	mod_revision: number;
+	version: number;
+	lease_id: number;
 }
 
 // Raw entry that arrives over the network, b64 encoded strings
 export interface RawEntry {
-    key: string
-    value: string
-    create_revision: number
-    mod_revision: number
-    version: number
-    lease_id?: number
+	key: string;
+	value: string;
+	create_revision: number;
+	mod_revision: number;
+	version: number;
+	lease_id?: number;
 }
 
 export function decodeEntry(raw: RawEntry): Entry {
-    return {
-        key: b64ToStr(raw.key),
-        value: raw.value ? b64ToStr(raw.value) : "", // tombstones -> empty value
-        create_revision: raw.create_revision,
-        mod_revision: raw.mod_revision,
-        version: raw.version,
-        lease_id: raw.lease_id ?? 0,
-    }
+	return {
+		key: b64ToStr(raw.key),
+		value: raw.value ? b64ToStr(raw.value) : '', // tombstones -> empty value
+		create_revision: raw.create_revision,
+		mod_revision: raw.mod_revision,
+		version: raw.version,
+		lease_id: raw.lease_id ?? 0
+	};
 }
 
 export interface PutOptions {
-    leaseId?: number
-    prevEntry?: boolean
-    ignoreValue?: boolean
-    ignoreLease?: boolean
+	leaseId?: number;
+	prevEntry?: boolean;
+	ignoreValue?: boolean;
+	ignoreLease?: boolean;
 }
 
 export interface PutResponse {
-    header: ResponseHeader
-    prev_entry?: Entry
+	header: ResponseHeader;
+	prev_entry?: Entry;
 }
 
 export interface RangeOptions {
-    end?: string
-    limit?: number
-    revision?: number
-    serializable?: boolean
-    prefix?: boolean
-    countOnly?: boolean
+	end?: string;
+	limit?: number;
+	revision?: number;
+	serializable?: boolean;
+	prefix?: boolean;
+	countOnly?: boolean;
 }
 
 export interface RangeResponse {
-    header: ResponseHeader
-    entries: Entry[]
-    count: number
+	header: ResponseHeader;
+	entries: Entry[];
+	count: number;
 }
 
 export interface DeleteOptions {
-    end?: string
-    prevEntries?: boolean
+	end?: string;
+	prevEntries?: boolean;
 }
 
 export interface DeleteResponse {
-    header: ResponseHeader
-    num_deleted: number
-    prev_entries?: Entry[]
+	header: ResponseHeader;
+	num_deleted: number;
+	prev_entries?: Entry[];
 }
 
-export type ComparisonOperator = "=" | "!=" | ">" | ">=" | "<" | "<="
-export type CompareTargetField = "VALUE" | "CREATE" | "MOD" | "VERSION"
+export type ComparisonOperator = '=' | '!=' | '>' | '>=' | '<' | '<=';
+export type CompareTargetField = 'VALUE' | 'CREATE' | 'MOD' | 'VERSION';
 
 export interface CompareTargetValue {
-    value?: string      // plain string here then base64 to the wire
-    create_revision?: number
-    mod_revision?: number
-    version?: number
+	value?: string; // plain string here then base64 to the wire
+	create_revision?: number;
+	mod_revision?: number;
+	version?: number;
 }
 
 export interface Comparison {
-    key: string
-    operator: ComparisonOperator
-    target_field: CompareTargetField
-    target_value: CompareTargetValue
+	key: string;
+	operator: ComparisonOperator;
+	target_field: CompareTargetField;
+	target_value: CompareTargetValue;
 }
 
 export function encodeComparison(c: Comparison): unknown {
-    return {
-        key: strToB64(c.key),
-        operator: c.operator,
-        target_field: c.target_field,
-        target_value: {
-            value: c.target_value.value ? strToB64(c.target_value.value) : undefined,
-            create_revision: c.target_value.create_revision,
-            mod_revision: c.target_value.mod_revision,
-            version: c.target_value.version,
-        },
-    }
+	return {
+		key: strToB64(c.key),
+		operator: c.operator,
+		target_field: c.target_field,
+		target_value: {
+			value: c.target_value.value ? strToB64(c.target_value.value) : undefined,
+			create_revision: c.target_value.create_revision,
+			mod_revision: c.target_value.mod_revision,
+			version: c.target_value.version
+		}
+	};
 }
 
 export type TxnOp =
-    | { type: "PUT"; put: { key: string; value: string; leaseId?: number } }
-    | { type: "DEL"; delete: { key: string; end?: string } }
-    | { type: "RANGE"; range: { key: string; end?: string; revision?: number } }
-
+	| { type: 'PUT'; put: { key: string; value: string; leaseId?: number } }
+	| { type: 'DEL'; delete: { key: string; end?: string } }
+	| { type: 'RANGE'; range: { key: string; end?: string; revision?: number } };
 
 export interface TxnRequest {
-    comparisons: Comparison[]
-    success: TxnOp[]
-    failure: TxnOp[]
+	comparisons: Comparison[];
+	success: TxnOp[];
+	failure: TxnOp[];
 }
 
 export interface TxnOpResult {
-    put?: Omit<PutResponse, "header">
-    delete?: Omit<DeleteResponse, "header">
-    range?: Omit<RangeResponse, "header">
+	put?: Omit<PutResponse, 'header'>;
+	delete?: Omit<DeleteResponse, 'header'>;
+	range?: Omit<RangeResponse, 'header'>;
 }
 
 export function encodeTxnOp(op: TxnOp): unknown {
-    switch (op.type) {
-        case "PUT":
-            return {
-                type: "PUT",
-                put: {
-                    key: strToB64(op.put.key),
-                    value: strToB64(op.put.value),
-                    lease_id: op.put.leaseId ?? 0,
-                },
-            }
-        case "DEL":
-            return {
-                type: "DEL",
-                delete: {
-                    key: strToB64(op.delete.key),
-                    end: op.delete.end ? strToB64(op.delete.end) : undefined,
-                },
-            }
-        case "RANGE":
-            return {
-                type: "RANGE",
-                range: {
-                    key: strToB64(op.range.key),
-                    end: op.range.end ? strToB64(op.range.end) : undefined,
-                    revision: op.range.revision ?? 0,
-                },
-            }
-    }
+	switch (op.type) {
+		case 'PUT':
+			return {
+				type: 'PUT',
+				put: {
+					key: strToB64(op.put.key),
+					value: strToB64(op.put.value),
+					lease_id: op.put.leaseId ?? 0
+				}
+			};
+		case 'DEL':
+			return {
+				type: 'DEL',
+				delete: {
+					key: strToB64(op.delete.key),
+					end: op.delete.end ? strToB64(op.delete.end) : undefined
+				}
+			};
+		case 'RANGE':
+			return {
+				type: 'RANGE',
+				range: {
+					key: strToB64(op.range.key),
+					end: op.range.end ? strToB64(op.range.end) : undefined,
+					revision: op.range.revision ?? 0
+				}
+			};
+	}
 }
 
 export interface TxnResponse {
-    header: ResponseHeader
-    success: boolean
-    results: TxnOpResult[]
+	header: ResponseHeader;
+	success: boolean;
+	results: TxnOpResult[];
 }
 
 export interface LeaseGrantResponse {
-    // header: ResponseHeader
-    ttl: number
-    id: number
+	// header: ResponseHeader
+	ttl: number;
+	id: number;
 }
 
 export interface LeaseRevokeResponse {
-    // header: ResponseHeader
-    found: boolean
-    revoked: boolean
+	// header: ResponseHeader
+	found: boolean;
+	revoked: boolean;
 }
 
 export interface LeaseKeepAliveResponse {
-    // header: ResponseHeader
-    ttl: number
-    id: number
+	// header: ResponseHeader
+	ttl: number;
+	id: number;
 }
 
 export interface LeaseLookupResponse {
-    // header: ResponseHeader
-    id: number
-    original_ttl: number
-    remaining_ttl: number
+	// header: ResponseHeader
+	id: number;
+	original_ttl: number;
+	remaining_ttl: number;
 }
 
 export interface OTWriteAllRequest {
-    blob: string
+	blob: string;
 }
 
 export interface OTWriteAllResponse {
-    header: ResponseHeader
+	header: ResponseHeader;
 }
 
-export interface OTInitRequest {}
+export type OTInitRequest = unknown
 export interface OTInitResponse {
-    header: ResponseHeader
-    point_a: Uint8Array
-    token: Uint8Array
+	header: ResponseHeader;
+	point_a: Uint8Array;
+	token: Uint8Array;
 }
 
 export interface OTTransferRequest {
-    token: string
-    pointB: string
-    serializable?: boolean
+	token: string;
+	pointB: string;
+	serializable?: boolean;
 }
 
 export interface OTTransferResponse {
-    header: ResponseHeader
-    ciphertexts: Uint8Array[]
+	header: ResponseHeader;
+	ciphertexts: Uint8Array[];
 }
 export interface OTFetchResult {
-  point_a: Uint8Array        // server's public point
-  point_b: Uint8Array        // client's blinded choice point sent to server
-  ciphertexts: Uint8Array[] // all N encrypted slots returned by server
-  plaintext: Uint8Array     // decrypted chosen slot
+	point_a: Uint8Array; // server's public point
+	point_b: Uint8Array; // client's blinded choice point sent to server
+	ciphertexts: Uint8Array[]; // all N encrypted slots returned by server
+	plaintext: Uint8Array; // decrypted chosen slot
 }
 
 export interface KaveStats {
-    [key: string]: string
+	[key: string]: string;
+}
+
+export function b64ToStr(bs: string): string {
+	return new TextDecoder().decode(Uint8Array.from(atob(bs), (c) => c.charCodeAt(0)));
+}
+
+export function strToB64(str: string): string {
+	return btoa(String.fromCharCode(...new TextEncoder().encode(str)));
+}
+
+export function bytesToB64(bytes: Uint8Array): string {
+	return btoa(String.fromCharCode(...bytes));
+}
+
+export function b64ToBytes(b64: string): Uint8Array {
+	return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 }

@@ -1,0 +1,29 @@
+name: Deploy to Github Pages
+description: Deploys the ui of the key-value store to github pages
+
+runs:
+  using: composite
+  steps:
+    # - name: Checkout should be done in the workflow prior to calling the action
+    - name: Install bun
+      uses: oven-sh/setup-bun@v2
+
+    - name: Install dependencies
+      shell: bash
+      run: bun i --cwd=./ui
+
+    - name: Build site
+      env:
+        BASE_PATH: "/${{ github.event.repository.name }}"
+      shell: bash
+      run: bun run build --cwd=./ui
+
+    - name: Upload artifacts
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: "ui/build/"
+
+    - name: Deploy to Github Pages        
+      uses: actions/deploy-pages@v4
+        
+
