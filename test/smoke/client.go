@@ -144,7 +144,7 @@ func (c *client) waitGetVal(key, expectedValue string, timeout time.Duration) {
 	}, timeout, timeout/10, "waitGetValu: failed to get value %s for key %s in %s", expectedValue, key, timeout)
 }
 
-func (c *client) readyz() (int, error) {
+func (c *client) unsafeReadyz() (int, error) {
 	c.tb.Helper()
 	resp, err := c.httpClient.Get(c.url + _http.RouteReadyz)
 	if err != nil {
@@ -168,7 +168,7 @@ func (c *client) stats() (out map[string]string, status int, err error) {
 func (c *client) waitReady(timeout time.Duration) {
 	c.tb.Helper()
 	require.Eventually(c.tb, func() bool {
-		code, err := c.readyz()
+		code, err := c.unsafeReadyz()
 		return err == nil && code == 200
 	}, timeout, timeout/10, "service not ready after %s", timeout.String())
 }

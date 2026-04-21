@@ -85,6 +85,7 @@ runs:
         # forwards the port in a loop to survice node kills
         (while true; do
           kubectl port-forward svc/${{ inputs.app_name }}-external 8080:80 \
+            --address 127.0.0.1 \
             --namespace ${{ inputs.app_name }} > /dev/null 2>&1
           sleep 1
         done) &

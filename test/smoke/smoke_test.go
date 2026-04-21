@@ -23,9 +23,7 @@ func Test_Smoke_ClusterFormed(t *testing.T) {
 	k.printClusterInfo(false)
 
 	c := httpClient(t)
-	statuscode, err := c.readyz()
-	require.NoError(t, err, "/readyz unreachable")
-	require.Equal(t, statuscode, 200, "expected /readyz to return 200, got %d", statuscode)
+	c.waitReady(30 * time.Second)
 }
 
 func Test_Smoke_LeaderExists(t *testing.T) {
@@ -33,9 +31,7 @@ func Test_Smoke_LeaderExists(t *testing.T) {
 	k.requireClusterReady()
 
 	c := httpClient(t)
-	statuscode, err := c.readyz()
-	require.NoError(t, err)
-	require.Equal(t, statuscode, 200, "expected /readyz to return 200, got %d", statuscode)
+	c.waitReady(30 * time.Second)
 
 	stats, statuscode, err := c.stats()
 	require.NoError(t, err)
