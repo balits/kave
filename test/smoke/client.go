@@ -66,13 +66,13 @@ func (c *client) tryDo(method, path string, body any, dst any) (*http.Response, 
 	return resp, nil
 }
 
-func readBody(resp *http.Response) string {
-	if resp.Body == nil {
-		return ""
-	}
-	bs, _ := io.ReadAll(resp.Body)
-	return string(bs)
-}
+// func readBody(resp *http.Response) string {
+// 	if resp.Body == nil {
+// 		return ""
+// 	}
+// 	bs, _ := io.ReadAll(resp.Body)
+// 	return string(bs)
+// }
 
 func (c *client) tryPut(key, value string) (api.PutResponse, *http.Response, error) {
 	c.tb.Helper()
@@ -115,7 +115,7 @@ func (c *client) mustGet(key string) api.RangeResponse {
 	require.Eventually(c.tb, func() bool {
 		out, resp, err = c.tryGet(key)
 		return err == nil && resp.StatusCode == 200
-	}, 5*time.Second, 500*time.Millisecond, "PUT %s failed repeatedly", key)
+	}, 5*time.Second, 500*time.Millisecond, "GET %s failed repeatedly", key)
 
 	return out
 }
