@@ -86,7 +86,7 @@ runs:
         LOOP_PID=$!
         sleep 5
 
-        go test ./test/smoke/... -v -count=1 --timeout 5m
+        go test ./test/smoke/... -v -count=1 --timeout 5m --tags=smoke
         TEST_RESULT=$?
 
         kill -9 $LOOP_PID 2>/dev/null || true
