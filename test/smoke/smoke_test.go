@@ -33,6 +33,8 @@ func Test_Smoke_LeaderExists(t *testing.T) {
 	c := httpClient(t)
 	c.waitReady(30 * time.Second)
 
+	c.waitLeaderChanged("", 30*time.Second)
+
 	stats, statuscode, err := c.stats()
 	require.NoError(t, err)
 	require.Equal(t, statuscode, 200, "expected /stats to return 200, got %d", statuscode)
@@ -216,7 +218,8 @@ func Test_Smoke_RollingRestart(t *testing.T) {
 	k.rolloutRestart()
 	k.waitRollout(2 * time.Minute)
 	c.waitReady(30 * time.Second)
-	time.Sleep(5 * time.Second)
+
+	c.waitLeaderChanged("", 30*time.Second)
 
 	c.mustGetVal("pre-rollout", "stable")
 	c.mustPut("post-rollout", "ok")
