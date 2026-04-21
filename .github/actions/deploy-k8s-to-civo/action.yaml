@@ -1,0 +1,33 @@
+name: Deploy Kubernetes cluster
+description: Deploy k8s to civo 
+
+inputs:
+  kubeconfig_b64:
+    description: Base64 encoded kubeconfig of the civo cluster
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Verify kubectl is installed
+      shell: bash
+      run: kubectl version --client
+
+    - name: Install helm
+      uses: azure/setup-helm@v4
+
+    - name: Configure kubeconfig
+      shell: bash
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ inputs.kubeconfig_b64 }}" | base64 -d > ~/.kube/config
+        chmod 600 ~/.kube/config
+        echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
+
+    - name: Upgrading helm chart
+      shell: bash
+      run: make helm-upgrade-install
+    
+    - name: Wait until cluster is ready (pods are running, all nodes are ready, quorom is formed)
+      shell: bash
+      run: make wait-cluster-ready

@@ -25,7 +25,6 @@ jobs:
     name: Build & Push Image
     runs-on: ubuntu-latest
     needs: test 
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request'
     permissions:
       contents: read
       packages: write
@@ -43,7 +42,6 @@ jobs:
     name: Smoke test on kind cluster
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
 
@@ -59,41 +57,51 @@ jobs:
     name: Deploy to Kubernetes
     runs-on: ubuntu-latest
     needs: smoke
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
-
-      - name: Verify kubectl is installed
-        shell: bash
-        run: kubectl version --client
-
-      - name: Install helm
-        uses: azure/setup-helm@v4
-        with:
-          version: v3.14.0
-
-      - uses: ./.github/actions/set-kubeconfig
+      - name: Deploy K8S to CIVO
+        uses: "./github/actions/deploy-k8s-to-civo"
         with:
           kubeconfig_b64: ${{ secrets.KUBECONFIG_B64 }}
 
-      - name: Upgrading helm chart
-        run: make helm-upgrade-install
-      
-      - name: Wait until cluster is ready (pods are running + all nodes ready + quorom is formed)
-        run: make wait-cluster-ready
+  extract-helm-config-values:
+    name: Extract config values from the helm chart  
+    runs-on: ubuntu-latest
+    needs: deploy-k8s
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    outputs:
+      kave_ot_slot_count: ${{ steps.extract-values.kave_ot_slot_count }}
+      kave_ot_slot_size:  ${{ steps.extract-values.kave_ot_slot_size }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract values
+        id: extract-values
+        shell: bash
+        run: |
+          SLOT_COUNT=$(yq eval '.config.ot.slot_count' ./charts/kave/values.yaml)
+          SLOT_SIZE=$(yq eval '.config.ot.slot_size' ./charts/kave/values.yaml)
+          echo "kave_ot_slot_count=$SLOT_COUNT" >> $GITHUB_OUTPUT
+          echo "kave_ot_slot_size=$SLOT_SIZE" >> $GITHUB_OUTPUT
 
   deploy-ui:
     name: Deploy UI to Github Pages
     runs-on: ubuntu-latest
-    needs: deploy-k8s
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request'
+    needs: extract-helm-config-values
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       pages: write
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deploy-ui.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: ./.github/actions/deploy-ui-to-gh-pages
+        id: deploy-ui
+        with:
+          cluster_url: ${{ secrets.CIVO_CLUSTER_URL }}
+          kave_ot_slot_size: ${{ needs.extract-helm-config-values.output.kave_ot_slot_size }}
+          kave_ot_slot_count: ${{ needs.extract-helm-config-values.output.kave_ot_slot_count }}

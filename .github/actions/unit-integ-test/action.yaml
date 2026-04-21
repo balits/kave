@@ -20,4 +20,6 @@ runs:
 
     - name: Integration tests
       shell: bash
+      # stress test are flaky on github runners, they are run
+      # localy with --tags=stress
       run: go test ./test/integration/... -p 1 --timeout 5m 
