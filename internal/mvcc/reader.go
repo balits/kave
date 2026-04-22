@@ -119,9 +119,6 @@ func doRange(l *slog.Logger, kvIndex kv.Index, readTx backend.ReadTx, currRev, c
 		if entry.ModRev > lastRev {
 			lastRev = entry.ModRev
 		}
-		if entry.ModRev > lastRev {
-			lastRev = entry.ModRev
-		}
 		entries = append(entries, entry)
 	}
 

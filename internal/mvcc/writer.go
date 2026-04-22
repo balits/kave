@@ -230,26 +230,30 @@ func (w *writer) Abort() {
 }
 
 func (w *writer) End() error {
+	hasChanges := len(w.changes) != 0
 	defer func() {
 		w.writeTx.Unlock()        // release db lock
 		w.store.storeMu.RUnlock() // release store lock
+		if hasChanges {
+			w.store.metaMu.Unlock()
+		}
 	}()
 
-	if len(w.changes) != 0 {
+	if hasChanges {
 		w.store.metaMu.Lock()
 		w.store.currentRev = kv.Revision{Main: w.store.currentRev.Main + 1}
 		err := w.writeTx.UnsafePut(schema.BucketMeta, schema.KeyCurrentRevision, util.EncodeUint64(uint64(w.store.currentRev.Main)))
 		if err != nil {
 			w.store.logger.Warn("writer.End() errored: failed to persist current revision to meta bucket", "error", err)
 		}
-	}
 
-	if w.store.applyIndex > 0 {
-		if err := w.writeTx.UnsafePut(schema.BucketMeta, schema.KeyRaftApplyIndex, util.EncodeUint64(w.store.applyIndex)); err != nil {
-			w.store.logger.Warn("writer.End() errored: failed to persist raft apply index to meta bucket", "error", err)
-		}
-		if err := w.writeTx.UnsafePut(schema.BucketMeta, schema.KeyRaftTerm, util.EncodeUint64(w.store.raftTerm)); err != nil {
-			w.store.logger.Warn("writer.End() errored: failed to persist raft term to meta bucket", "error", err)
+		if w.store.applyIndex > 0 {
+			if err := w.writeTx.UnsafePut(schema.BucketMeta, schema.KeyRaftApplyIndex, util.EncodeUint64(w.store.applyIndex)); err != nil {
+				w.store.logger.Warn("writer.End() errored: failed to persist raft apply index to meta bucket", "error", err)
+			}
+			if err := w.writeTx.UnsafePut(schema.BucketMeta, schema.KeyRaftTerm, util.EncodeUint64(w.store.raftTerm)); err != nil {
+				w.store.logger.Warn("writer.End() errored: failed to persist raft term to meta bucket", "error", err)
+			}
 		}
 	}
 
@@ -258,17 +262,13 @@ func (w *writer) End() error {
 		msg := "failed to commit write tx"
 		w.store.logger.Error(msg, "error", err)
 		return fmt.Errorf("%s: %w", msg, err)
-	} else {
-		w.store.metrics.CommitedWritesTotal.Add(1)
-		w.store.metrics.TxnDurationSec.Observe(time.Since(w.startTime).Seconds())
-		w.store.metrics.PutsTotal.Add(float64(info.NewKeys))
-		w.store.metrics.DeletesTotal.Add(float64(info.DeletedKeys))
-		w.store.metrics.KeyCount.Add(float64(info.NewKeys - info.DeletedKeys))
 	}
 
-	if len(w.changes) != 0 {
-		w.store.metaMu.Unlock()
-	}
+	w.store.metrics.CommitedWritesTotal.Add(1)
+	w.store.metrics.TxnDurationSec.Observe(time.Since(w.startTime).Seconds())
+	w.store.metrics.PutsTotal.Add(float64(info.NewKeys))
+	w.store.metrics.DeletesTotal.Add(float64(info.DeletedKeys))
+	w.store.metrics.KeyCount.Add(float64(info.NewKeys - info.DeletedKeys))
 
 	return nil
 }
