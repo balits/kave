@@ -163,7 +163,6 @@
 		<div class="error-row"><span class="error-icon">✕</span><span>{subError}</span></div>
 	{/if}
 
-	<!--write panel + event log -->
 	<div class="body">
 		<!-- left: write panel -->
 		<div class="write-panel">
@@ -210,12 +209,11 @@
 				{/if}
 			</div>
 
-			<!-- explainer -->
 			<div class="explainer">
 				<span class="explainer-icon">⊙</span>
 				<span>
-					Writes here fire against the cluster immediately. If a watch is active on the same key,
-					you'll see the event appear in real time on the right.
+					Writes here fire against the cluster immediately. If you have an active subscription on
+					the same key or prefix, events will appear in the log on the right.
 				</span>
 			</div>
 		</div>
@@ -265,22 +263,6 @@
 </section>
 
 <style>
-	@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap');
-
-	:root {
-		--bg: #0c0c0e;
-		--surface: #141416;
-		--border: #222226;
-		--accent: #f0a500;
-		--accent-dim: #f0a50033;
-		--text: #e8e8e8;
-		--dim: #555;
-		--error: #e05555;
-		--mono: 'IBM Plex Mono', monospace;
-		--sans: 'IBM Plex Sans', system-ui, sans-serif;
-		--radius: 4px;
-	}
-
 	.watch {
 		display: flex;
 		flex-direction: column;
@@ -290,7 +272,6 @@
 		color: var(--text);
 	}
 
-	/* subscription bar */
 	.sub-bar {
 		display: flex;
 		align-items: flex-end;
@@ -298,6 +279,7 @@
 		padding: 16px 24px;
 		border-bottom: 1px solid var(--border);
 		flex-wrap: wrap;
+		background: var(--surface);
 	}
 
 	.sub-inputs {
@@ -341,7 +323,7 @@
 		letter-spacing: 0;
 		text-transform: none;
 		font-size: 10px;
-		color: #444;
+		color: var(--dim);
 	}
 
 	input[type='text'],
@@ -382,7 +364,6 @@
 		pointer-events: none;
 	}
 
-	/* buttons */
 	.btn-primary {
 		background: var(--accent-dim);
 		border: 1px solid var(--accent);
@@ -401,7 +382,7 @@
 	}
 	.btn-primary:hover:not(:disabled) {
 		background: var(--accent);
-		color: var(--bg);
+		color: #fff;
 	}
 	.btn-primary:disabled {
 		opacity: 0.4;
@@ -409,8 +390,8 @@
 	}
 
 	.btn-unsub {
-		background: #1a0a0a;
-		border: 1px solid #5a2020;
+		background: var(--error-bg);
+		border: 1px solid var(--error-border);
 		border-radius: var(--radius);
 		color: var(--error);
 		font-family: var(--mono);
@@ -419,9 +400,10 @@
 		letter-spacing: 0.1em;
 		padding: 8px 16px;
 		cursor: pointer;
+		transition: background 0.15s;
 	}
 	.btn-unsub:hover {
-		background: #2a1010;
+		background: #ffe4e6;
 	}
 
 	.btn-write {
@@ -461,26 +443,27 @@
 		color: var(--text);
 	}
 
-	/* active badge */
 	.active-badge {
 		display: flex;
 		align-items: center;
 		gap: 6px;
 		font-size: 11px;
-		color: #4caf60;
-		border: 1px solid #3a5a3a;
-		background: #0e1a0e;
+		color: #166534;
+		border: 1px solid var(--success);
+		background: rgba(55, 189, 141, 0.1);
 		border-radius: var(--radius);
 		padding: 6px 10px;
 	}
+
 	.dot {
 		width: 6px;
 		height: 6px;
-		background: #4caf60;
+		background: var(--success);
 		border-radius: 50%;
-		box-shadow: 0 0 4px #4caf60aa;
+		box-shadow: 0 0 4px var(--success);
 		animation: pulse 2s ease-in-out infinite;
 	}
+
 	@keyframes pulse {
 		0%,
 		100% {
@@ -491,13 +474,12 @@
 		}
 	}
 
-	/* error */
 	.error-row {
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		background: #2a1414;
-		border: 1px solid #5c2020;
+		background: var(--error-bg);
+		border: 1px solid var(--error-border);
 		border-radius: var(--radius);
 		color: var(--error);
 		font-size: 12px;
@@ -513,7 +495,6 @@
 		font-weight: 700;
 	}
 
-	/* body split */
 	.body {
 		display: grid;
 		grid-template-columns: 320px 1fr;
@@ -522,7 +503,6 @@
 		border-top: 1px solid var(--border);
 	}
 
-	/* write panel */
 	.write-panel {
 		border-right: 1px solid var(--border);
 		display: flex;
@@ -530,6 +510,7 @@
 		gap: 16px;
 		padding: 16px;
 		overflow-y: auto;
+		background: var(--surface);
 	}
 
 	.panel-title {
@@ -580,26 +561,27 @@
 		background: var(--accent-dim);
 		border-radius: 0 var(--radius) var(--radius) 0;
 		padding: 10px 12px;
-		font-family: var(--sans);
+		font-family: var(--mono);
 		font-size: 11px;
-		color: #aaa;
+		color: var(--dim);
 		line-height: 1.6;
 		display: flex;
 		gap: 8px;
 		align-items: flex-start;
 		margin-top: auto;
 	}
+
 	.explainer-icon {
 		color: var(--accent);
 		flex-shrink: 0;
 		margin-top: 1px;
 	}
 
-	/* event log */
 	.event-log {
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
+		background: var(--bg);
 	}
 
 	.log-header {
@@ -609,6 +591,7 @@
 		padding: 10px 16px;
 		border-bottom: 1px solid var(--border);
 		flex-shrink: 0;
+		background: var(--surface);
 	}
 
 	.log-empty {
@@ -629,7 +612,6 @@
 		flex-direction: column;
 	}
 
-	/* event rows */
 	.event-row {
 		display: flex;
 		align-items: baseline;
@@ -645,7 +627,7 @@
 
 	@keyframes flash {
 		from {
-			background: #1a1a10;
+			background: #fff3cd;
 		}
 		to {
 			background: transparent;
@@ -661,14 +643,14 @@
 		flex-shrink: 0;
 	}
 	.ev-put .ev-kind {
-		background: #0e1a0e;
-		color: #4caf60;
-		border: 1px solid #3a5a3a;
+		background: rgba(55, 189, 141, 0.12);
+		color: #166534;
+		border: 1px solid var(--success);
 	}
 	.ev-delete .ev-kind {
-		background: #1a0a0a;
+		background: var(--error-bg);
 		color: var(--error);
-		border: 1px solid #5a2020;
+		border: 1px solid var(--error-border);
 	}
 
 	.ev-key {
@@ -678,7 +660,7 @@
 		color: var(--dim);
 	}
 	.ev-val {
-		color: #a0d4a0;
+		color: #166534;
 		word-break: break-all;
 	}
 

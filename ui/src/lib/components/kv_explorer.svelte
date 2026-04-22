@@ -161,7 +161,7 @@
 			</div>
 		{/if}
 
-		<button class="" onclick={exec} disabled={loading}>
+		<button class="btn-exec" onclick={exec} disabled={loading}>
 			{#if loading}
 				<span class=""></span>
 			{:else}
@@ -248,7 +248,7 @@
 
 		<!-- MVCC callout shown only when reading at a past revision -->
 		{#if op === 'get' && revision > 0 && entries.length > 0}
-			<div class="mvcc-note?">
+			<div class="mvcc-note">
 				You are reading a snapshot at revision <strong>{revision}</strong>. The store is
 				append-only, meaning new changes dont mutate previous state. Increment the revision to walk
 				forward through history.
@@ -256,3 +256,311 @@
 		{/if}
 	{/if}
 </section>
+
+<style>
+	section {
+		display: flex;
+		flex-direction: column;
+		gap: 0;
+		font-family: var(--mono);
+		background: var(--bg);
+		color: var(--text);
+		height: 100%;
+	}
+
+	.tabs {
+		display: flex;
+		border-bottom: 1px solid var(--border);
+		background: var(--surface);
+		flex-shrink: 0;
+	}
+
+	.tab {
+		background: none;
+		border: none;
+		border-bottom: 2px solid transparent;
+		color: var(--dim);
+		font-family: var(--mono);
+		font-size: 11px;
+		font-weight: 600;
+		letter-spacing: 0.1em;
+		padding: 10px 18px;
+		cursor: pointer;
+		margin-bottom: -1px;
+		transition:
+			color 0.12s,
+			border-color 0.12s;
+	}
+	.tab:hover {
+		color: var(--text);
+	}
+	.tab.active {
+		color: var(--accent);
+		border-bottom-color: var(--accent);
+	}
+
+	.form {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		padding: 20px 24px;
+		background: var(--surface);
+		border-bottom: 1px solid var(--border);
+	}
+
+	.field {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	label {
+		font-size: 11px;
+		font-weight: 500;
+		letter-spacing: 0.08em;
+		color: var(--dim);
+		text-transform: uppercase;
+	}
+
+	.hint {
+		font-weight: 400;
+		letter-spacing: 0;
+		text-transform: none;
+		font-size: 10px;
+		color: var(--dim);
+	}
+
+	input[type='text'],
+	input:not([type='checkbox']):not([type='number']),
+	input[type='number'] {
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		color: var(--text);
+		font-family: var(--mono);
+		font-size: 13px;
+		padding: 8px 12px;
+		outline: none;
+		transition: border-color 0.15s;
+		width: 100%;
+		box-sizing: border-box;
+	}
+	input:focus {
+		border-color: var(--accent);
+	}
+
+	.checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 12px;
+		color: var(--dim);
+		cursor: pointer;
+		text-transform: none;
+		letter-spacing: 0;
+	}
+
+	.btn-exec {
+		align-self: flex-start;
+		background: var(--accent-dim);
+		border: 1px solid var(--accent);
+		border-radius: var(--radius);
+		color: var(--accent);
+		font-family: var(--mono);
+		font-size: 11px;
+		font-weight: 600;
+		letter-spacing: 0.12em;
+		padding: 9px 24px;
+		cursor: pointer;
+		transition:
+			background 0.15s,
+			color 0.15s;
+		min-width: 100px;
+	}
+	.btn-exec:hover:not(:disabled) {
+		background: var(--accent);
+		color: #fff;
+	}
+	.btn-exec:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.error-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		background: var(--error-bg);
+		border: 1px solid var(--error-border);
+		border-radius: var(--radius);
+		color: var(--error);
+		font-size: 12px;
+		padding: 10px 14px;
+		margin: 16px 24px 0;
+	}
+	.error-icon {
+		font-size: 10px;
+		font-weight: 700;
+	}
+
+	.header-strip {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0;
+		border-bottom: 1px solid var(--border);
+		background: var(--surface);
+		flex-shrink: 0;
+	}
+
+	.header-cell {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		padding: 8px 16px;
+		border-right: 1px solid var(--border);
+	}
+	.header-cell:last-child {
+		border-right: none;
+	}
+
+	.hdr-label {
+		font-size: 9px;
+		font-weight: 600;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--dim);
+	}
+
+	.hdr-val {
+		font-size: 13px;
+		font-weight: 500;
+		color: var(--text);
+	}
+
+	.results-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 10px 24px;
+		border-bottom: 1px solid var(--border);
+		background: var(--bg);
+		flex-shrink: 0;
+	}
+
+	.results-label {
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: var(--dim);
+	}
+
+	.empty {
+		padding: 24px;
+		font-size: 13px;
+		color: var(--dim);
+		font-style: italic;
+	}
+
+	.entry {
+		border-bottom: 1px solid var(--border);
+		padding: 12px 24px;
+	}
+
+	.entry-kv {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		margin-bottom: 8px;
+		flex-wrap: wrap;
+	}
+
+	.entry-key {
+		font-weight: 700;
+		color: var(--text);
+	}
+
+	.entry-sep {
+		color: var(--dim);
+	}
+
+	.entry-val {
+		color: var(--text);
+		word-break: break-all;
+	}
+
+	.entry-tombstone {
+		color: var(--dim);
+		font-style: italic;
+	}
+
+	.meta-grid {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		overflow: hidden;
+	}
+
+	.meta-cell {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		padding: 6px 12px;
+		border-right: 1px solid var(--border);
+		background: var(--surface);
+	}
+	.meta-cell:last-child {
+		border-right: none;
+	}
+
+	.meta-label {
+		font-size: 9px;
+		font-weight: 600;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--dim);
+	}
+
+	.meta-val {
+		font-size: 12px;
+		font-weight: 500;
+		color: var(--text);
+	}
+	.meta-val.accent {
+		color: var(--accent);
+	}
+	.meta-val.dim {
+		color: var(--dim);
+	}
+
+	.mvcc-note {
+		margin: 12px 24px;
+		border-left: 3px solid var(--accent);
+		background: var(--accent-dim);
+		border-radius: 0 var(--radius) var(--radius) 0;
+		padding: 10px 14px;
+		font-size: 12px;
+		color: var(--dim);
+		line-height: 1.6;
+	}
+	.mvcc-note strong {
+		color: var(--text);
+	}
+
+	.spinner {
+		display: inline-block;
+		width: 10px;
+		height: 10px;
+		border: 2px solid currentColor;
+		border-top-color: transparent;
+		border-radius: 50%;
+		animation: spin 0.6s linear infinite;
+	}
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+</style>
