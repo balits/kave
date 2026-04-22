@@ -1,0 +1,58 @@
+# initial issuer
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ include "kave.name" . }}-selfsigned-issuer
+spec:
+  selfSigned: {}
+
+---
+# real internal ca
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name:  {{ include "kave.name" . }}-internal-ca
+  namespace: {{ .Release.Namespace }}
+spec:
+  isCA: true
+  commonName: {{ include "kave.name" . }}-internal-ca
+  secretName: {{ include "kave.name" . }}-internal-ca-secret
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: {{ include "kave.name" . }}-selfsigned-issuer
+    kind: ClusterIssuer
+
+---
+# issuer backed by that CA, used to sign node certs
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "kave.name" . }}-ca-issuer
+  namespace: {{ .Release.Namespace }}
+spec:
+  ca:
+    secretName: {{ include "kave.name" . }}-internal-ca-secret
+
+---
+# The actual node certificate with wildcards that covers all StatefulSet pods
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "kave.name" . }}-raft-cert
+  namespace: {{ .Release.Namespace }}
+spec:
+  secretName: {{ include "kave.name" . }}-raft-tls
+  # 1 year, rotated automatically, 30 days before expiry
+  duration: 8760h
+  renewBefore: 720h 
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  dnsNames:
+    - "*.{{ .Values.serviceConfig.headlessService.name }}.{{ .Release.Namespace }}.svc.cluster.local"
+    - "{{ .Values.serviceConfig.headlessService.name }}.{{ .Release.Namespace }}.svc.cluster.local"
+  issuerRef:
+    name: {{ include "kave.name" . }}-ca-issuer
+    kind: Issuer

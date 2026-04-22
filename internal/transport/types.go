@@ -3,13 +3,14 @@ package transport
 import "github.com/balits/kave/internal/peer"
 
 const (
-	ApiVersion   = "/v1"
-	RouteKv      = ApiVersion + "/kv"
-	RouteLease   = ApiVersion + "/lease"
+	ApiVersion = "/v1"
+	RouteKv    = ApiVersion + "/kv"
+	RouteLease = ApiVersion + "/lease"
+	RouteOt    = ApiVersion + "/ot"
+	RouteWatch = ApiVersion + "/watch"
+
 	RouteAdmin   = ApiVersion + "/admin"
 	RouteCluster = RouteAdmin + "/cluster"
-	RouteOt      = ApiVersion + "/ot"
-	RouteWatch   = ApiVersion + "/watch"
 )
 
 type JoinRequest struct {

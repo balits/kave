@@ -43,5 +43,10 @@ data:
               "rps": {{ .Values.config.ratelimiter.write.rps }},
               "burst": {{ .Values.config.ratelimiter.write.burst }}
           }
+      },
+      "mtls": {
+        "cert_file": {{ .Values.config.mtls.certFile }},
+        "key_file": {{ .Values.config.mtls.keyFile }},
+        "ca_file": {{ .Values.config.mtls.caFile }}
       }
     }

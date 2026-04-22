@@ -10,6 +10,7 @@ import (
 
 	"github.com/balits/kave/internal/compaction"
 	"github.com/balits/kave/internal/kv"
+	"github.com/balits/kave/internal/mtls"
 	"github.com/balits/kave/internal/ot"
 	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/schema"
@@ -22,21 +23,14 @@ import (
 const ApplyLagReadinessThreshold uint = 10
 
 type Config struct {
-	Bootstrap                 bool
-	Me                        peer.Peer
-	PodNamespace              string
-	LoggerOptions             logutil.Options
-	KvOptions                 kv.Options
-	PeerDiscoveryOptions      peer.DiscoveryOptions
-	StorageOpts               storage.Options
-	CompactionOpts            compaction.Options
-	OtOpts                    ot.Options
-	CheckpointIntervalMinutes time.Duration
-	RatelimiterOpts           http.RatelimitOptions
-	RaftCfg                   *raft.Config
+	Bootstrap    bool
+	Me           peer.Peer
+	PodNamespace string
+	RaftCfg      *raft.Config
+
+	*ConfigJson
 }
 
-// TODO: move away from Config <-> ConfigJson, just use a single config file
 type ConfigJson struct {
 	LoggerOptions             logutil.Options       `json:"logger"`
 	KvOptions                 kv.Options            `json:"kv"`
@@ -46,6 +40,7 @@ type ConfigJson struct {
 	OtOpts                    ot.Options            `json:"ot"`
 	CheckpointIntervalMinutes time.Duration         `json:"checkpoint_interval_minutes"`
 	RatelimiterOpts           http.RatelimitOptions `json:"ratelimiter"`
+	MtlsOptions               mtls.Options          `json:"mtls"`
 }
 
 func (cj *ConfigJson) check() error {
@@ -67,6 +62,9 @@ func (cj *ConfigJson) check() error {
 	if err := cj.LoggerOptions.Check(); err != nil {
 		return err
 	}
+	if err := cj.MtlsOptions.Check(); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -80,16 +78,8 @@ func (cj *ConfigJson) ToConfig() (*Config, error) {
 	}
 
 	c := &Config{
-		LoggerOptions:             cj.LoggerOptions,
-		CheckpointIntervalMinutes: cj.CheckpointIntervalMinutes,
-		PeerDiscoveryOptions:      cj.PeerDiscoveryOptions,
-		KvOptions:                 cj.KvOptions,
-		CompactionOpts:            cj.CompactionOpts,
-		OtOpts:                    cj.OtOpts,
-		StorageOpts:               cj.StorageOpts,
-		RatelimiterOpts:           cj.RatelimiterOpts,
+		ConfigJson: cj,
 	}
-
 	c.StorageOpts.InitialBuckets = schema.AllBuckets
 
 	return c, nil
@@ -140,6 +130,18 @@ func LoadConfig() *Config {
 	cfg.Me = me
 	cfg.PodNamespace = optionalString(podNamespace)
 	cfg.RaftCfg = NewDefaultRaftConfig(cfg.Me.NodeID)
+
+	// debug certain fields
+	fmt.Printf(
+		"node_id: %s\n"+
+			"\tloaded cert file: %s\n"+
+			"\tloaded key file: %s\n"+
+			"\tloaded ca file: %s\n",
+		cfg.Me.NodeID,
+		cfg.MtlsOptions.CertFile,
+		cfg.MtlsOptions.KeyFile,
+		cfg.MtlsOptions.CaFile,
+	)
 
 	return cfg
 }

@@ -44,8 +44,9 @@ type RaftService interface {
 
 	// Leader returns the current leader, or ErrLeaderNotFound
 	Leader(ctx context.Context) (peer.Peer, error)
+	Peers() []peer.Peer
 	RaftConfiguration(ctx context.Context) (raft.Configuration, error)
-	Stats(ctx context.Context) map[string]string // Returns the raft libraries internal statistics
+	Stats(ctx context.Context) map[string]string // Returns the raft libraries internal statistics, extended with some of our keys
 	RaftState() raft.RaftState                   // Our current state
 	VerifyLeader(ctx context.Context) error      // Verify that we are the leader, or return an error if not
 	LaggingBehind() error                        // Check if we are lagging behind the leader, and return an error if we are
@@ -273,6 +274,20 @@ func (rs *raftSvc) Leader(ctx context.Context) (peer.Peer, error) {
 	}
 
 	return peer.Peer{}, ErrLeaderNotFound
+}
+
+func (rs *raftSvc) Peers() (out []peer.Peer) {
+	rs.peerMu.RLock()
+	defer rs.peerMu.RUnlock()
+	for _, p := range rs.peerMap {
+		out = append(out, peer.Peer{
+			NodeID:   p.NodeID,
+			Hostname: p.Hostname,
+			RaftPort: p.RaftPort,
+			HttpPort: p.HttpPort,
+		})
+	}
+	return out
 }
 
 func (rs *raftSvc) RaftConfiguration(ctx context.Context) (cfg raft.Configuration, err error) {

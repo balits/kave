@@ -2,12 +2,11 @@ package config
 
 import (
 	"fmt"
-	"net"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/balits/kave/internal/mtls"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
@@ -27,13 +26,16 @@ func NewDefaultRaftConfig(nodeID string) *raft.Config {
 	return rc
 }
 
-func NewRaftDependencies(advertiseAddr raft.ServerAddress, listenAddr string, dir string, logger hclog.Logger) (*RaftDependencies, error) {
+func NewRaftDependencies(cfg *Config) (*RaftDependencies, error) {
 	var (
 		logs      raft.LogStore
 		stable    raft.StableStore
 		snapshot  raft.SnapshotStore
 		transport raft.Transport
 		err       error
+
+		listenAddr    = cfg.Me.GetRaftListenAddress()
+		advertiseAddr = cfg.Me.GetRaftAddress()
 	)
 
 	if testing.Testing() {
@@ -42,32 +44,34 @@ func NewRaftDependencies(advertiseAddr raft.ServerAddress, listenAddr string, di
 		snapshot = raft.NewInmemSnapshotStore()
 		_, transport = raft.NewInmemTransport(advertiseAddr)
 	} else {
-		logstorePath := filepath.Join(dir, "logstore.db")
+		logstorePath := filepath.Join(cfg.StorageOpts.Dir, "logstore.db")
 		logs, err = raftboltdb.NewBoltStore(logstorePath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create logstore: %v", err)
 		}
 
-		stablePath := filepath.Join(dir, "stablestore.db")
+		stablePath := filepath.Join(cfg.StorageOpts.Dir, "stablestore.db")
 		stable, err = raftboltdb.NewBoltStore(stablePath)
 		if err != nil {
 			return nil, fmt.Errorf("couldn't create raft stable store: %w", err)
 		}
 
-		snapshot, err = raft.NewFileSnapshotStoreWithLogger(dir, 10, logger)
+		snapshot, err = raft.NewFileSnapshotStoreWithLogger(cfg.StorageOpts.Dir, 10, cfg.RaftCfg.Logger)
 		if err != nil {
 			return nil, fmt.Errorf("couldn't create raft snapshot store: %w", err)
 		}
 
-		tcpAdvertiseAddr, err := net.ResolveTCPAddr("tcp", string(advertiseAddr))
+		streamLayer, err := mtls.NewStreamLayer(listenAddr, advertiseAddr, cfg.MtlsOptions.CertFile, cfg.MtlsOptions.KeyFile, cfg.MtlsOptions.CaFile)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create transport: %v", err)
+			return nil, fmt.Errorf("failed to create stream layer (listen = %s, adverstise = %s): %v", listenAddr, advertiseAddr, err)
 		}
 
-		transport, err = raft.NewTCPTransport(listenAddr, tcpAdvertiseAddr, 2, 10*time.Second, os.Stderr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create transport(listen = %s, adverstise = %s): %v", listenAddr, advertiseAddr, err)
-		}
+		transport = raft.NewNetworkTransportWithConfig(&raft.NetworkTransportConfig{
+			Stream:  streamLayer,
+			MaxPool: 3,
+			Timeout: 10 * time.Second,
+			Logger:  cfg.RaftCfg.Logger,
+		})
 	}
 
 	deps := &RaftDependencies{
@@ -75,7 +79,7 @@ func NewRaftDependencies(advertiseAddr raft.ServerAddress, listenAddr string, di
 		StableStore:   stable,
 		SnapshotStore: snapshot,
 		Transport:     transport,
-		HcLogger:      logger,
+		HcLogger:      raft.DefaultConfig().Logger,
 	}
 
 	return deps, nil

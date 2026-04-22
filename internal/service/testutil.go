@@ -21,6 +21,7 @@ func (m *MockRaftService) RegisterPeers(_ []peer.Peer) error                    
 func (m *MockRaftService) Bootstrap(_ context.Context, _ peer.Peer) error                { return nil }
 func (m *MockRaftService) JoinCluster(_ context.Context, _ peer.Peer) error              { return nil }
 func (m *MockRaftService) AddToCluster(_ context.Context, _ transport.JoinRequest) error { return nil }
+func (m *MockRaftService) Peers() []peer.Peer                                            { return nil }
 func (m *MockRaftService) Leader(_ context.Context) (peer.Peer, error)                   { return m.Leader_, m.ErrLeader }
 func (m *MockRaftService) RaftConfiguration(_ context.Context) (c raft.Configuration, e error) {
 	return

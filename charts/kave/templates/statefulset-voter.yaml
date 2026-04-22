@@ -33,6 +33,9 @@ spec:
         - name: config
           configMap:
             name: {{ include "kave.name" . }}-config
+        - name: raft-tls
+          secret:
+            secretName: {{ include "kave.name" . }}-raft-tls
       containers:
         - name: kave
           image: {{ include "kave.image" . }}
@@ -69,6 +72,9 @@ spec:
               mountPath: /data
             - name: config
               mountPath: /config
+              readOnly: true
+            - name: raft-tls
+              mountPath: /tls/raft
               readOnly: true
           livenessProbe:
             httpGet:

@@ -40,6 +40,7 @@ const (
 
 	RouteClusterJoin       = transport.RouteCluster + "/join"
 	RouteCompactionTrigger = transport.RouteAdmin + "/compaction"
+	RouteKillNode          = transport.RouteAdmin + "/kill"
 
 	RouteStats   = "/stats"
 	RouteMetrics = "/metrics"
@@ -48,24 +49,26 @@ const (
 )
 
 const (
-	kvRangeErrMsg  string = "failed to range over key-value pair(s)"
-	kvPutErrMsg    string = "failed to put key-value pair"
-	kvDeleteErrMsg string = "failed to delete key-value pair"
-	kvTxnErrMsg    string = "failed to execute key-value transaction"
+	kvRangeErrMsg  = "failed to range over key-value pair(s)"
+	kvPutErrMsg    = "failed to put key-value pair"
+	kvDeleteErrMsg = "failed to delete key-value pair"
+	kvTxnErrMsg    = "failed to execute key-value transaction"
 
-	leaseGrantErrMsg     string = "failed to grant lease"
-	leaseRevokeErrMsg    string = "failed to revoke lease"
-	leaseKeepAliveErrMsg string = "failed to keep lease alive"
-	leaseLookupErrMsg    string = "failed to lookup lease"
+	leaseGrantErrMsg     = "failed to grant lease"
+	leaseRevokeErrMsg    = "failed to revoke lease"
+	leaseKeepAliveErrMsg = "failed to keep lease alive"
+	leaseLookupErrMsg    = "failed to lookup lease"
 
-	otInitErrMsg     string = "failed to execute OT init"
-	otTransferErrMsg string = "failed to execute OT transfer"
-	otWriteAllErrMsg string = "failed to execute OT write all"
+	otInitErrMsg     = "failed to execute OT init"
+	otTransferErrMsg = "failed to execute OT transfer"
+	otWriteAllErrMsg = "failed to execute OT write all"
 
-	clusterJoinErrMsg string = "failed to add peer to the cluster"
+	clusterJoinErrMsg = "failed to add peer to the cluster"
 
-	jsonEncodeErrMsg string = "failed to encode JSON body"
-	jsonDecodeErrMsg string = "failed to decode JSON body"
+	jsonEncodeErrMsg = "failed to encode JSON body"
+	jsonDecodeErrMsg = "failed to decode JSON body"
+
+	killNodeErrMsg = "failed to kill node"
 )
 
 var (
@@ -76,17 +79,18 @@ var (
 )
 
 type HttpServer struct {
-	me           peer.Peer
-	kvSvc        service.KVService
-	leaseSvc     service.LeaseService
-	otSvc        service.OTService
-	raftSvc      service.RaftService
-	watchHub     *watch.WatchHub
-	readLimiter  *rateLimiter
-	writeLimiter *rateLimiter
-	logger       *slog.Logger
-	rootLogger   *slog.Logger
-	server       *http.Server
+	me             peer.Peer
+	kvSvc          service.KVService
+	leaseSvc       service.LeaseService
+	otSvc          service.OTService
+	raftSvc        service.RaftService
+	watchHub       *watch.WatchHub
+	nodeKillSwitch func()
+	readLimiter    *rateLimiter
+	writeLimiter   *rateLimiter
+	logger         *slog.Logger
+	rootLogger     *slog.Logger
+	server         *http.Server
 }
 
 func NewHTTPServer(
@@ -98,6 +102,7 @@ func NewHTTPServer(
 	otService service.OTService,
 	raftService service.RaftService,
 	watchHub *watch.WatchHub,
+	nodeKillSwitch func(),
 	reg *prometheus.Registry,
 	readLimitConfig ratelimiterConfig,
 	writeLimitConfig ratelimiterConfig,
@@ -155,11 +160,10 @@ func NewHTTPServer(
 	// watch: watches can be served from any node
 	mux.HandleFunc("GET "+RouteWatchWS, chain(s.handleWatch, s.requestLoggingMiddleware, s.readLimitMiddleware))
 
-	// admin | protected routes (auth WIP):
-	// cluster
-	mux.HandleFunc("POST "+RouteClusterJoin, chain(s.handleJoin, s.requestLoggingMiddleware))
-	// manual compaction trigger
-	mux.HandleFunc("POST "+RouteCompactionTrigger, s.writeChain(s.handleCompactionTrigger))
+	// admin / protected routes (auth WIP):
+	mux.HandleFunc("POST "+RouteClusterJoin, chain(s.handleJoin, s.requestLoggingMiddleware))                            // cluster
+	mux.HandleFunc("POST "+RouteCompactionTrigger, s.writeChain(s.handleCompactionTrigger))                              // manual compaction trigger
+	mux.HandleFunc("DELETE "+RouteKillNode, chain(s.handleKillNode, s.requestLoggingMiddleware, s.writeLimitMiddleware)) // kill a node given its id (forwarding request to given node, then killing self)
 
 	// health / debug
 	mux.HandleFunc("GET "+RouteStats, s.handleStats)         // stats
@@ -547,6 +551,39 @@ func (s *HttpServer) handleCompactionTrigger(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	s.writeJSON(w, response, status)
+}
+
+func (s *HttpServer) handleKillNode(w http.ResponseWriter, r *http.Request) {
+	victimID := r.URL.Query().Get("node_id")
+	if len(victimID) == 0 {
+		s.writeError(w, killNodeErrMsg, errors.New("empty node_id"), http.StatusBadRequest)
+		return
+	}
+
+	if s.me.NodeID == victimID {
+		s.nodeKillSwitch()
+		s.writeJSON(w, nil, http.StatusOK)
+		return
+	}
+
+	for _, p := range s.raftSvc.Peers() {
+		if p.NodeID == victimID {
+			s.logger.Info("killing node: found victim peer, proxying", "victim_id", victimID)
+			proxy := newReverseProxy(p.GetHttpAdvertisedAddress())
+			proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+				if networkerr(err) {
+					s.writeError(w, killNodeErrMsg+" (proxied)", err, http.StatusServiceUnavailable)
+					return
+				}
+				s.writeError(w, killNodeErrMsg+" (proxied)", err, http.StatusInternalServerError)
+			}
+			proxy.ServeHTTP(w, r)
+			return
+		}
+	}
+
+	s.logger.Info("killing node: victim peer not found", "victim_id", victimID)
+	s.writeError(w, killNodeErrMsg, fmt.Errorf("peer not found with id %s", victimID), http.StatusNotFound)
 }
 
 func (s *HttpServer) writeJSON(w http.ResponseWriter, response any, status int) {

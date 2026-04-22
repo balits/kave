@@ -117,12 +117,12 @@ func (s *HttpServer) leaderMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func (s *HttpServer) proxyToLeader(w http.ResponseWriter, r *http.Request, leader peer.Peer) {
+func newReverseProxy(advertisedAddr string) *httputil.ReverseProxy {
 	target := &url.URL{
 		Scheme: "http",
-		Host:   leader.GetHttpAdvertisedAddress(),
+		Host:   advertisedAddr,
 	}
-	proxy := &httputil.ReverseProxy{
+	return &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
 		},
@@ -135,7 +135,10 @@ func (s *HttpServer) proxyToLeader(w http.ResponseWriter, r *http.Request, leade
 			return nil
 		},
 	}
+}
 
+func (s *HttpServer) proxyToLeader(w http.ResponseWriter, r *http.Request, leader peer.Peer) {
+	proxy := newReverseProxy(leader.GetHttpAdvertisedAddress())
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		if errors.Is(err, service.ErrLeaderNotFound) || networkerr(err) {
 			s.writeError(w, errMsgProxyLeader, err, http.StatusServiceUnavailable)

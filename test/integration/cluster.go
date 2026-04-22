@@ -431,8 +431,7 @@ func (c *cluster) waitReady(i int) {
 }
 
 func defaultNodeConfig() *config.Config {
-	return &config.Config{
-		// Bootstrap: bootstrap,
+	cj := &config.ConfigJson{
 		LoggerOptions: logutil.Options{
 			Kind:  logutil.LoggerKindText,
 			Level: logutil.LevelDebug,
@@ -449,7 +448,6 @@ func defaultNodeConfig() *config.Config {
 			Kind:           storage.StorageKindInMemory,
 			InitialBuckets: schema.AllBuckets,
 		},
-		// RaftCfg:                   _raftCfg,
 		CompactionOpts:            compaction.DefaultOptions,
 		CheckpointIntervalMinutes: 2 * time.Second, // not actually minutes, we cant afford to be that slow
 		// set to a gorbillion since were testing the FSM/DB not the ratelimiter
@@ -458,7 +456,12 @@ func defaultNodeConfig() *config.Config {
 			Write: _http.NewRateLimiterConfig(99999, 99999),
 		},
 		OtOpts: ot.DefaultOptions,
+	}
+	return &config.Config{
+		// Bootstrap: bootstrap,
+		// RaftCfg:                   _raftCfg,
 		// Me:                        me,
+		ConfigJson: cj,
 	}
 }
 

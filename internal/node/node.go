@@ -2,7 +2,6 @@ package node
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -38,7 +37,8 @@ type Node struct {
 	Bootstrap  bool
 	Logger     *slog.Logger
 	Me         peer.Peer
-	IsShutdown bool // usefull for tests
+	IsShutdown bool          // usefull for tests
+	shutdownC  chan struct{} // channel that admin/kill?node_id=<some_id> uses to terminate this process gracefully
 
 	ProposeFunc  util.ProposeFunc
 	IsLeaderFunc util.IsLeaderFunc
@@ -74,13 +74,11 @@ type Node struct {
 }
 
 func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*Node, error) {
-	s, _ := json.MarshalIndent(cfg, "", "    ")
-	fmt.Printf("creating node with config:\n%s\n", string(s))
-
 	n := &Node{
 		Me:        cfg.Me,
 		Bootstrap: cfg.Bootstrap,
 		Logger:    logger.With("node_id", cfg.Me.NodeID),
+		shutdownC: make(chan struct{}),
 	}
 
 	if err := n.initStorage(reg, cfg.StorageOpts, cfg.OtOpts); err != nil {
@@ -115,6 +113,7 @@ func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*No
 		n.OtService,
 		n.RaftService,
 		n.WatchHub,
+		func() { n.shutdownC <- struct{}{} },
 		reg,
 		cfg.RatelimiterOpts.Read,
 		cfg.RatelimiterOpts.Write,
@@ -123,8 +122,8 @@ func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*No
 }
 
 func (n *Node) Run(parentCtx context.Context) error {
-	runCtx, cancel := context.WithCancel(parentCtx)
-	defer cancel()
+	runCtx, runCancel := context.WithCancel(parentCtx)
+	defer runCancel()
 
 	me := n.DiscoveryService.Me()
 	peerList, err := n.DiscoveryService.GetPeers(runCtx)
@@ -165,6 +164,16 @@ func (n *Node) Run(parentCtx context.Context) error {
 
 	g.Go(func() error {
 		n.UnsyncedLoop.Run(groupCtx)
+		return nil
+	})
+
+	g.Go(func() error {
+		select {
+		case <-n.shutdownC:
+			n.Logger.Warn("Node killed, canceling run context")
+			runCancel()
+		case <-runCtx.Done():
+		}
 		return nil
 	})
 
@@ -322,7 +331,7 @@ func (n *Node) initRaft(reg prometheus.Registerer, cfg *config.Config) error {
 	cfg.RaftCfg.LogLevel = slogLevel.String()
 	cfg.RaftCfg.Logger = logutil.NewHcLogAdapter(n.Logger.With("component", "raftlib"), slogLevel)
 
-	raftDeps, err := config.NewRaftDependencies(cfg.Me.GetRaftAddress(), cfg.Me.GetRaftListenAddress(), cfg.StorageOpts.Dir, cfg.RaftCfg.Logger)
+	raftDeps, err := config.NewRaftDependencies(cfg)
 	if err != nil {
 		return err
 	}

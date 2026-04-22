@@ -39,6 +39,10 @@ config:
     write: 
       rps: 100
       burst: 300
+  mtls:
+    certFile: "/tls/raft/tls.crt"
+    keyFile: "/tls/raft/tls.key"
+    caFile: "/tls/raft/ca.crt"
 
 serviceConfig:
   externalService:
