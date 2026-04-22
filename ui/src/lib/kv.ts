@@ -255,7 +255,9 @@ export interface KaveStats {
 	num_peers: number,
 	latest_configuration_index: number,
 	latest_configuration: string,
-	readable_configuration: KavePeer[];
+	readable_configuration: string, // json of Array<KavePeer>
+	revision: number;
+	compacted_revision: number;
 }
 
 export function b64ToStr(bs: string): string {

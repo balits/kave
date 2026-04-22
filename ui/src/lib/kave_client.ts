@@ -1,6 +1,8 @@
 import * as otlib from './ot';
 import * as kv from './kv';
 
+// NOTE: some reads use POST, because the browser does not supoert
+// bodies on GET (eventhough its valid http)
 export class KaveClient {
 	constructor(
 		public readonly baseURL: string,
@@ -80,7 +82,7 @@ export class KaveClient {
 			header: kv.ResponseHeader;
 			entries: kv.RawEntry[];
 			count: number;
-		}>('GET', '/v1/kv/range', {
+		}>('POST', '/v1/kv/range', {
 			key: kv.strToB64(key),
 			end: opts.end ? kv.strToB64(opts.end) : undefined,
 			limit: opts.limit ?? 0,
@@ -171,7 +173,7 @@ export class KaveClient {
 	}
 
 	async leaseLookup(id: number): Promise<kv.LeaseLookupResponse> {
-		return this.do('GET', '/v1/lease/lookup', { id });
+		return this.do('POST', '/v1/lease/lookup', { id });
 	}
 
 	async otInit(): Promise<kv.OTInitResponse> {
@@ -179,7 +181,7 @@ export class KaveClient {
 			header: kv.ResponseHeader;
 			point_a: string; // b64
 			token: string; // b64
-		}>('GET', '/v1/ot/init');
+		}>('POST', '/v1/ot/init');
 
 		return {
 			header: raw.header,
@@ -196,7 +198,7 @@ export class KaveClient {
 		const raw = await this.do<{
 			header: kv.ResponseHeader;
 			ciphertexts: string[];
-		}>('GET', '/v1/ot/transfer', {
+		}>('POST', '/v1/ot/transfer', {
 			token: kv.bytesToB64(token),
 			point_b: kv.bytesToB64(pointB),
 			serializable
