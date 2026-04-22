@@ -27,7 +27,7 @@ runs:
 
     - name: Install dependencies
       shell: bash
-      run: bun i --cwd=./ui
+      run: bun --cwd=./ui i
 
     - name: Build site
       env:
@@ -36,7 +36,7 @@ runs:
         VITE_KAVE_OT_SLOT_SIZE: ${{ inputs.kave_ot_slot_size }}
         VITE_KAVE_OT_SLOT_COUNT: ${{ inputs.kave_ot_slot_count }}
       shell: bash
-      run: bun run build --cwd=./ui
+      run: bun --cwd=./ui run build
 
     - name: Upload artifacts
       uses: actions/upload-pages-artifact@v3
