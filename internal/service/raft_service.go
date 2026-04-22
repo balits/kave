@@ -285,9 +285,9 @@ func (rs *raftSvc) Stats(ctx context.Context) map[string]string {
 	addr, id := rs.r.LeaderWithID()
 	s["leader_addr"] = string(addr)
 	s["leader_id"] = string(id)
-	s["readable_configuration"] = "[]"
 	conf, err := rs.RaftConfiguration(ctx)
-	if err == nil {
+	if err != nil {
+		s["readable_configuration"] = "[]"
 		return s
 	}
 
@@ -311,6 +311,7 @@ func (rs *raftSvc) Stats(ctx context.Context) map[string]string {
 
 	peersBytes, err := json.Marshal(peers)
 	if err != nil {
+		s["readable_configuration"] = "[]"
 		return s
 	}
 

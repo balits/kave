@@ -18,6 +18,7 @@
 		} catch {
 			error = true;
 		}
+		console.log(stats)
 	}
 
 	poll();
