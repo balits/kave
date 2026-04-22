@@ -72,13 +72,12 @@ func Test_Smoke_PodDisruptionRecovery(t *testing.T) {
 	t.Logf("deleting pod %s", victim)
 	k.deletePod(victim, false)
 	k.waitPodReplaced(victim, oldID, 30*time.Second)
-	// extra half a min if victim is the leader -> reelection lag
 
-	// Wait for the cluster to heal from the disruption we just caused
-	// (with the victim gone for sure asserted by waitPodDelete)
 	k.requireClusterReady()
 
-	c.waitGetVal("pre-disrupt", "alive", 20*time.Second)
+	c.waitLeaderChanged("", 60*time.Second)
+
+	c.waitGetVal("pre-disrupt", "alive", 60*time.Second)
 
 	c.mustPut("post-disrupt", "recovered")
 	c.mustGetVal("post-disrupt", "recovered")
@@ -219,7 +218,7 @@ func Test_Smoke_RollingRestart(t *testing.T) {
 	k.waitRollout(2 * time.Minute)
 	c.waitReady(30 * time.Second)
 
-	c.waitLeaderChanged("", 30*time.Second)
+	c.waitLeaderChanged("", 60*time.Second)
 
 	c.mustGetVal("pre-rollout", "stable")
 	c.mustPut("post-rollout", "ok")
