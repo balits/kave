@@ -45,7 +45,7 @@ func (co *Options) Check() error {
 
 type CompactionScheduler struct {
 	opts           Options
-	store          mvcc.SmartRevisionGetter
+	store          mvcc.StoreMetaReader
 	ticker         util.Ticker
 	running        atomic.Bool
 	propose        util.ProposeFunc
@@ -58,7 +58,7 @@ type CompactionScheduler struct {
 	logger         *slog.Logger
 }
 
-func NewScheduler(logger *slog.Logger, store mvcc.SmartRevisionGetter, propose util.ProposeFunc, isLeader util.IsLeaderFunc, opts *Options) *CompactionScheduler {
+func NewScheduler(logger *slog.Logger, store mvcc.StoreMetaReader, propose util.ProposeFunc, isLeader util.IsLeaderFunc, opts *Options) *CompactionScheduler {
 	var o Options
 	if opts != nil {
 		o = *opts

@@ -304,9 +304,9 @@ func Test_KVStoreRangeRejectsCompactedRev(t *testing.T) {
 	w.Put([]byte("k"), []byte("v"), 0)
 	w.End()
 
-	s.revMu.Lock()
+	s.metaMu.Lock()
 	s.compactedMainRev = 5
-	s.revMu.Unlock()
+	s.metaMu.Unlock()
 
 	r := s.NewReader()
 	_, _, _, err := r.Range([]byte("k"), nil, 1, 0)

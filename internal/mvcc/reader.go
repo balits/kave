@@ -18,10 +18,6 @@ var (
 )
 
 type Reader interface {
-	SmartRevisionGetter
-
-	SmartRevisionGetter
-
 	// Range reads all entries in the [key, end) range at the given or current revision
 	// up to the given limit (or no limit if limit == 0).
 	// Additionally it returns the count of elements, and the last revison encountered scanning the elements.
@@ -43,8 +39,8 @@ func (r *reader) Revisions() (current kv.Revision, compacted int64) {
 
 func (r *reader) Range(key, end []byte, rev int64, limit int64) (entries []*kv.Entry, count int, highestRev int64, err error) {
 	start := time.Now()
-	r.store.rwlock.RLock()
-	defer r.store.rwlock.RUnlock()
+	r.store.storeMu.RLock()
+	defer r.store.storeMu.RUnlock()
 
 	r.metrics.ReadsTotal.Inc()
 	defer func() { r.metrics.ReadDurationSec.Observe(time.Since(start).Seconds()) }()
@@ -71,8 +67,8 @@ func (r *reader) Get(key []byte, rev int64) *kv.Entry {
 // As this is an 'internal', non public facing API, we dont need to track metrics here
 // its only used for the watch implementation, for which we will track different group of metrics
 func (r *reader) RevisionRange(startRev, endRev int64, limit int64) (entries []*kv.Entry, err error) {
-	r.store.rwlock.RLock()
-	defer r.store.rwlock.RUnlock()
+	r.store.storeMu.RLock()
+	defer r.store.storeMu.RUnlock()
 
 	currRev, compactRev := r.store.Revisions()
 

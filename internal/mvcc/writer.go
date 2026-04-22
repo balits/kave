@@ -225,18 +225,18 @@ func (w *writer) deleteKey(key []byte) error {
 func (w *writer) Abort() {
 	w.changes = nil
 	w.writeTx.Rollback()
-	w.writeTx.Unlock()       // release db lock
-	w.store.rwlock.RUnlock() // release store lock
+	w.writeTx.Unlock()        // release db lock
+	w.store.storeMu.RUnlock() // release store lock
 }
 
 func (w *writer) End() error {
 	defer func() {
-		w.writeTx.Unlock()       // release db lock
-		w.store.rwlock.RUnlock() // release store lock
+		w.writeTx.Unlock()        // release db lock
+		w.store.storeMu.RUnlock() // release store lock
 	}()
 
 	if len(w.changes) != 0 {
-		w.store.revMu.Lock()
+		w.store.metaMu.Lock()
 		w.store.currentRev = kv.Revision{Main: w.store.currentRev.Main + 1}
 		err := w.writeTx.UnsafePut(schema.BucketMeta, schema.KeyCurrentRevision, util.EncodeUint64(uint64(w.store.currentRev.Main)))
 		if err != nil {
@@ -267,7 +267,7 @@ func (w *writer) End() error {
 	}
 
 	if len(w.changes) != 0 {
-		w.store.revMu.Unlock()
+		w.store.metaMu.Unlock()
 	}
 
 	return nil

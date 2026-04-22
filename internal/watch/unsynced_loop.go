@@ -25,27 +25,27 @@ const (
 // Internally it feeds data to the watchers until they are caught up.
 // if they dont catch up in [unsynchedFailureLimit] rounds, they are dropped from the hub.
 type UnsyncedLoop struct {
-	hub              *WatchHub                // handle to the Hub
-	rtx              backend.ReadTx           // handle to read transaction (for UnsafeGet/UnsafeScan)
-	kvIndex          kv.Index                 // revision index of each key, used to track which revisions the watcher needs to catch up
-	revGetter        mvcc.SmartRevisionGetter // for reading currentRev, compactedRev
-	unsyncedBatch    map[int64]*watcher       // subset of watchers to feed data to, resets on each tick
-	unsyncedFailures map[int64]int            // tracking failures for unsyncedBatch, incremented on err, deleted on drop/promote
-	deleteBatch      map[int64]error          // batch of watchers marked for deletion, resets on each tick
-	promoteBatch     map[int64]struct{}       // batch of watchers marked for promotion, resets on each tick
-	ticker           util.Ticker              // ticker :D
-	running          atomic.Bool              // atomic flag for running state
-	ctx              context.Context          // top level ctx, canceled when stopped
-	cancel           context.CancelFunc       // cancel to the ctx
-	logger           slog.Logger              // and perhaps a logger
+	hub              *WatchHub            // handle to the Hub
+	rtx              backend.ReadTx       // handle to read transaction (for UnsafeGet/UnsafeScan)
+	kvIndex          kv.Index             // revision index of each key, used to track which revisions the watcher needs to catch up
+	storeMetaReader  mvcc.StoreMetaReader // for reading currentRev, compactedRev
+	unsyncedBatch    map[int64]*watcher   // subset of watchers to feed data to, resets on each tick
+	unsyncedFailures map[int64]int        // tracking failures for unsyncedBatch, incremented on err, deleted on drop/promote
+	deleteBatch      map[int64]error      // batch of watchers marked for deletion, resets on each tick
+	promoteBatch     map[int64]struct{}   // batch of watchers marked for promotion, resets on each tick
+	ticker           util.Ticker          // ticker :D
+	running          atomic.Bool          // atomic flag for running state
+	ctx              context.Context      // top level ctx, canceled when stopped
+	cancel           context.CancelFunc   // cancel to the ctx
+	logger           slog.Logger          // and perhaps a logger
 }
 
-func NewUnsyncedLoop(logger *slog.Logger, wh *WatchHub, kvIndex kv.Index, readTx backend.ReadTx, revGetter mvcc.SmartRevisionGetter) *UnsyncedLoop {
+func NewUnsyncedLoop(logger *slog.Logger, wh *WatchHub, kvIndex kv.Index, readTx backend.ReadTx, storeMetaReader mvcc.StoreMetaReader) *UnsyncedLoop {
 	return &UnsyncedLoop{
 		hub:              wh,
 		rtx:              readTx,
 		kvIndex:          kvIndex,
-		revGetter:        revGetter,
+		storeMetaReader:  storeMetaReader,
 		ticker:           util.NewRealTicker(unsyncedWatcherLoopIntervalMs),
 		unsyncedFailures: make(map[int64]int),
 		unsyncedBatch:    make(map[int64]*watcher, unsyncedBatchSize),
@@ -102,7 +102,7 @@ func (u *UnsyncedLoop) tick() {
 	}
 	u.hub.mu.Unlock()
 
-	storeCurrentRev, compactedRev := u.revGetter.Revisions()
+	storeCurrentRev, compactedRev := u.storeMetaReader.Revisions()
 
 OUTER:
 	for _, w := range u.unsyncedBatch {

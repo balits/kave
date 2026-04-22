@@ -15,14 +15,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// SmartRevisionGetter visszadja a jelenlegi, illetve a kompaktált reviziót
-// így csak egyszer kell lockolni a store-t
-type SmartRevisionGetter interface {
-	Revisions() (currentRev kv.Revision, compacted int64)
-}
-
 type StoreMetaReader interface {
 	Meta() (currentRev kv.Revision, compactedRev int64, logIndex, logTerm uint64)
+	Revisions() (currentRev kv.Revision, compactedRev int64)
 }
 
 type ReadOnlyStore interface {
@@ -34,16 +29,18 @@ type ReadOnlyStore interface {
 const MAX_COMPACTION_BATCH_SIZE int = 100
 
 type KvStore struct {
-	rwlock           sync.RWMutex    // mutex for the whole store, not for backend transactions, used for raft meta and compaction
-	backend          backend.Backend // storage backend
-	kvIndex          kv.Index        // key chache
-	revMu            sync.RWMutex    // revision mutex
-	currentRev       kv.Revision     // up to date revision, updated by writers, read by readers, protected by revMu
-	compactedMainRev int64           // main revision up to which the store has been compacted, protected by revMu
-	raftTerm         uint64          // latest applied raft term, protected by rwlock
-	applyIndex       uint64          // latest applied raft index, protected by rwlock
-	logger           *slog.Logger
+	storeMu sync.RWMutex // mutex for the whole store, not for backend transactions, used for raft meta and compaction
 
+	backend backend.Backend // storage backend
+	kvIndex kv.Index        // key chache
+
+	metaMu           sync.RWMutex // mutex for store metadata, so the next 4 fields
+	currentRev       kv.Revision  // up to date revision, updated by writers, read by readers, protected by metaMu
+	compactedMainRev int64        // main revision up to which the store has been compacted, protected by metaMu
+	raftTerm         uint64       // latest applied raft term, protected by metaMu
+	applyIndex       uint64       // latest applied raft index, protected by metaMu
+
+	logger  *slog.Logger
 	metrics *metrics.KVMetrics
 }
 
@@ -63,14 +60,14 @@ func NewKvStore(reg prometheus.Registerer, logger *slog.Logger, b backend.Backen
 }
 
 func (s *KvStore) Revisions() (currentRev kv.Revision, compacted int64) {
-	s.revMu.RLock()
-	defer s.revMu.RUnlock()
+	s.metaMu.RLock()
+	defer s.metaMu.RUnlock()
 	return s.currentRev, s.compactedMainRev
 }
 
 func (s *KvStore) Meta() (currentRev kv.Revision, compactedRev int64, logIndex, logTerm uint64) {
-	s.revMu.RLock()
-	defer s.revMu.RUnlock()
+	s.metaMu.RLock()
+	defer s.metaMu.RUnlock()
 	return s.currentRev, s.compactedMainRev, s.applyIndex, s.raftTerm
 }
 
@@ -83,7 +80,7 @@ func (s *KvStore) Meta() (currentRev kv.Revision, compactedRev int64, logIndex, 
 // Locking the store rwlock blocks concurrent writes and restores
 func (s *KvStore) NewWriter() Writer {
 	// locks gets released in writer.End()
-	s.rwlock.RLock()
+	s.storeMu.RLock()
 	wtx := s.backend.WriteTx()
 	wtx.Lock()
 	w := newWriter(s, wtx, s.currentRev)
@@ -95,19 +92,22 @@ func (s *KvStore) NewReader() Reader {
 }
 
 func (s *KvStore) UpdateRaftMeta(logIndex, term uint64) {
-	s.rwlock.Lock()
-	defer s.rwlock.Unlock()
+	s.metaMu.Lock()
+	defer s.metaMu.Unlock()
 	s.applyIndex = logIndex
 	s.raftTerm = term
 }
 
 func (s *KvStore) RaftMeta() (logIndex, term uint64) {
-	s.rwlock.RLock()
-	defer s.rwlock.RUnlock()
+	s.metaMu.RLock()
+	defer s.metaMu.RUnlock()
 	return s.applyIndex, s.raftTerm
 }
 
 func (s *KvStore) Restore(r io.Reader) error {
+	s.storeMu.Lock()
+	defer s.storeMu.Unlock()
+
 	if err := s.backend.Close(); err != nil {
 		s.logger.Error("restore error: failed to close backend", "error", err)
 	}
@@ -180,20 +180,19 @@ func (s *KvStore) Restore(r io.Reader) error {
 		s.logger.Error("restore error: failed to decode scheduled compacted rev", "error", err)
 	}
 
-	s.rwlock.Lock()
-	s.raftTerm = term
-	s.applyIndex = raftIndex
-	s.rwlock.Unlock()
-
-	s.revMu.Lock()
-	s.currentRev = lastRev
+	var finalCompacteRev int64
 	if scheduledCompactedRev > finishedCompactedRev {
-		s.compactedMainRev = scheduledCompactedRev
+		finalCompacteRev = scheduledCompactedRev
 	} else {
-		s.compactedMainRev = finishedCompactedRev
+		finalCompacteRev = finishedCompactedRev
 	}
 
-	s.revMu.Unlock()
+	s.metaMu.Lock()
+	s.raftTerm = term
+	s.applyIndex = raftIndex
+	s.currentRev = lastRev
+	s.compactedMainRev = finalCompacteRev
+	s.metaMu.Unlock()
 
 	return nil
 }
@@ -208,8 +207,9 @@ func (s *KvStore) Snapshot() Snapshot {
 // 1) Persist schedule compaction revision -> crash safe
 // 2) Execute comapction + Update finished compaction revision
 func (s *KvStore) Compact(rev int64) (<-chan struct{}, error) {
-	s.revMu.Lock()
-	defer s.revMu.Unlock() // lock rev for the whole compaction, so that no other gorutine could schedule a compaction
+	s.metaMu.Lock()
+	defer s.metaMu.Unlock() // lock rev for the whole compaction, so that no other gorutine could schedule a compaction
+
 	if rev < 0 {
 		return nil, fmt.Errorf("compaction error: compaction target revision cannot be negative")
 	} else if rev > s.currentRev.Main {
@@ -217,7 +217,6 @@ func (s *KvStore) Compact(rev int64) (<-chan struct{}, error) {
 	} else if rev <= s.compactedMainRev {
 		return nil, fmt.Errorf("compaction error: %v", kv.ErrCompacted)
 	}
-
 	// Persist schedule compaction revision -> crash safe
 	{
 		wtx := s.backend.WriteTx()
@@ -239,27 +238,28 @@ func (s *KvStore) Compact(rev int64) (<-chan struct{}, error) {
 
 	// Execute comapction
 	c := make(chan struct{})
+	compactedRev := s.compactedMainRev // snapshot before defer releases metaMu
 	go func() {
 		defer close(c)
 		// Update finished schedulde compaction revision inside doCompact
-		s.doCompact(rev)
+		s.doCompact(rev, compactedRev)
 	}()
 
 	return c, nil
 }
 
-func (s *KvStore) doCompact(rev int64) {
-	s.logger.Info("compaction started", "revision", rev)
+func (s *KvStore) doCompact(targetRev, compactedRev int64) {
+	s.logger.Info("compaction started", "target_revision", targetRev)
 	// 1) collect values we still should retain
-	retain, err := s.kvIndex.Compact(rev)
+	retain, err := s.kvIndex.Compact(targetRev)
 	if err != nil {
-		s.logger.Error("compaction error: failed to compact key index", "error", err, "revision", rev)
+		s.logger.Error("compaction error: failed to compact key index", "error", err, "target_revision", targetRev)
 		return
 	}
 
 	// 2) delete en-masse entries where entry.modRev <= rev
-	start := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: s.compactedMainRev}, kv.NewRevBytes())
-	endExcluded := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: rev + 1}, kv.NewRevBytes())
+	start := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: compactedRev}, kv.NewRevBytes())
+	endExcluded := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: targetRev + 1}, kv.NewRevBytes())
 
 	// batch deletes
 	var (
@@ -305,7 +305,7 @@ func (s *KvStore) doCompact(rev int64) {
 
 		if done {
 			// persist meta
-			revBytes := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: rev}, kv.NewRevBytes())
+			revBytes := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: targetRev}, kv.NewRevBytes())
 			if err := wtx.UnsafePut(schema.BucketMeta, schema.KeyFinishedCompactedRev, revBytes); err != nil {
 				s.logger.Error("compaction error: failed to persist KeyCompactionFinished to meta bucket", "error", err)
 			}
@@ -332,11 +332,11 @@ func (s *KvStore) doCompact(rev int64) {
 		}
 	}
 
-	s.revMu.Lock()
-	s.compactedMainRev = rev
-	s.revMu.Unlock()
+	s.metaMu.Lock()
+	s.compactedMainRev = targetRev
+	s.metaMu.Unlock()
 
-	s.logger.Info("finished compaction", "revision", rev, "deleted_key_count", numDeleted)
+	s.logger.Info("finished compaction", "revision", targetRev, "deleted_key_count", numDeleted)
 }
 
 func (s *KvStore) Ping() error {

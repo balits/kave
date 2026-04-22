@@ -357,7 +357,7 @@ func (n *Node) initServices(cfg *config.Config) error {
 		return err
 	}
 	n.DiscoveryService = discoveryService
-	n.RaftService = service.NewRaftService(n.Logger, n.Raft, APPLY_LAG_THRESHOLD)
+	n.RaftService = service.NewRaftService(n.Logger, n.Raft, APPLY_LAG_THRESHOLD, n.KvStore)
 	n.LeaseService = service.NewLeaseService(n.Logger, n.ProposeFunc)
 	n.OtService = service.NewOTService(n.Logger, cfg.Me, n.KvStore, n.OtManager, n.RaftService, n.ProposeFunc)
 	n.KvService = service.NewKVService(n.Logger, cfg.Me, n.KvStore, n.RaftService, cfg.KvOptions, n.ProposeFunc)

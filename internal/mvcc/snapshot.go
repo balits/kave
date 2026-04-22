@@ -7,8 +7,8 @@ type Snapshot struct {
 }
 
 func (s Snapshot) Persist(sink raft.SnapshotSink) error {
-	s.store.rwlock.RLock()
-	defer s.store.rwlock.RUnlock()
+	s.store.storeMu.RLock()
+	defer s.store.storeMu.RUnlock()
 	if err := s.store.backend.Snapshot(sink); err != nil {
 		_ = sink.Cancel()
 		return err

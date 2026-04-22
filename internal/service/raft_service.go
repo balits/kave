@@ -10,9 +10,11 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
+	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/transport"
 	"github.com/balits/kave/internal/util"
@@ -54,15 +56,17 @@ type raftSvc struct {
 	peerMap      map[string]peer.Peer
 	r            *raft.Raft
 	lagThreshold uint64
+	store        mvcc.StoreMetaReader
 	logger       *slog.Logger
 }
 
-func NewRaftService(logger *slog.Logger, r *raft.Raft, lagThreshold uint64) RaftService {
+func NewRaftService(logger *slog.Logger, r *raft.Raft, lagThreshold uint64, store mvcc.StoreMetaReader) RaftService {
 	rs := &raftSvc{
 		// peerDiscovery needs a context, so we only call it in node.Run(ctx), not at nodes construction time
 		peerMap:      nil,
 		r:            r,
 		lagThreshold: lagThreshold,
+		store:        store,
 		logger:       logger.With("component", "raft_service"),
 	}
 
@@ -285,6 +289,11 @@ func (rs *raftSvc) Stats(ctx context.Context) map[string]string {
 	addr, id := rs.r.LeaderWithID()
 	s["leader_addr"] = string(addr)
 	s["leader_id"] = string(id)
+
+	rev, compactedRev := rs.store.Revisions()
+	s["revision"] = strconv.FormatInt(rev.Main, 10)
+	s["compacted_revision"] = strconv.FormatInt(compactedRev, 10)
+
 	conf, err := rs.RaftConfiguration(ctx)
 	if err != nil {
 		s["readable_configuration"] = "[]"

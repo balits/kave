@@ -131,6 +131,7 @@ func NewHTTPServer(
 	)
 
 	// kv
+	mux.HandleFunc("POST "+RouteKvRange, s.readChain(s.handleKvRange)) // hack so browsers accept GET with body
 	mux.HandleFunc("GET "+RouteKvRange, s.readChain(s.handleKvRange))
 	mux.HandleFunc("POST "+RouteKvPut, s.writeChain(s.handleKvPut))
 	mux.HandleFunc("DELETE "+RouteKvDelete, s.writeChain(s.handleKvDelete))
@@ -141,10 +142,13 @@ func NewHTTPServer(
 	mux.HandleFunc("DELETE "+RouteLeaseRevoke, s.writeChain(s.handleLeaseRevoke))
 	mux.HandleFunc("POST "+RouteLeaseKeepAlive, s.writeChain(s.handleLeaseKeepAlive))
 	// since leases are time sensitive, the only correct lookup should be done on the leader
+	mux.HandleFunc("POST "+RouteLeaseLookup, chain(s.handleLeaseLookup, s.requestLoggingMiddleware, s.readLimitMiddleware, s.leaderMiddleware)) // hack so browsers accept GET with body
 	mux.HandleFunc("GET "+RouteLeaseLookup, chain(s.handleLeaseLookup, s.requestLoggingMiddleware, s.readLimitMiddleware, s.leaderMiddleware))
 
 	// ot
+	mux.HandleFunc("POST "+RouteOtInit, s.handleOTInit) // hack so browsers accept GET with body
 	mux.HandleFunc("GET "+RouteOtInit, s.handleOTInit)
+	mux.HandleFunc("POST "+RouteOtTransfer, s.readChain(s.handleOTTransfer)) // hack so browsers accept GET with body
 	mux.HandleFunc("GET "+RouteOtTransfer, s.readChain(s.handleOTTransfer))
 	mux.HandleFunc("POST "+RouteOtWriteAll, s.writeChain(s.handleOTWriteAll))
 
