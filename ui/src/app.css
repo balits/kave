@@ -1,0 +1,220 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600&display=swap');
+
+/*
+ * Theme: Sweet Treat (light), borrowed from Slack
+ * #FFEEED, #FFC2C0, #FFC2C0, #4A154B, #FFFFFF, #4A154B, #FFA95A, #37BD8D, #FFC2C0, #4A154B
+ * Positions: Column BG, Menu Hover, Active Item, Active Text, Hover Item,
+ *             Text, Active Presence, Mention Badge, Top Nav BG, Top Nav Text
+ */
+:root {
+	/* surfaces */
+	--bg: #ffeeed; /* column BG: main page background */
+	--surface: #ffffff; /* hover item / card / panel surfaces */
+	--border: #ffc2c0; /* active item border color */
+
+	/* header / sidebar */
+	--header-bg: #ffc2c0; /* top nav bg */
+	--sidebar-bg: #ffeeed; /* column bg */
+	--nav-active: #ffc2c0; /* active item / selected nav item bg */
+	--nav-hover: #ffd8d6; /* slightly deeper than bg for hover */
+
+	/* text */
+	--text: #4a154b; /* text color: deep Slack purple */
+	--dim: #8b5b8b; /* lightened purple for secondary / hint text */
+
+	--accent: #ffa95a; /* active orange used for highlights */
+	--accent-dim: rgba(255, 169, 90, 0.15);
+	--success: #37bd8d; /*  teal green; keepalive, PUT events */
+	--error: #c0392b; /* a readable red for light backgrounds */
+	--error-bg: #fff1f0;
+	--error-border: #fca5a5;
+	--warn: #92400e; /* amberbrown warning text */
+	--warn-bg: #fffbeb;
+	--warn-border: #fcd34d;
+
+	--radius: 4px;
+
+	/* --mono: 'Space Mono', 'Courier New', monospace; */
+	--mono: 'Source Code Pro', 'Courier New', monospace;
+	/* --mono: 'Roboto Mono', 'Courier New', monospace;     */
+
+	--sans: system-ui, -apple-system, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+	height: 100%;
+	font-family: var(--mono);
+	background: var(--bg);
+	color: var(--text);
+	-webkit-font-smoothing: antialiased;
+}
+
+.app {
+	display: flex;
+	flex-direction: column;
+	height: 100vh;
+	overflow: hidden;
+}
+
+.body {
+	display: flex;
+	flex: 1;
+	overflow: hidden;
+}
+
+/* sidebar stuff: */
+.sidebar {
+	width: 256px;
+	background: var(--sidebar-bg);
+	border-right: 1px solid var(--border);
+	display: flex;
+	flex-direction: column;
+	padding: 10px 0;
+	overflow-y: auto;
+	flex-shrink: 0;
+}
+
+.nav-item {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 9px 14px;
+	background: none;
+	border: none;
+	border-left: 3px solid transparent;
+	color: var(--text);
+	font-family: var(--mono);
+	font-size: 14px;
+	text-align: left;
+	cursor: pointer;
+	width: 100%;
+	transition:
+		background 0.1s,
+		border-color 0.1s;
+}
+.nav-item:hover:not(.pending) {
+	background: var(--nav-hover);
+}
+.nav-item.active {
+	background: var(--nav-active);
+	border-left-color: var(--accent);
+}
+.nav-item.pending {
+	opacity: 0.4;
+	cursor: default;
+}
+
+.nav-tag {
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 0.1em;
+	background: var(--border);
+	color: var(--text);
+	border-radius: 3px;
+	padding: 1px 5px;
+	flex-shrink: 0;
+}
+.nav-tag.active {
+	background: var(--accent);
+	color: #fff;
+}
+
+.nav-label {
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.nav-soon {
+	font-size: 12px;
+	color: var(--dim);
+	letter-spacing: 0.05em;
+	font-style: italic;
+}
+
+/* main content stuff: */
+.content {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.content-header {
+	padding: 16px 24px 14px;
+	border-bottom: 1px solid var(--border);
+	background: var(--surface);
+	flex-shrink: 0;
+}
+
+.content-title-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 4px;
+}
+
+.content-tag {
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 0.12em;
+	background: var(--accent);
+	color: #fff;
+	border-radius: 3px;
+	padding: 2px 7px;
+}
+
+.content-title {
+	font-size: 16px;
+	font-weight: 700;
+	margin: 0;
+	color: var(--text);
+	letter-spacing: -0.01em;
+}
+
+.content-desc {
+	margin: 0;
+	font-size: 14px;
+	color: var(--dim);
+	letter-spacing: 0.02em;
+}
+
+.content-body {
+	flex: 1;
+	overflow-y: auto;
+}
+
+/* placeholder things */
+.placeholder {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	height: 100%;
+}
+
+.placeholder-tag {
+	font-size: 32px;
+	font-weight: 700;
+	letter-spacing: 0.12em;
+	color: var(--border);
+}
+
+.placeholder-text {
+	font-size: 16px;
+	color: var(--dim);
+	margin: 0;
+}

@@ -2,7 +2,6 @@
 	import type { KaveClient } from '$lib/kave_client';
 	import type { KavePeer, KaveStats } from '$lib/kv';
 	import { onDestroy } from 'svelte';
-	import { defaultAllowedOrigins } from 'vite';
 
 	let { client }: { client: KaveClient } = $props();
 
@@ -32,7 +31,7 @@
 	const appliedIdx: number = $derived(stats?.applied_index ?? -1);
 	const leaderId: string = $derived(stats?.leader_id ?? 'UNKNOWN');
 	const fsmPending: number = $derived(stats?.fsm_pending ?? -1);
-	const peers: KavePeer[] = $derived(stats?.configuration ?? [])
+	const peers: KavePeer[] = $derived(stats?.configuration ?? []);
 
 	// staleness indicator: age of last successful poll in seconds
 	const staleMs = $derived(lastPoll ? Date.now() - lastPoll : null);
@@ -58,18 +57,18 @@
 			</div>
 		{:else}
 			<!-- cluster state -->
-			{#each peers as p}
-				<div class="">
-					<span class="">ID</span>
-					<span class="">{p.id}</span>
+			{#each peers as p (p.id)}
+				<div class="pill neutral">
+					<span class="pill-label">ID</span>
+					<span class="pill-val">{p.id}</span>
 				</div>
-				<div class="">
-					<span class="">addr</span>
-					<span class="">{p.address}</span>
+				<div class="pill neutral">
+					<span class="pill-label">addr</span>
+					<span class="pill-val">{p.address}</span>
 				</div>
-				<div class="">
-					<span class="">Suffrage</span>
-					<span class="">{p.suffrage}</span>
+				<div class="pill neutral">
+					<span class="pill-label">Suffrage</span>
+					<span class="pill-val">{p.suffrage}</span>
 				</div>
 			{/each}
 
@@ -109,7 +108,6 @@
 	</div>
 
 	<div class="bar-right">
-		<!-- dim/red if poll is stale -->
 		<span
 			class="pulse"
 			class:stale={error}
@@ -118,3 +116,188 @@
 		<span class="poll-label">live</span>
 	</div>
 </header>
+
+<style>
+	.cluster-bar {
+		display: flex;
+		align-items: center;
+		gap: 16px;
+		padding: 0 20px;
+		height: 44px;
+		background: var(--header-bg);
+		border-bottom: 1px solid var(--border);
+		flex-shrink: 0;
+		font-family: var(--mono);
+	}
+
+	.bar-left {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex-shrink: 0;
+	}
+
+	.brand {
+		font-size: 14px;
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		color: var(--text);
+	}
+
+	.sep {
+		color: var(--dim);
+		font-size: 13px;
+	}
+
+	.subtitle {
+		font-size: 11px;
+		color: var(--dim);
+		letter-spacing: 0.04em;
+	}
+
+	.bar-center {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex: 1;
+		flex-wrap: wrap;
+		overflow: hidden;
+	}
+
+	.pill {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		padding: 3px 8px;
+		border-radius: 3px;
+		font-size: 11px;
+		border: 1px solid var(--border);
+		background: var(--surface);
+		white-space: nowrap;
+	}
+
+	.pill.neutral {
+		background: var(--surface);
+		border-color: var(--border);
+	}
+
+	.pill.leader {
+		background: rgba(55, 189, 141, 0.12);
+		border-color: var(--success);
+	}
+
+	.pill.leader .dot {
+		background: var(--success);
+		box-shadow: 0 0 4px var(--success);
+	}
+
+	.pill.follower {
+		background: rgba(255, 169, 90, 0.1);
+		border-color: var(--accent);
+	}
+
+	.pill.follower .dot {
+		background: var(--accent);
+	}
+
+	.pill.err {
+		background: var(--error-bg);
+		border-color: var(--error-border);
+		color: var(--error);
+	}
+
+	.pill.err .dot {
+		background: var(--error);
+	}
+
+	.pill.loading {
+		background: var(--surface);
+		border-color: var(--border);
+		color: var(--dim);
+	}
+
+	.pill.warn {
+		background: var(--warn-bg);
+		border-color: var(--warn-border);
+		color: var(--warn);
+	}
+
+	.dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--dim);
+		flex-shrink: 0;
+	}
+
+	.pill-label {
+		font-size: 9px;
+		font-weight: 600;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--dim);
+	}
+
+	.pill-val {
+		font-size: 11px;
+		font-weight: 600;
+		color: var(--text);
+	}
+
+	.bar-right {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		flex-shrink: 0;
+	}
+
+	.pulse {
+		display: inline-block;
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--success);
+		box-shadow: 0 0 5px var(--success);
+		animation: pulse 2s ease-in-out infinite;
+	}
+
+	.pulse.stale {
+		background: var(--error);
+		box-shadow: 0 0 5px var(--error);
+		animation: none;
+	}
+
+	@keyframes pulse {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.3;
+		}
+	}
+
+	.poll-label {
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--dim);
+	}
+
+	.spinner {
+		display: inline-block;
+		width: 9px;
+		height: 9px;
+		border: 1.5px solid var(--dim);
+		border-top-color: transparent;
+		border-radius: 50%;
+		animation: spin 0.6s linear infinite;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+</style>

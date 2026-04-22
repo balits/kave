@@ -21,7 +21,7 @@
 		label: string;
 		tag: string; // in sidebar
 		description: string;
-		component: Component<any> | null;
+		component: Component<{ client: KaveClient }> | null;
 		ready: boolean;
 	};
 
@@ -88,9 +88,6 @@
 	const active = $derived(sections.find((s) => s.id === activeId)!);
 	let ActiveComponent = $derived(active.component);
 </script>
-
-<h1>Welcome to SvelteKit</h1>
-<p>Visit <a href="https://svelte.dev/docs/kit">svelte.dev/docs/kit</a> to read the documentation</p>
 
 <div class="app">
 	<Header client={kvClient} />
