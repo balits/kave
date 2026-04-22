@@ -45,8 +45,8 @@ data:
           }
       },
       "mtls": {
-        "cert_file": {{ .Values.config.mtls.certFile }},
-        "key_file": {{ .Values.config.mtls.keyFile }},
-        "ca_file": {{ .Values.config.mtls.caFile }}
+        "cert_file": {{ .Values.config.mtls.certFile | quote }},
+        "key_file": {{ .Values.config.mtls.keyFile | quote }},
+        "ca_file": {{ .Values.config.mtls.caFile | quote }}
       }
     }
