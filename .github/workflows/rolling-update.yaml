@@ -31,7 +31,7 @@ jobs:
     # outputs:
     #   image_tag: ${{ steps.meta.outputs.version }} # do we need this here?
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/build-and-push-image
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -59,7 +59,7 @@ jobs:
     needs: build-img
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Deploy K8S to CIVO
         uses: "./.github/actions/deploy-k8s-to-civo"
         with:
@@ -74,7 +74,7 @@ jobs:
       kave_ot_slot_count:  ${{ steps.extract-values.outputs.kave_ot_slot_count }}
       kave_ot_slot_size:   ${{ steps.extract-values.outputs.kave_ot_slot_size }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Extract values
         id: extract-values
         shell: bash
@@ -97,7 +97,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy-ui.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: ./.github/actions/deploy-ui-to-gh-pages
         id: deploy-ui
