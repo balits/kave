@@ -27,6 +27,9 @@ func httpClient(t testing.TB) *client {
 		url: env.url,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				DisableKeepAlives: true,
+			},
 		},
 	}
 }
@@ -86,11 +89,18 @@ func (c *client) mustPut(key, value string) api.PutResponse {
 	var out api.PutResponse
 	var resp *http.Response
 	var err error
+	var lastErr error
+	var lastStatus int
 
 	require.Eventually(c.tb, func() bool {
 		out, resp, err = c.tryPut(key, value)
-		return err == nil && resp.StatusCode == 200
-	}, 60*time.Second, 1*time.Second, "PUT %s failed repeatedly", key)
+		if err != nil {
+			lastErr = err
+			return false
+		}
+		lastStatus = resp.StatusCode
+		return resp.StatusCode == 200
+	}, 60*time.Second, 1*time.Second, "PUT %s failed. Last Status: %d, Last Err: %v", key, lastStatus, lastErr)
 
 	return out
 }
@@ -100,11 +110,18 @@ func (c *client) mustGet(key string) api.RangeResponse {
 	var out api.RangeResponse
 	var resp *http.Response
 	var err error
+	var lastErr error
+	var lastStatus int
 
 	require.Eventually(c.tb, func() bool {
 		out, resp, err = c.tryGet(key)
-		return err == nil && resp.StatusCode == 200
-	}, 60*time.Second, 1*time.Second, "GET %s failed repeatedly", key)
+		if err != nil {
+			lastErr = err
+			return false
+		}
+		lastStatus = resp.StatusCode
+		return resp.StatusCode == 200
+	}, 60*time.Second, 1*time.Second, "GET %s failed. Last Status: %d, Last Err: %v", key, lastStatus, lastErr)
 
 	return out
 }
@@ -118,24 +135,25 @@ func (c *client) mustGetVal(key, expectedValue string) {
 
 func (c *client) waitGetVal(key, expectedValue string, timeout time.Duration) {
 	c.tb.Helper()
-
 	if timeout < 60*time.Second {
 		timeout = 60 * time.Second
 	}
 
+	var lastErr error
+	var lastStatus int
+
 	require.Eventually(c.tb, func() bool {
 		out, resp, err := c.tryGet(key)
 		if err != nil {
+			lastErr = err
 			return false
 		}
-		if resp.StatusCode != 200 {
-			return false
-		}
-		if out.Count != 1 {
+		lastStatus = resp.StatusCode
+		if resp.StatusCode != 200 || out.Count != 1 {
 			return false
 		}
 		return string(out.Entries[0].Value) == expectedValue
-	}, timeout, 1*time.Second, "waitGetValu: failed to get value %s for key %s in %s", expectedValue, key, timeout)
+	}, timeout, 1*time.Second, "waitGetVal: failed. Last Status: %d, Last Err: %v", lastStatus, lastErr)
 }
 
 func (c *client) unsafeReadyz() (int, error) {
@@ -144,9 +162,7 @@ func (c *client) unsafeReadyz() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
+	defer resp.Body.Close()
 	return resp.StatusCode, nil
 }
 
@@ -161,31 +177,24 @@ func (c *client) stats() (out map[string]string, status int, err error) {
 
 func (c *client) waitReady(timeout time.Duration) {
 	c.tb.Helper()
-
 	if timeout < 60*time.Second {
 		timeout = 60 * time.Second
 	}
-
 	require.Eventually(c.tb, func() bool {
 		code, err := c.unsafeReadyz()
 		return err == nil && code == 200
-	}, timeout, 1*time.Second, "service not ready after %s", timeout.String())
+	}, timeout, 1*time.Second, "service not ready")
 }
 
 func (c *client) waitLeaderChanged(oldLeaderID string, timeout time.Duration) string {
 	c.tb.Helper()
-
 	if timeout < 60*time.Second {
 		timeout = 60 * time.Second
 	}
-
 	var newLeaderID string
 	require.Eventually(c.tb, func() bool {
 		stats, status, err := c.stats()
-		if err != nil {
-			return false
-		}
-		if status != http.StatusOK {
+		if err != nil || status != http.StatusOK {
 			return false
 		}
 		id := stats["leader_id"]
@@ -194,6 +203,6 @@ func (c *client) waitLeaderChanged(oldLeaderID string, timeout time.Duration) st
 		}
 		newLeaderID = id
 		return true
-	}, timeout, 2*time.Second, "leader did not change from %s within %s", oldLeaderID, timeout)
+	}, timeout, 2*time.Second, "leader did not change from %s", oldLeaderID)
 	return newLeaderID
 }
