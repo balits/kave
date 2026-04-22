@@ -18,7 +18,7 @@ jobs:
     name: Lint & run Unit and Ingegration Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/unit-integ-test
 
   build-img:
