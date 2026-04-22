@@ -5,6 +5,12 @@ inputs:
   kubeconfig_b64:
     description: Base64 encoded kubeconfig of the civo cluster
     required: true
+  app_name:
+    description: Name of the app (defaults to kave)
+    default: "kave"
+  image_tag:
+    description: Image tag to use in helm upgrade
+    required: true
 
 runs:
   using: composite
@@ -30,9 +36,32 @@ runs:
 
     - name: Upgrading helm chart
       shell: bash
-      # sets .values.traefik.enabled = true
-      run: make helm-upgrade-install
+      env:
+        NAMESPACE: ${{ inputs.app_name }}
+        CHART_NAME: ./charts/${{ inputs.app_name }}
+      run: |
+        helm upgrade ${{ inputs.app_name }} $CHART_NAME \
+          --install \
+          --kubeconfig $KUBECONFIG \
+          --namespace $NAMESPACE \
+          --create-namespace \
+          --set traefik.enabled=true \
+          --set image.tag=${{ inputs.image_tag }} \
+          --wait \
+          --timeout 3m
     
     - name: Wait until cluster is ready (pods are running, all nodes are ready, quorom is formed)
       shell: bash
-      run: make wait-cluster-ready
+      env: 
+        NAMESPACE: ${{ inputs.app_name }}
+      run: |
+        echo ">> 1. waiting on rollout status"
+        kubectl rollout status statefulset/kave-voter \
+          --namespace $NAMESPACE \
+          --kubeconfig $KUBECONFIG \
+          --timeout=3m
+
+        echo ">> 2. printing final pod state"
+        kubectl get pods \
+          --namespace $NAMESPACE \
+          --kubeconfig $KUBECONFIG

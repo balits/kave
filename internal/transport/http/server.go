@@ -105,16 +105,16 @@ func NewHTTPServer(
 	advAddr := me.GetHttpAdvertisedAddress()
 	listenAddr := me.GetHttpListenAddress()
 	mux := http.NewServeMux()
-	s := &HttpServer{
-		me:         me,
-		kvSvc:      kvService,
-		leaseSvc:   leaseService,
-		otSvc:      otService,
-		raftSvc:    raftService,
-		watchHub:   watchHub,
-		logger:     logger.With("component", "http_server", "addr", advAddr),
-		rootLogger: logger,
-	}
+
+	s := new(HttpServer)
+	s.me = me
+	s.kvSvc = kvService
+	s.leaseSvc = leaseService
+	s.otSvc = otService
+	s.raftSvc = raftService
+	s.watchHub = watchHub
+	s.logger = logger.With("component", "http_server", "addr", advAddr)
+	s.rootLogger = logger
 	s.server = &http.Server{
 		Addr:    listenAddr,
 		Handler: s.corsMuxMiddleware(mux),

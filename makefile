@@ -11,7 +11,7 @@ REGISTRY = ghcr.io
 REPO = balits/kave
 IMG_NAME_NO_REGISTRY=$(REPO)
 IMG_NAME = $(REGISTRY)/$(IMG_NAME_NO_REGISTRY)
-SMOKE_TAG      ?= latest
+IMAGE_TAG ?= latest
 
 .DEFAULT_GOAL := help
 
@@ -72,7 +72,7 @@ test-smoke:
 		--set image.pullPolicy=Never \
 		--set image.registry=$(REGISTRY) \
 		--set image.repository=$(REPO) \
-		--set image.tag=$(SMOKE_TAG) \
+		--set image.tag=$(IMAGE_TAG) \
 		--set config.storage.kind=boltdb \
 		--set config.ratelimiter.read.rps=2000 \
 		--set config.ratelimiter.read.burst=2000 \
@@ -141,6 +141,7 @@ helm-upgrade-install:
 		--namespace $(NAMESPACE) \
 		--create-namespace \
 		--set traefik.enabled=true \
+		--set image.tag=$(IMAGE_TAG) \
 		--wait \
 		--timeout 3m
 

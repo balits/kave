@@ -28,11 +28,13 @@ jobs:
     permissions:
       contents: read
       packages: write
-    # outputs:
-    #   image_tag: ${{ steps.meta.outputs.version }} # do we need this here?
+    outputs:
+      # steps.<id>
+      image_tag: ${{ steps.build.outputs.image_tag }}
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/build-and-push-image
+        id: build
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           registry: ${{ env.REGISTRY }}
@@ -64,6 +66,8 @@ jobs:
         uses: "./.github/actions/deploy-k8s-to-civo"
         with:
           kubeconfig_b64: ${{ secrets.KUBECONFIG_B64 }}
+          app_name: "kave" # just to be explicit
+          image_tag: ${{ needs.build-img.outputs.image_tag }}
 
   extract-helm-config-values:
     name: Extract config values from the helm chart  
