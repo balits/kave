@@ -310,7 +310,7 @@ func (rs *raftSvc) Stats(ctx context.Context) map[string]string {
 	}
 
 	peersBytes, err := json.Marshal(peers)
-	if err == nil {
+	if err != nil {
 		return s
 	}
 

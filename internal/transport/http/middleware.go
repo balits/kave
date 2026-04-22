@@ -122,7 +122,20 @@ func (s *HttpServer) proxyToLeader(w http.ResponseWriter, r *http.Request, leade
 		Scheme: "http",
 		Host:   leader.GetHttpAdvertisedAddress(),
 	}
-	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(target)
+		},
+		ModifyResponse: func(resp *http.Response) error {
+			// corsMuxMiddleware on this node will set them correctly,
+			// delete them to avoid duplicate erros on the frontend
+			resp.Header.Del("Access-Control-Allow-Origin")
+			resp.Header.Del("Access-Control-Allow-Methods")
+			resp.Header.Del("Access-Control-Allow-Headers")
+			return nil
+		},
+	}
+
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		if errors.Is(err, service.ErrLeaderNotFound) || networkerr(err) {
 			s.writeError(w, errMsgProxyLeader, err, http.StatusServiceUnavailable)
