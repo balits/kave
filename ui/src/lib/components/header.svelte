@@ -31,7 +31,8 @@
 	const appliedIdx: number = $derived(stats?.applied_index ?? -1);
 	const leaderId: string = $derived(stats?.leader_id ?? 'UNKNOWN');
 	const fsmPending: number = $derived(stats?.fsm_pending ?? -1);
-	const peers: KavePeer[] = $derived(stats?.configuration ?? []);
+	const peers: KavePeer[] = $derived(stats?.readable_configuration ?? []);
+	const latestConfigIndex: number = $derived(stats?.latest_configuration_index ?? -1);
 
 	// staleness indicator: age of last successful poll in seconds
 	const staleMs = $derived(lastPoll ? Date.now() - lastPoll : null);
@@ -56,6 +57,12 @@
 				<span>connecting…</span>
 			</div>
 		{:else}
+			<!-- index of last configuration (peer list) -->
+			<div class="pill neutral">
+				<span class="pill-label">latest configuration index</span>
+				<span class="pill-val">{latestConfigIndex}</span>
+			</div>
+			
 			<!-- cluster state -->
 			{#each peers as p (p.id)}
 				<div class="pill neutral">
@@ -79,6 +86,7 @@
 					<span class="pill-val dim">{leaderId}</span>
 				</div>
 			{/if}
+
 
 			<!-- raft term -->
 			<div class="pill neutral">

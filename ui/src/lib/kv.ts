@@ -252,7 +252,10 @@ export interface KaveStats {
 	snapshot_version_max: number;
 	leader_id: string;
 	leader_addr: string;
-	configuration: KavePeer[];
+	num_peers: number,
+	latest_configuration_index: number,
+	latest_configuration: string,
+	readable_configuration: KavePeer[];
 }
 
 export function b64ToStr(bs: string): string {
