@@ -285,12 +285,15 @@ func (rs *raftSvc) Stats(ctx context.Context) map[string]string {
 	addr, id := rs.r.LeaderWithID()
 	s["leader_addr"] = string(addr)
 	s["leader_id"] = string(id)
-	s["configuration"] = "[]"
+	s["readable_configuration"] = "[]"
 	conf, err := rs.RaftConfiguration(ctx)
 	if err == nil {
 		return s
 	}
 
+	// configPeer mirrors of raft.Server
+	// but makes it readable to clients
+	// who rely on json parsing (frontend ui)
 	type configPeer struct {
 		Suffrage string `json:"suffrage"`
 		ID       string `json:"id"`
@@ -311,7 +314,7 @@ func (rs *raftSvc) Stats(ctx context.Context) map[string]string {
 		return s
 	}
 
-	s["configuration"] = string(peersBytes)
+	s["readable_configuration"] = string(peersBytes)
 	return s
 }
 
