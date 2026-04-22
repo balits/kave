@@ -48,7 +48,7 @@ runs:
           --set traefik.enabled=true \
           --set image.tag=${{ inputs.image_tag }} \
           --wait \
-          --timeout 3m
+          --timeout 8m
     
     - name: Wait until cluster is ready (pods are running, all nodes are ready, quorom is formed)
       shell: bash
