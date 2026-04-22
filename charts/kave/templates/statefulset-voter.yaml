@@ -103,3 +103,32 @@ spec:
         {{- if .Values.storage.storageClassName }}
         storageClassName: {{ .Values.storage.storageClassName }}
         {{- end }}
+---
+# network policy for extra security over mTLS:
+# only pods from this statefulset (kave voters)
+# can initiate connections on the voters 7000 port
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kave.name" . }}-raft-internal
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kave.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "kave.name" . }}
+      kave/role: voter
+
+  policyTypes:
+    - Ingress
+
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: {{ .Values.ports.raft }}
+      from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "kave.name" . }}
+              kave/role: voter
