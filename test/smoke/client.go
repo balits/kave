@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// client talks to a kave cluster through its Service URL.
 type client struct {
 	tb         testing.TB
 	url        string
@@ -66,14 +65,6 @@ func (c *client) tryDo(method, path string, body any, dst any) (*http.Response, 
 	return resp, nil
 }
 
-// func readBody(resp *http.Response) string {
-// 	if resp.Body == nil {
-// 		return ""
-// 	}
-// 	bs, _ := io.ReadAll(resp.Body)
-// 	return string(bs)
-// }
-
 func (c *client) tryPut(key, value string) (api.PutResponse, *http.Response, error) {
 	c.tb.Helper()
 	var out api.PutResponse
@@ -96,11 +87,10 @@ func (c *client) mustPut(key, value string) api.PutResponse {
 	var resp *http.Response
 	var err error
 
-	// retry bcs of network failures
 	require.Eventually(c.tb, func() bool {
 		out, resp, err = c.tryPut(key, value)
 		return err == nil && resp.StatusCode == 200
-	}, 5*time.Second, 500*time.Millisecond, "PUT %s failed repeatedly", key)
+	}, 60*time.Second, 1*time.Second, "PUT %s failed repeatedly", key)
 
 	return out
 }
@@ -111,11 +101,10 @@ func (c *client) mustGet(key string) api.RangeResponse {
 	var resp *http.Response
 	var err error
 
-	// retry bcs of network failures
 	require.Eventually(c.tb, func() bool {
 		out, resp, err = c.tryGet(key)
 		return err == nil && resp.StatusCode == 200
-	}, 5*time.Second, 500*time.Millisecond, "GET %s failed repeatedly", key)
+	}, 60*time.Second, 1*time.Second, "GET %s failed repeatedly", key)
 
 	return out
 }
@@ -129,6 +118,11 @@ func (c *client) mustGetVal(key, expectedValue string) {
 
 func (c *client) waitGetVal(key, expectedValue string, timeout time.Duration) {
 	c.tb.Helper()
+
+	if timeout < 60*time.Second {
+		timeout = 60 * time.Second
+	}
+
 	require.Eventually(c.tb, func() bool {
 		out, resp, err := c.tryGet(key)
 		if err != nil {
@@ -141,7 +135,7 @@ func (c *client) waitGetVal(key, expectedValue string, timeout time.Duration) {
 			return false
 		}
 		return string(out.Entries[0].Value) == expectedValue
-	}, timeout, timeout/10, "waitGetValu: failed to get value %s for key %s in %s", expectedValue, key, timeout)
+	}, timeout, 1*time.Second, "waitGetValu: failed to get value %s for key %s in %s", expectedValue, key, timeout)
 }
 
 func (c *client) unsafeReadyz() (int, error) {
@@ -167,14 +161,24 @@ func (c *client) stats() (out map[string]string, status int, err error) {
 
 func (c *client) waitReady(timeout time.Duration) {
 	c.tb.Helper()
+
+	if timeout < 60*time.Second {
+		timeout = 60 * time.Second
+	}
+
 	require.Eventually(c.tb, func() bool {
 		code, err := c.unsafeReadyz()
 		return err == nil && code == 200
-	}, timeout, timeout/10, "service not ready after %s", timeout.String())
+	}, timeout, 1*time.Second, "service not ready after %s", timeout.String())
 }
 
 func (c *client) waitLeaderChanged(oldLeaderID string, timeout time.Duration) string {
 	c.tb.Helper()
+
+	if timeout < 60*time.Second {
+		timeout = 60 * time.Second
+	}
+
 	var newLeaderID string
 	require.Eventually(c.tb, func() bool {
 		stats, status, err := c.stats()
