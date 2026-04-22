@@ -229,6 +229,12 @@ export interface OTFetchResult {
 	plaintext: Uint8Array; // decrypted chosen slot
 }
 
+export interface KavePeer {
+	suffrage: string;
+	id: string;
+	address: string;
+}
+
 export interface KaveStats {
 	state: string;
 	term: number;
@@ -246,6 +252,7 @@ export interface KaveStats {
 	snapshot_version_max: number;
 	leader_id: string;
 	leader_addr: string;
+	configuration: KavePeer[];
 }
 
 export function b64ToStr(bs: string): string {

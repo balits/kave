@@ -43,10 +43,10 @@ type RaftService interface {
 	// Leader returns the current leader, or ErrLeaderNotFound
 	Leader(ctx context.Context) (peer.Peer, error)
 	RaftConfiguration(ctx context.Context) (raft.Configuration, error)
-	Stats() map[string]string               // Returns the raft libraries internal statistics
-	RaftState() raft.RaftState              // Our current state
-	VerifyLeader(ctx context.Context) error // Verify that we are the leader, or return an error if not
-	LaggingBehind() error                   // Check if we are lagging behind the leader, and return an error if we are
+	Stats(ctx context.Context) map[string]string // Returns the raft libraries internal statistics
+	RaftState() raft.RaftState                   // Our current state
+	VerifyLeader(ctx context.Context) error      // Verify that we are the leader, or return an error if not
+	LaggingBehind() error                        // Check if we are lagging behind the leader, and return an error if we are
 }
 
 type raftSvc struct {
@@ -280,11 +280,38 @@ func (rs *raftSvc) RaftConfiguration(ctx context.Context) (cfg raft.Configuratio
 	return
 }
 
-func (rs *raftSvc) Stats() map[string]string {
+func (rs *raftSvc) Stats(ctx context.Context) map[string]string {
 	s := rs.r.Stats()
 	addr, id := rs.r.LeaderWithID()
 	s["leader_addr"] = string(addr)
 	s["leader_id"] = string(id)
+	s["configuration"] = "[]"
+	conf, err := rs.RaftConfiguration(ctx)
+	if err == nil {
+		return s
+	}
+
+	type configPeer struct {
+		Suffrage string `json:"suffrage"`
+		ID       string `json:"id"`
+		Address  string `json:"address"`
+	}
+
+	var peers []configPeer
+	for _, s := range conf.Servers {
+		peers = append(peers, configPeer{
+			Suffrage: s.Suffrage.String(),
+			ID:       string(s.ID),
+			Address:  string(s.Address),
+		})
+	}
+
+	peersBytes, err := json.Marshal(peers)
+	if err == nil {
+		return s
+	}
+
+	s["configuration"] = string(peersBytes)
 	return s
 }
 

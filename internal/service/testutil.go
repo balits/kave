@@ -25,7 +25,9 @@ func (m *MockRaftService) Leader(_ context.Context) (peer.Peer, error)          
 func (m *MockRaftService) RaftConfiguration(_ context.Context) (c raft.Configuration, e error) {
 	return
 }
-func (m *MockRaftService) Stats() map[string]string             { return map[string]string{"state": "Leader"} }
+func (m *MockRaftService) Stats(_ context.Context) map[string]string {
+	return map[string]string{"state": "Leader"}
+}
 func (m *MockRaftService) RaftState() raft.RaftState            { return m.State_ }
 func (m *MockRaftService) VerifyLeader(_ context.Context) error { return m.ErrVerifyLeader }
 func (m *MockRaftService) LaggingBehind() error                 { return m.ErrLag }

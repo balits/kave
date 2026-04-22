@@ -446,7 +446,7 @@ func (s *HttpServer) handleOTWriteAll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HttpServer) handleStats(w http.ResponseWriter, r *http.Request) {
-	stats := s.raftSvc.Stats()
+	stats := s.raftSvc.Stats(r.Context())
 	s.writeJSON(w, stats, http.StatusOK)
 }
 

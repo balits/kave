@@ -1,7 +1,8 @@
 <script lang="ts">
 	import type { KaveClient } from '$lib/kave_client';
-	import type { KaveStats } from '$lib/kv';
+	import type { KavePeer, KaveStats } from '$lib/kv';
 	import { onDestroy } from 'svelte';
+	import { defaultAllowedOrigins } from 'vite';
 
 	let { client }: { client: KaveClient } = $props();
 
@@ -31,6 +32,7 @@
 	const appliedIdx: number = $derived(stats?.applied_index ?? -1);
 	const leaderId: string = $derived(stats?.leader_id ?? 'UNKNOWN');
 	const fsmPending: number = $derived(stats?.fsm_pending ?? -1);
+	const peers: KavePeer[] = $derived(stats?.configuration ?? [])
 
 	// staleness indicator: age of last successful poll in seconds
 	const staleMs = $derived(lastPoll ? Date.now() - lastPoll : null);
@@ -55,12 +57,21 @@
 				<span>connecting…</span>
 			</div>
 		{:else}
-			<!-- node state -->
-			<div class="pill" class:leader={isLeader} class:follower={!isLeader}>
-				<span class="dot"></span>
-				<span class="pill-label">state</span>
-				<span class="pill-val">{stateLabel}</span>
-			</div>
+			<!-- cluster state -->
+			{#each peers as p}
+				<div class="">
+					<span class="">ID</span>
+					<span class="">{p.id}</span>
+				</div>
+				<div class="">
+					<span class="">addr</span>
+					<span class="">{p.address}</span>
+				</div>
+				<div class="">
+					<span class="">Suffrage</span>
+					<span class="">{p.suffrage}</span>
+				</div>
+			{/each}
 
 			<!-- leader id — most useful for followers -->
 			{#if !isLeader && leaderId !== '—'}
