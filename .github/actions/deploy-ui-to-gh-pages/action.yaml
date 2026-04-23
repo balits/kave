@@ -11,6 +11,9 @@ inputs:
   kave_ot_slot_count:
     required: true
     description: slot count of the OT api 
+  admin_token:
+    required: true
+    description: admin token for protected routes
 
 outputs:
   page_url:
@@ -37,7 +40,7 @@ runs:
         VITE_KAVE_OT_SLOT_COUNT: ${{ inputs.kave_ot_slot_count }}
         # still accessible from js bundle, but at least randoms
         # wont nuke the site during demo
-        VITE_ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        VITE_ADMIN_TOKEN: ${{ inputs.admin_token }}
       shell: bash
       run: bun --cwd=./ui run build
 

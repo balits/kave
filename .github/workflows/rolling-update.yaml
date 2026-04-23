@@ -109,3 +109,4 @@ jobs:
           cluster_url: "https://${{ env.KAVE_DOMAIN }}"
           kave_ot_slot_size: ${{ needs.extract-helm-config-values.outputs.kave_ot_slot_size }}
           kave_ot_slot_count: ${{ needs.extract-helm-config-values.outputs.kave_ot_slot_count }}
+          admin_token: ${{ secrets.ADMIN_TOKEN }}
