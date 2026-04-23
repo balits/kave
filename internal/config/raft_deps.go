@@ -22,6 +22,7 @@ type RaftDependencies struct {
 
 func NewDefaultRaftConfig(nodeID string) *raft.Config {
 	return &raft.Config{
+		LocalID:            raft.ServerID(nodeID),
 		ProtocolVersion:    raft.ProtocolVersionMax,
 		HeartbeatTimeout:   2500 * time.Millisecond,
 		ElectionTimeout:    5000 * time.Millisecond,
