@@ -4,7 +4,7 @@ description: >
   A raft-backed distributed KV store with MVCC, leases,
   watches and secret keys protected by Oblivious Transfer.
 type: application
-version: 0.2.0 # bumped on each change to the chart
+version: 0.2.1 # bumped on each change to the chart
 appVersion: "tag-dev"
 
 keywords:

@@ -1,3 +1,5 @@
+kaveDomain: kave.balits.net
+
 image:
   registry: "ghcr.io"
   repository: "balits/kave"
@@ -70,6 +72,10 @@ pdb:
 
 traefik:
   enabled: false # local cluster doesnt need it
+
+tls:
+  email: balitspm@gmail.com
+  publicTlsName: "kave-public-tls"
 
 resources:
   requests:

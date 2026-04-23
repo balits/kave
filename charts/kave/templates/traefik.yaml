@@ -16,7 +16,7 @@ metadata:
 spec:
   entryPoints: [websecure]
   routes:
-    - match: Host(`kave.balits.net`)
+    - match: Host(`{{ .Values.kaveDomain }}`)
       kind: Rule
       middlewares:
         - name: "kave-ratelimiter"
@@ -24,5 +24,6 @@ spec:
         - name: {{ .Values.serviceConfig.externalService.name }}
           port: 80
   tls:
-    certResolver: letsencrypt
+    # since cert-manager sets this secret, no certResolver is needed
+    secretName: {{ .Values.tls.publicTlsName }}
 {{- end}}

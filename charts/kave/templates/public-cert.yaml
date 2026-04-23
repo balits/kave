@@ -1,0 +1,12 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Values.tls.publicTlsName }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  secretName: {{ .Values.tls.publicTlsName }}
+  dnsNames:
+    - {{ .Values.kaveDomain }}
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
