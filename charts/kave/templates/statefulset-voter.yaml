@@ -60,6 +60,11 @@ spec:
               value: {{ .Values.ports.http | quote }}
             - name: NODE_ROLE
               value: voter
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretRef:
+                  name: kave-admin-token
+                  key: token
           ports:
             - name: raft
               containerPort: {{ .Values.ports.raft }}

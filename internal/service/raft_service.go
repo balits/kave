@@ -36,7 +36,7 @@ type RaftService interface {
 	Bootstrap(ctx context.Context, me peer.Peer) error
 	// JoinCluster sends join requests to each known peer, or the leader
 	// if we get any additional information about it, using exponential backoff.
-	JoinCluster(ctx context.Context, me peer.Peer) error
+	JoinCluster(ctx context.Context, me peer.Peer, adminToken string) error
 	// AddToCluster parses the request and extracts the node information, then adds
 	// it to the cluster. It first verifies we are still the leader,
 	// returning an error if not.
@@ -166,7 +166,7 @@ func (rs *raftSvc) AddToCluster(ctx context.Context, req transport.JoinRequest) 
 	return nil
 }
 
-func (rs *raftSvc) JoinCluster(ctx context.Context, me peer.Peer) error {
+func (rs *raftSvc) JoinCluster(ctx context.Context, me peer.Peer, adminToken string) error {
 	var urls []string
 	for _, p := range rs.peerMap {
 		if p.NodeID == me.NodeID {
@@ -185,7 +185,7 @@ func (rs *raftSvc) JoinCluster(ctx context.Context, me peer.Peer) error {
 	initialTimeout := time.Second * 2 // slightly higher in k8s than in compose | or js attempt one more time hehe
 	jitter := time.Duration(rand.Int64N(int64(initialTimeout)))
 	time.Sleep(initialTimeout + jitter) //sleep so that bootstrapping node has some time to elect itself
-	if err := rs.joinWithBackoff(ctx, urls, 5, jsonBody); err != nil {
+	if err := rs.joinWithBackoff(ctx, urls, 5, jsonBody, adminToken); err != nil {
 		return err
 	}
 
@@ -194,12 +194,12 @@ func (rs *raftSvc) JoinCluster(ctx context.Context, me peer.Peer) error {
 	return nil
 }
 
-func (rs *raftSvc) joinWithBackoff(ctx context.Context, urls []string, attempts int, jsonBody []byte) error {
+func (rs *raftSvc) joinWithBackoff(ctx context.Context, urls []string, attempts int, jsonBody []byte, adminToken string) error {
 	var lastError error
 	for a := range attempts {
 		l := rs.logger.With("attempt", a)
 		for _, url := range urls {
-			err := join(ctx, url, jsonBody)
+			err := join(ctx, url, jsonBody, adminToken)
 			if err == nil {
 				return nil // ok
 			} else {
@@ -217,14 +217,20 @@ func (rs *raftSvc) joinWithBackoff(ctx context.Context, urls []string, attempts 
 	return fmt.Errorf("could not join peers after %d attempts, last error: %v", attempts, lastError)
 }
 
-func join(ctx context.Context, url string, jsonBody []byte) error {
+func join(ctx context.Context, url string, jsonBody []byte, adminToken string) error {
 	// dip early if context was canceled between attempts
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 
 	body := io.NopCloser(bytes.NewReader(jsonBody))
-	res, err := http.DefaultClient.Post(url, "application/json", body)
+	req, err := http.NewRequest(http.MethodPost, url, body)
+	if err != nil {
+		return fmt.Errorf("client error: %v", err)
+	}
+	req.Header.Set(transport.AdminAuthTokenHeaderName, adminToken)
+
+	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("client error: %v", err)
 	}
@@ -237,7 +243,7 @@ func join(ctx context.Context, url string, jsonBody []byte) error {
 		if loc == "" {
 			return fmt.Errorf("redirected without location, status: %s", res.Status)
 		}
-		return join(ctx, loc, jsonBody)
+		return join(ctx, loc, jsonBody, adminToken)
 	default:
 		return fmt.Errorf("status %s", res.Status)
 	}

@@ -16,12 +16,20 @@ import (
 
 	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/service"
+	"github.com/balits/kave/internal/transport"
 )
 
 const (
-	errMsgReadMiddleware  string = "read middleware error"
-	errMsgWriteMiddleware string = "write middleware error"
-	errMsgProxyLeader     string = "proxying to leader failed"
+	errMsgReadMiddleware  = "read middleware error"
+	errMsgWriteMiddleware = "write middleware error"
+	errMsgProxyLeader     = "proxying to leader failed"
+
+	authErrMsg = "failed to authenticate"
+)
+
+var (
+	errAuthTokenMismatch = errors.New("auth token missmatch")
+	errAuthTokenNotFound = errors.New("auth token not found")
 )
 
 type middleware = func(http.HandlerFunc) http.HandlerFunc
@@ -33,12 +41,23 @@ func chain(base http.HandlerFunc, ms ...middleware) http.HandlerFunc {
 	return base
 }
 
-// func (s *HttpServer) statusChain(base http.HandlerFunc) http.HandlerFunc {
-// 	return chain(base, s.requestLoggingMiddleware)
-// }
+func (s *HttpServer) writeChain(base http.HandlerFunc) http.HandlerFunc {
+	return chain(base, s.requestLoggingMiddleware, s.writeLimitMiddleware, s.leaderMiddleware)
+}
 
-func (s *HttpServer) readChain(base http.HandlerFunc) http.HandlerFunc {
+func (s *HttpServer) strongReadChain(base http.HandlerFunc) http.HandlerFunc {
 	return chain(base, s.requestLoggingMiddleware, s.readLimitMiddleware, s.consitencyMiddleware)
+}
+
+// weakReadChain does not contain the consistentcy middleware in the chain,
+// making reads return possible stale state (fine for OtInit for example)
+func (s *HttpServer) weakReadChain(base http.HandlerFunc) http.HandlerFunc {
+	return chain(base, s.requestLoggingMiddleware, s.readLimitMiddleware)
+}
+
+func (s *HttpServer) adminChain(base http.HandlerFunc) http.HandlerFunc {
+	// adminAuthMiddleware before writeLimitMiddleware:	dont waste write tokens if the auth header is invalid
+	return chain(base, s.requestLoggingMiddleware, s.adminAuthMiddleware, s.writeLimitMiddleware, s.leaderMiddleware)
 }
 
 func (s *HttpServer) consitencyMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -94,10 +113,6 @@ func drainBody(oldBody io.ReadCloser) (read []byte, err error) {
 		return nil, fmt.Errorf("draining body failed: %w", err)
 	}
 	return
-}
-
-func (s *HttpServer) writeChain(base http.HandlerFunc) http.HandlerFunc {
-	return chain(base, s.requestLoggingMiddleware, s.writeLimitMiddleware, s.leaderMiddleware)
 }
 
 func (s *HttpServer) leaderMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -194,6 +209,23 @@ func (s *HttpServer) corsMuxMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *HttpServer) adminAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get(transport.AdminAuthTokenHeaderName)
+		if len(token) == 0 {
+			s.writeError(w, authErrMsg, errAuthTokenNotFound, http.StatusForbidden)
+			return
+		}
+
+		if token != s._adminAuthToken {
+			s.writeError(w, authErrMsg, errAuthTokenMismatch, http.StatusForbidden)
+			return
+		}
+
+		next(w, r)
+	}
 }
 
 type statusCodeInterceptor struct {

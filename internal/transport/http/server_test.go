@@ -36,6 +36,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testAdminAuthToken = "secret-foo"
+
 type testServer struct {
 	t           *testing.T
 	srv         *httptest.Server
@@ -119,7 +121,7 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 	otSvc := service.NewOTService(logger, me, kvstore, om, raftService, propose)
 	rateLimiterConfig := NewRateLimiterConfig(2000, 2000) // set to a gorbillion so tests can run in parallel
 
-	httpServer := NewHTTPServer(logger, me, discoverySvc, kvSvc, leaseSvc, otSvc, raftService, watchHub, func() {}, reg, rateLimiterConfig, rateLimiterConfig)
+	httpServer := NewHTTPServer(logger, me, discoverySvc, kvSvc, leaseSvc, otSvc, raftService, watchHub, func() {}, reg, rateLimiterConfig, rateLimiterConfig, testAdminAuthToken)
 
 	ts := httptest.NewServer(httpServer.server.Handler)
 	t.Cleanup(ts.Close)

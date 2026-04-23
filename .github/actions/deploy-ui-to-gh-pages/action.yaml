@@ -35,6 +35,9 @@ runs:
         VITE_KAVE_CLUSTER_URL: "${{ inputs.cluster_url }}"
         VITE_KAVE_OT_SLOT_SIZE: ${{ inputs.kave_ot_slot_size }}
         VITE_KAVE_OT_SLOT_COUNT: ${{ inputs.kave_ot_slot_count }}
+        # still accessible from js bundle, but at least randoms
+        # wont nuke the site during demo
+        VITE_ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
       shell: bash
       run: bun --cwd=./ui run build
 

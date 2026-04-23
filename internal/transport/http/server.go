@@ -38,9 +38,9 @@ const (
 
 	RouteWatchWS = transport.RouteWatch
 
-	RouteClusterJoin       = transport.RouteCluster + "/join"
-	RouteCompactionTrigger = transport.RouteAdmin + "/compaction"
-	RouteKillNode          = transport.RouteAdmin + "/kill"
+	RouteAdminClusterJoin       = transport.RouteCluster + "/join"
+	RouteAdminCompactionTrigger = transport.RouteAdmin + "/compaction"
+	RouteAdminKillNode          = transport.RouteAdmin + "/kill"
 
 	RouteStats   = "/stats"
 	RouteMetrics = "/metrics"
@@ -79,18 +79,19 @@ var (
 )
 
 type HttpServer struct {
-	me             peer.Peer
-	kvSvc          service.KVService
-	leaseSvc       service.LeaseService
-	otSvc          service.OTService
-	raftSvc        service.RaftService
-	watchHub       *watch.WatchHub
-	nodeKillSwitch func()
-	readLimiter    *rateLimiter
-	writeLimiter   *rateLimiter
-	logger         *slog.Logger
-	rootLogger     *slog.Logger
-	server         *http.Server
+	me              peer.Peer
+	kvSvc           service.KVService
+	leaseSvc        service.LeaseService
+	otSvc           service.OTService
+	raftSvc         service.RaftService
+	watchHub        *watch.WatchHub
+	nodeKillSwitch  func()
+	readLimiter     *rateLimiter
+	writeLimiter    *rateLimiter
+	logger          *slog.Logger
+	rootLogger      *slog.Logger
+	server          *http.Server
+	_adminAuthToken string
 }
 
 func NewHTTPServer(
@@ -106,6 +107,7 @@ func NewHTTPServer(
 	reg *prometheus.Registry,
 	readLimitConfig ratelimiterConfig,
 	writeLimitConfig ratelimiterConfig,
+	adminAuthToken string,
 ) *HttpServer {
 	advAddr := me.GetHttpAdvertisedAddress()
 	listenAddr := me.GetHttpListenAddress()
@@ -124,6 +126,7 @@ func NewHTTPServer(
 		Addr:    listenAddr,
 		Handler: s.corsMuxMiddleware(mux),
 	}
+	s._adminAuthToken = adminAuthToken
 
 	// TODO(ratelimiter): run real benchmarks to determine rps and burst: something around 75% of peak capacity
 	s.readLimiter = newRateLimiter(readLimitConfig)
@@ -136,8 +139,8 @@ func NewHTTPServer(
 	)
 
 	// kv
-	mux.HandleFunc("POST "+RouteKvRange, s.readChain(s.handleKvRange)) // hack so browsers accept GET with body
-	mux.HandleFunc("GET "+RouteKvRange, s.readChain(s.handleKvRange))
+	mux.HandleFunc("POST "+RouteKvRange, s.strongReadChain(s.handleKvRange)) // hack so browsers accept GET with body
+	mux.HandleFunc("GET "+RouteKvRange, s.strongReadChain(s.handleKvRange))
 	mux.HandleFunc("POST "+RouteKvPut, s.writeChain(s.handleKvPut))
 	mux.HandleFunc("DELETE "+RouteKvDelete, s.writeChain(s.handleKvDelete))
 	mux.HandleFunc("POST "+RouteKvTxn, s.writeChain(s.handleKvTxn))
@@ -151,19 +154,19 @@ func NewHTTPServer(
 	mux.HandleFunc("GET "+RouteLeaseLookup, chain(s.handleLeaseLookup, s.requestLoggingMiddleware, s.readLimitMiddleware, s.leaderMiddleware))
 
 	// ot
-	mux.HandleFunc("POST "+RouteOtInit, s.handleOTInit) // hack so browsers accept GET with body
-	mux.HandleFunc("GET "+RouteOtInit, s.handleOTInit)
-	mux.HandleFunc("POST "+RouteOtTransfer, s.readChain(s.handleOTTransfer)) // hack so browsers accept GET with body
-	mux.HandleFunc("GET "+RouteOtTransfer, s.readChain(s.handleOTTransfer))
+	mux.HandleFunc("POST "+RouteOtInit, s.weakReadChain(s.handleOTInit)) // hack so browsers accept GET with body
+	mux.HandleFunc("GET "+RouteOtInit, s.weakReadChain(s.handleOTInit))
+	mux.HandleFunc("POST "+RouteOtTransfer, s.strongReadChain(s.handleOTTransfer)) // hack so browsers accept GET with body
+	mux.HandleFunc("GET "+RouteOtTransfer, s.strongReadChain(s.handleOTTransfer))
 	mux.HandleFunc("POST "+RouteOtWriteAll, s.writeChain(s.handleOTWriteAll))
 
 	// watch: watches can be served from any node
-	mux.HandleFunc("GET "+RouteWatchWS, chain(s.handleWatch, s.requestLoggingMiddleware, s.readLimitMiddleware))
+	mux.HandleFunc("GET "+RouteWatchWS, s.weakReadChain(s.handleWatch))
 
 	// admin / protected routes (auth WIP):
-	mux.HandleFunc("POST "+RouteClusterJoin, chain(s.handleJoin, s.requestLoggingMiddleware))                            // cluster
-	mux.HandleFunc("POST "+RouteCompactionTrigger, s.writeChain(s.handleCompactionTrigger))                              // manual compaction trigger
-	mux.HandleFunc("DELETE "+RouteKillNode, chain(s.handleKillNode, s.requestLoggingMiddleware, s.writeLimitMiddleware)) // kill a node given its id (forwarding request to given node, then killing self)
+	mux.HandleFunc("POST "+RouteAdminClusterJoin, s.adminChain(s.handleJoin))                                               // cluster
+	mux.HandleFunc("DELETE "+RouteAdminKillNode, s.adminChain(s.handleKillNode))                                            // kill a node given its id (forwarding request to given node, then killing self)
+	mux.HandleFunc("POST "+RouteAdminCompactionTrigger, chain(s.adminChain(s.handleCompactionTrigger), s.leaderMiddleware)) // manual compaction trigger, must go through leader
 
 	// health / debug
 	mux.HandleFunc("GET "+RouteStats, s.handleStats)         // stats

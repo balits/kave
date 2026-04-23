@@ -1,13 +1,16 @@
 package http
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/balits/kave/internal/transport"
 	"github.com/balits/kave/internal/types/api"
 	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/require"
@@ -176,4 +179,43 @@ func Test_CORSMiddleware_Preflight_DoesNotInvokeHandler(t *testing.T) {
 	w := httptest.NewRecorder()
 	ts.srv.Config.Handler.ServeHTTP(w, req)
 	require.Equal(t, http.StatusNoContent, w.Code)
+}
+func Test_AdminAuthMiddleware_ValidToken_OK(t *testing.T) {
+	ts := newTestServer(t, true)
+	resp := ts._doWithHeaders(http.MethodDelete, RouteAdminKillNode, nil, map[string]string{
+		transport.AdminAuthTokenHeaderName: testAdminAuthToken,
+	})
+	t.Log("status_code", resp.StatusCode)
+	require.NotEqual(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func Test_AdminAuthMiddleware_InvalidOrEmptyToken_Forbidden(t *testing.T) {
+	ts := newTestServer(t, true)
+	resp := ts._doWithHeaders(http.MethodDelete, RouteAdminKillNode, nil, map[string]string{
+		transport.AdminAuthTokenHeaderName: "",
+	})
+	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	resp = ts._doWithHeaders(http.MethodDelete, RouteAdminKillNode, nil, map[string]string{
+		transport.AdminAuthTokenHeaderName: strings.Repeat(testAdminAuthToken, 2),
+	})
+	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func (ts *testServer) _doWithHeaders(method string, path string, body any, headers map[string]string) *http.Response {
+	ts.t.Helper()
+	var buf bytes.Buffer
+	if body != nil {
+		require.NoError(ts.t, json.NewEncoder(&buf).Encode(body), "json encode")
+	}
+	req, err := http.NewRequest(method, ts.srv.URL+path, &buf)
+	require.NoError(ts.t, err, "create request")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(ts.t, err, "default client do")
+	ts.t.Cleanup(func() { resp.Body.Close() })
+	return resp
 }

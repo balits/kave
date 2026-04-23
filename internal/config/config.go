@@ -23,10 +23,11 @@ import (
 const ApplyLagReadinessThreshold uint = 10
 
 type Config struct {
-	Bootstrap    bool
-	Me           peer.Peer
-	PodNamespace string
-	RaftCfg      *raft.Config
+	Bootstrap      bool
+	Me             peer.Peer
+	PodNamespace   string
+	RaftCfg        *raft.Config
+	AdminAuthToken string
 
 	*ConfigJson
 }
@@ -97,6 +98,7 @@ func LoadConfig() *Config {
 		raftPort     = fs.String("raft_port", os.Getenv("RAFT_PORT"), "raft port of the raft node")
 		httpPort     = fs.String("http_port", os.Getenv("HTTP_PORT"), "http port of the raft node")
 		// role       = fs.String("role", os.Getenv("NODE_ROLE"), "role of the node (voter | learner)")
+		adminAuthToken = fs.String("admin_token", os.Getenv("ADMIN_TOKEN"), "super secret token for admin routes")
 	)
 
 	err := fs.Parse(os.Args[1:])
@@ -106,6 +108,7 @@ func LoadConfig() *Config {
 	checkRequiredField("node_id", configPath)
 	checkRequiredField("raft_port", raftPort)
 	checkRequiredField("http_port", httpPort)
+	checkRequiredField("admin_token", adminAuthToken)
 
 	me := peer.Peer{
 		NodeID:   *nodeID,
@@ -130,6 +133,7 @@ func LoadConfig() *Config {
 	cfg.Me = me
 	cfg.PodNamespace = optionalString(podNamespace)
 	cfg.RaftCfg = NewDefaultRaftConfig(cfg.Me.NodeID)
+	cfg.AdminAuthToken = *adminAuthToken
 
 	// debug certain fields
 	fmt.Printf(

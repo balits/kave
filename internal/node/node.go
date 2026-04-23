@@ -35,12 +35,13 @@ import (
 const APPLY_LAG_THRESHOLD = 20
 
 type Node struct {
-	Bootstrap    bool
-	Logger       *slog.Logger
-	Me           peer.Peer
-	IsShutdown   bool          // usefull for tests
-	shutdownC    chan struct{} // channel that admin/kill?node_id=<some_id> uses to terminate this process gracefully
-	shutdownOnce sync.Once
+	adminAuthToken string
+	Bootstrap      bool
+	Logger         *slog.Logger
+	Me             peer.Peer
+	IsShutdown     bool          // usefull for tests
+	shutdownC      chan struct{} // channel that admin/kill?node_id=<some_id> uses to terminate this process gracefully
+	shutdownOnce   sync.Once
 
 	ProposeFunc  util.ProposeFunc
 	IsLeaderFunc util.IsLeaderFunc
@@ -77,10 +78,11 @@ type Node struct {
 
 func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*Node, error) {
 	n := &Node{
-		Me:        cfg.Me,
-		Bootstrap: cfg.Bootstrap,
-		Logger:    logger.With("node_id", cfg.Me.NodeID),
-		shutdownC: make(chan struct{}),
+		Me:             cfg.Me,
+		Bootstrap:      cfg.Bootstrap,
+		Logger:         logger.With("node_id", cfg.Me.NodeID),
+		shutdownC:      make(chan struct{}),
+		adminAuthToken: cfg.AdminAuthToken,
 	}
 
 	if err := n.initStorage(reg, cfg.StorageOpts, cfg.OtOpts); err != nil {
@@ -119,6 +121,7 @@ func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*No
 		reg,
 		cfg.RatelimiterOpts.Read,
 		cfg.RatelimiterOpts.Write,
+		n.adminAuthToken,
 	)
 	return n, nil
 }
@@ -227,7 +230,7 @@ func (n *Node) BootstrapOrJoin(ctx context.Context, me peer.Peer) error {
 	}
 
 	n.Logger.Info("No existing Raft state found; joining existing cluster")
-	return n.RaftService.JoinCluster(ctx, me)
+	return n.RaftService.JoinCluster(ctx, me, n.adminAuthToken)
 }
 
 func (n *Node) bootstrap(ctx context.Context, me peer.Peer) error {
