@@ -62,7 +62,7 @@ spec:
               value: voter
             - name: ADMIN_TOKEN
               valueFrom:
-                secretRef:
+                secretKeyRef:
                   name: kave-admin-token
                   key: token
           ports:
