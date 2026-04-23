@@ -263,6 +263,8 @@ func (c *cluster) teardown() {
 
 		return true
 	}, 5*time.Second, time.Millisecond*200, "failed to teardown cluster: not all nodes are shutdown")
+
+	time.Sleep(5 * time.Second)
 }
 
 func (c *cluster) connectNetworks() {
