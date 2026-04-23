@@ -189,6 +189,15 @@ spec:
     - Ingress
 
   ingress:
+    # http port needs to be accessible
+    # from traefik + other pods.
+    # protection should come from
+    # ratelimiting + auth tokens (WIP)
+    - ports:
+        - protocol: TCP
+          port: {{ .Values.ports.http }}
+    # raft port should be protected,
+    # only other pods other voters can access it
     - ports:
         - protocol: TCP
           port: {{ .Values.ports.raft }}
