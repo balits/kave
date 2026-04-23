@@ -4,9 +4,10 @@ kind: Middleware
 metadata:
     name: kave-ratelimiter
 spec:
-    # todo:   
+    # above go rate limits, since
+    # it would be a "last resort"
     rateLimit:
-        average: 2000
+        average: 500
         burst: 1000
 ---
 apiVersion: traefik.containo.us/v1alpha1
