@@ -113,9 +113,10 @@ func (cs *CheckpointScheduler) tick() {
 
 	cps := cs.lm.Checkpoint()
 	if len(cps) == 0 {
-		cs.logger.Info("checkpoint error: no live leases, skipping tick")
+		cs.logger.Info("checkpoint tick skipped: no live leases, skipping tick")
 		return
 	}
+	cs.logger.Info("proposing checkpoint", "lease_count", len(cps))
 
 	cmd := command.Command{
 		Kind: command.KindLeaseCheckpoint,

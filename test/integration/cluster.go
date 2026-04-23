@@ -23,11 +23,16 @@ import (
 	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/schema"
 	"github.com/balits/kave/internal/storage"
+	"github.com/balits/kave/internal/transport"
 	_http "github.com/balits/kave/internal/transport/http"
 	"github.com/balits/kave/internal/util/logutil"
 	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/require"
 )
+
+// testAdminToken is the shared admin token used by all test clusters.
+// It must match the AdminAuthToken set in defaultNodeConfig().
+const testAdminToken = "test-admin-token"
 
 type cluster struct {
 	tb           testing.TB
@@ -364,9 +369,18 @@ func randomPort(tb testing.TB) string {
 	return fmt.Sprintf("%d", (l.Addr().(*net.TCPAddr).Port))
 }
 
-// helpers for cluster tests
-
 func do(tb testing.TB, node *node.Node, method string, route string, reqBody any, respBody any) int {
+	return doWithHeaders(tb, node, method, route, reqBody, respBody, nil)
+}
+
+func doAdmin(tb testing.TB, node *node.Node, method string, route string, reqBody any, respBody any) int {
+	return doWithHeaders(tb, node, method, route, reqBody, respBody, map[string]string{
+		transport.AdminAuthTokenHeaderName: testAdminToken,
+	})
+}
+
+func doWithHeaders(tb testing.TB, node *node.Node, method string, route string, reqBody any, respBody any, headers map[string]string) int {
+	tb.Helper()
 	var bodyReader io.Reader
 	if reqBody != nil {
 		b, err := json.Marshal(reqBody)
@@ -376,6 +390,9 @@ func do(tb testing.TB, node *node.Node, method string, route string, reqBody any
 	req, err := http.NewRequest(method, node.Me.HttpURL()+route, bodyReader)
 	require.NoError(tb, err)
 	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(tb, err)
@@ -442,14 +459,13 @@ func defaultNodeConfig() *config.Config {
 		},
 		PeerDiscoveryOptions: peer.DiscoveryOptions{
 			Mode: peer.DiscoveryModeStatic,
-			// Peers: &peers,
 		},
 		StorageOpts: storage.Options{
 			Kind:           storage.StorageKindInMemory,
 			InitialBuckets: schema.AllBuckets,
 		},
 		CompactionOpts:            compaction.DefaultOptions,
-		CheckpointIntervalMinutes: 2 * time.Second, // not actually minutes, we cant afford to be that slow
+		CheckpointIntervalMinutes: 2 * time.Second,
 		// set to a gorbillion since were testing the FSM/DB not the ratelimiter
 		RatelimiterOpts: _http.RatelimitOptions{
 			Read:  _http.NewRateLimiterConfig(99999, 99999),
@@ -458,10 +474,8 @@ func defaultNodeConfig() *config.Config {
 		OtOpts: ot.DefaultOptions,
 	}
 	return &config.Config{
-		// Bootstrap: bootstrap,
-		// RaftCfg:                   _raftCfg,
-		// Me:                        me,
-		ConfigJson: cj,
+		AdminAuthToken: testAdminToken,
+		ConfigJson:     cj,
 	}
 }
 

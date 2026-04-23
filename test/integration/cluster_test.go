@@ -40,12 +40,10 @@ func Test_Integration_KVReplication_WriteOnLeader_ReadOnAll(t *testing.T) {
 	var putResp api.PutResponse
 	require.Equal(t, http.StatusOK, do(t, l, http.MethodPost, _http.RouteKvPut, putReq, &putResp))
 
-	// Read from all ("serializably" ?)
 	for i := range 3 {
 		req := api.RangeRequest{Key: []byte("foo"), Serializable: true}
 		var resp api.RangeResponse
 
-		// milliseconds of replication lag is serializable == true
 		require.Eventually(t, func() bool {
 			status := do(t, c.nodes[i], http.MethodGet, _http.RouteKvRange, req, &resp)
 			return status == http.StatusOK && len(resp.Entries) == 1
@@ -106,7 +104,6 @@ func Test_Integration_KVReplication_SerializableRead_MayBeStaleButNeverCorrupted
 	require.Len(t, resp.Entries, 1)
 	val := string(resp.Entries[0].Value)
 
-	// because of async replication, we might see the old || the new value but never garbage
 	require.True(t, val == "old" || val == "new", "Expected 'old' or 'new', got %s", val)
 }
 
@@ -124,7 +121,6 @@ func Test_Integration_KVReplication_DeleteRemovesKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, do(t, l, http.MethodDelete, _http.RouteKvDelete, delReq, &delResp))
 	require.Equal(t, int64(1), delResp.NumDeleted)
 
-	// should return empty
 	rangeReq := api.RangeRequest{Key: []byte("foo")}
 	var getResp api.RangeResponse
 	require.Equal(t, http.StatusOK, do(t, l, http.MethodGet, _http.RouteKvRange, rangeReq, &getResp))
@@ -144,7 +140,6 @@ func Test_Integration_KVReplication_DeleteOnFollower_Proxied(t *testing.T) {
 	require.Equal(t, http.StatusOK, do(t, fw, http.MethodDelete, _http.RouteKvDelete, api.DeleteRequest{Key: []byte("proxied_del")}, &delResp))
 	require.Equal(t, int64(1), delResp.NumDeleted)
 
-	// Ensure it's deleted everywhere
 	for i := range 3 {
 		var getResp api.RangeResponse
 		require.Equal(t, http.StatusOK, do(t, c.nodes[i], http.MethodGet, _http.RouteKvRange, api.RangeRequest{Key: []byte("proxied_del")}, &getResp))
@@ -225,7 +220,6 @@ func Test_Integration_Transactions_SuccessBranch(t *testing.T) {
 
 	do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte("foo"), Value: []byte("old")}, nil)
 
-	// CAS: if value(foo) == old then PUT foo=new
 	txnReq := api.TxnRequest{
 		Comparisons: []api.Comparison{
 			{
@@ -264,7 +258,6 @@ func Test_Integration_Transactions_FailureBranch(t *testing.T) {
 
 	do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte("foo"), Value: []byte("old")}, nil)
 
-	// CAS: value(foo) == wrong then {} else PUT other=fallback
 	txnReq := api.TxnRequest{
 		Comparisons: []api.Comparison{
 			{
@@ -306,14 +299,13 @@ func Test_Integration_Transactions_Atomic_NoPartialApplication(t *testing.T) {
 
 	l, _ := c.waitLeader(5 * time.Second)
 
-	// valid compare block but invalid success block -> transaction aborted
 	txnReq := api.TxnRequest{
 		Comparisons: []api.Comparison{
 			{
 				Key:         []byte("atomic_test"),
 				Operator:    api.OperatorEqual,
 				TargetField: api.FieldCreateRev,
-				TargetValue: api.CompareTargetUnion{CreateRevision: 0}, // key does not exist
+				TargetValue: api.CompareTargetUnion{CreateRevision: 0},
 			},
 		},
 		Success: []api.TxnOp{
@@ -349,10 +341,8 @@ func Test_Integration_Transactions_OnFollower_Proxied(t *testing.T) {
 	l, leaderIdx := c.waitLeader(5 * time.Second)
 	fw := c.nodes[(leaderIdx+1)%3]
 
-	// setup key on leader
 	do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte("foo"), Value: []byte("old")}, nil)
 
-	// do txn on follower
 	txnReq := api.TxnRequest{
 		Comparisons: []api.Comparison{
 			{
@@ -494,12 +484,10 @@ func Test_Integration_Leases_GrantOnFollowerProxied(t *testing.T) {
 	l, leaderIdx := c.waitLeader(5 * time.Second)
 	fw := c.nodes[(leaderIdx+1)%3]
 
-	// Grant via Follower
 	var grantResp api.LeaseGrantResponse
 	require.Equal(t, http.StatusOK, do(t, fw, http.MethodPost, _http.RouteLeaseGrant, api.LeaseGrantRequest{TTL: 60}, &grantResp))
 	require.NotZero(t, grantResp.LeaseID)
 
-	// Verify the grant registered successfully on the Leader
 	var lookupResp api.LeaseLookupResponse
 	require.Equal(t, http.StatusOK, do(t, l, http.MethodGet, _http.RouteLeaseLookup, api.LeaseLookupRequest{LeaseID: grantResp.LeaseID}, &lookupResp))
 	require.Equal(t, grantResp.LeaseID, lookupResp.LeaseID)
@@ -546,7 +534,6 @@ func Test_Integration_Watch_ReceivesPutEvent(t *testing.T) {
 	}
 	require.NoError(t, wsjson.Write(context.Background(), ws, createWatchMsg))
 
-	// give WS a moment to register the watcher
 	time.Sleep(200 * time.Millisecond)
 
 	key := []byte("foo")
@@ -555,7 +542,6 @@ func Test_Integration_Watch_ReceivesPutEvent(t *testing.T) {
 		do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: key, Value: value}, nil)
 	}()
 
-	// first msg is watch create, second is a put event
 	var serverMsg watch.ServerMessage
 
 	require.NoError(t, wsjson.Read(context.Background(), ws, &serverMsg))
@@ -594,13 +580,11 @@ func Test_Integration_Watch_ReceivesDeleteEvent(t *testing.T) {
 	wsjson.Write(context.Background(), ws, createWatchMsg)
 	time.Sleep(200 * time.Millisecond)
 
-	// PUT then DELETE
 	go func() {
 		do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte("foo"), Value: []byte("bar")}, nil)
 		do(t, l, http.MethodDelete, _http.RouteKvDelete, api.DeleteRequest{Key: []byte("foo")}, nil)
 	}()
 
-	// first msg is watch create, then put, then del
 	var serverMsg watch.ServerMessage
 
 	require.NoError(t, wsjson.Read(context.Background(), ws, &serverMsg))
@@ -622,7 +606,6 @@ func Test_Integration_Watch_RangeReceivesMatchingKeysOnly(t *testing.T) {
 	defer cancel()
 	defer ws.Close(websocket.StatusNormalClosure, "")
 
-	// watch range [a, d)
 	payload, err := json.Marshal(api.WatchCreateRequest{Key: []byte("a"), End: []byte("d")})
 	require.NoError(t, err, "failed to marshal client message payload")
 	createWatchMsg := watch.ClientMessage{
@@ -637,7 +620,6 @@ func Test_Integration_Watch_RangeReceivesMatchingKeysOnly(t *testing.T) {
 		do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte(k), Value: []byte("val")}, nil)
 	}
 
-	// first msg is watch create
 	var serverMsg watch.ServerMessage
 
 	require.NoError(t, wsjson.Read(context.Background(), ws, &serverMsg))
@@ -668,7 +650,6 @@ func Test_Integration_Watch_StartRevCatchesUp(t *testing.T) {
 	defer cancel()
 	defer ws.Close(websocket.StatusNormalClosure, "")
 
-	// watch starting at the revision of v1
 	payload, err := json.Marshal(api.WatchCreateRequest{Key: key, StartRevision: 0})
 	require.NoError(t, err, "failed to marshal client message payload")
 	createWatchMsg := watch.ClientMessage{
@@ -681,7 +662,6 @@ func Test_Integration_Watch_StartRevCatchesUp(t *testing.T) {
 	var serverMsg watch.ServerMessage
 	var streamEvent watch.StreamEvent
 
-	// first msg is watch create, then the two put events
 	require.NoError(t, wsjson.Read(context.Background(), ws, &serverMsg))
 	require.Equal(t, watch.ServerWatchCreated, serverMsg.Kind)
 
@@ -709,7 +689,6 @@ func Test_Integration_Watch_CancelStopsEvents(t *testing.T) {
 	defer cancel()
 	defer ws.Close(websocket.StatusNormalClosure, "")
 
-	// create watch + read created
 	payload, err := json.Marshal(api.WatchCreateRequest{Key: []byte("cancel-key")})
 	require.NoError(t, err, "failed to marshal client message payload")
 	createWatchMsg := watch.ClientMessage{
@@ -729,7 +708,6 @@ func Test_Integration_Watch_CancelStopsEvents(t *testing.T) {
 	require.NotZero(t, createResp.WatchID)
 	watchID := createResp.WatchID
 
-	// cancel + read canceled
 	payload, err = json.Marshal(&api.WatchCancelRequest{WatchID: watchID})
 	require.NoError(t, err, "failed to marshal client message payload")
 	cancelWatchReq := watch.ClientMessage{
@@ -743,7 +721,6 @@ func Test_Integration_Watch_CancelStopsEvents(t *testing.T) {
 
 	do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte("cancel-key"), Value: []byte("val")}, nil)
 
-	// should time out after put to canceled key
 	ctx, cancelRead := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancelRead()
 	err = wsjson.Read(ctx, ws, &serverMsg)
@@ -757,12 +734,10 @@ func Test_Integration_Watch_SurvivesLeaderFailover(t *testing.T) {
 	_, leaderIdx := c.waitLeader(5 * time.Second)
 	fw := c.nodes[(leaderIdx+1)%3]
 
-	// Watch on FOLLOWER
 	ws, cancel := dialWatchWS(t, fw)
 	defer cancel()
 	defer ws.Close(websocket.StatusNormalClosure, "")
 
-	// create watch
 	payload, err := json.Marshal(api.WatchCreateRequest{Key: []byte("foo")})
 	require.NoError(t, err, "failed to marshal client message payload")
 	createWatchMsg := watch.ClientMessage{
@@ -777,11 +752,9 @@ func Test_Integration_Watch_SurvivesLeaderFailover(t *testing.T) {
 	require.Equal(t, watch.ServerWatchCreated, serverMsg.Kind)
 	require.NoError(t, json.Unmarshal(serverMsg.Payload, &createResp), "failed to parse create watcher responses")
 
-	// kill leader and wait for new one
 	c.WaitKillLeader(leaderIdx, 3*time.Second)
 	newLeader, _ := c.waitLeader(10 * time.Second)
 
-	// put to new leader
 	do(t, newLeader, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte("foo"), Value: []byte("survived")}, nil)
 
 	var streamEvent watch.StreamEvent
@@ -817,7 +790,6 @@ func Test_Integration_Failover_WritesDuringElectionReturn503(t *testing.T) {
 	fwIdx := (leaderIdx + 1) % 3
 	fw := c.nodes[fwIdx]
 
-	// kill Leader without waiting for a new one, then put a key
 	c.cancels[leaderIdx]()
 
 	putReq := api.PutRequest{Key: []byte("boo"), Value: []byte("far")}
@@ -848,7 +820,6 @@ func Test_Integration_Failover_DataRetained(t *testing.T) {
 	defer c.teardown()
 	l1, leaderIdx := c.waitLeader(5 * time.Second)
 
-	// Write 10 keys
 	for i := range 10 {
 		key := fmt.Sprintf("key-%d", i)
 		require.Equal(t, http.StatusOK, do(t, l1, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte(key), Value: []byte("val")}, nil))
@@ -878,7 +849,6 @@ func Test_Integration_Failover_RestartedNodeCatchesUp(t *testing.T) {
 
 	followerIdx := (leaderIdx + 1) % 3
 
-	// kill follower wait a bit to shutdown
 	c.cancels[followerIdx]()
 	time.Sleep(500 * time.Millisecond)
 
@@ -914,7 +884,6 @@ func Test_Integration_Failover_RestartedLeaderRejoinsAsFollower(t *testing.T) {
 
 	c.restartNode(oldLeaderIdx)
 
-	// poke so replication sends newest leader indexes to followers
 	pokeReq := api.PutRequest{Key: []byte("poke"), Value: []byte("raft_heartbeat")}
 	require.Equal(t, http.StatusOK, do(t, newLeader, http.MethodPost, _http.RouteKvPut, pokeReq, nil))
 
@@ -931,7 +900,6 @@ func Test_Integration_Quorum_TwoNodesDown_NoWrites(t *testing.T) {
 
 	_, leaderIdx := c.waitLeader(5 * time.Second)
 
-	// kill two nodes to break quorum
 	followerIdx := (leaderIdx + 1) % 3
 	survivorIdx := (leaderIdx + 2) % 3
 
@@ -940,10 +908,8 @@ func Test_Integration_Quorum_TwoNodesDown_NoWrites(t *testing.T) {
 
 	survivor := c.nodes[survivorIdx]
 
-	// write on the survivor
 	putReq := api.PutRequest{Key: []byte("quorum_test"), Value: []byte("fail")}
 
-	// without quorum, the node cannot elect a leader or commit entries.
 	require.Eventually(t, func() bool {
 		status := do(t, survivor, http.MethodPost, _http.RouteKvPut, putReq, nil)
 		return status == http.StatusServiceUnavailable
@@ -960,7 +926,6 @@ func Test_Integration_Quorum_TwoNodesDown_SerializableReadsWork(t *testing.T) {
 	putReq := api.PutRequest{Key: []byte("persistent"), Value: []byte("data")}
 	require.Equal(t, http.StatusOK, do(t, l, http.MethodPost, _http.RouteKvPut, putReq, nil))
 
-	// ensure the survivor has the data locally before we kill the others
 	require.Eventually(t, func() bool {
 		var resp api.RangeResponse
 		do(t, c.nodes[survivorIdx], http.MethodGet, _http.RouteKvRange, api.RangeRequest{Key: []byte("persistent"), Serializable: true}, &resp)
@@ -992,14 +957,13 @@ func Test_Integration_Quorum_Restored_ClusterRecovers(t *testing.T) {
 
 	c.WaitKillLeader(leaderIdx, 5*time.Second)
 	c.cancels[node1Idx]()
-	time.Sleep(200 * time.Millisecond) // wait until context cancel propagates
+	time.Sleep(200 * time.Millisecond)
 
 	status := do(t, c.nodes[node2Idx], http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte("k"), Value: []byte("v")}, nil)
 	require.Equal(t, http.StatusServiceUnavailable, status, "expected 503 since quorom is lsot")
 
 	c.restartNode(node1Idx)
 
-	// poke here?
 	newLeader, _ := c.waitLeader(15 * time.Second)
 	require.NotNil(t, newLeader)
 
@@ -1027,11 +991,9 @@ func Test_Integration_Snapshot_NodeCatchesUpViaSnapshot(t *testing.T) {
 		require.Equal(t, http.StatusOK, do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte(key), Value: []byte("val")}, nil))
 	}
 
-	// give leader a moment to perform the snapshot in the background
 	// little over snapshot interval
 	time.Sleep(2500 * time.Millisecond)
 
-	// leader must send an InstallSnapshot RPC.
 	c.cfgs[followerIdx].Bootstrap = false
 	c.restartNode(followerIdx)
 
@@ -1062,7 +1024,6 @@ func Test_Integration_Snapshot_StateMatchesPreSnapshot(t *testing.T) {
 		require.Equal(t, http.StatusOK, do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: fmt.Appendf(nil, "pre-%d", i), Value: []byte("val")}, nil))
 	}
 
-	// after killing a follower, write 10 more keys
 	c.cancels[followerIdx]()
 	for i := range 10 {
 		require.Equal(t, http.StatusOK, do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: fmt.Appendf(nil, "post-%d", i), Value: []byte("val")}, nil))
@@ -1071,11 +1032,9 @@ func Test_Integration_Snapshot_StateMatchesPreSnapshot(t *testing.T) {
 	c.restartNode(followerIdx)
 	fw := c.nodes[followerIdx]
 
-	//poke -> AppendEntriesRPC
 	do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte("poke"), Value: []byte("poke")}, nil)
 	c.waitReady(followerIdx)
 
-	// both 20 = 10 from from snapshot + 10 from log replay exist
 	require.Eventually(t, func() bool {
 		var resp1, resp2 api.RangeResponse
 		do(t, fw, http.MethodGet, _http.RouteKvRange, api.RangeRequest{Key: []byte("pre-9"), Serializable: true}, &resp1)
@@ -1092,29 +1051,24 @@ func Test_Integration_Snapshot_CompactedRevisionsNotReadable(t *testing.T) {
 	l, leaderIdx := c.waitLeader(5 * time.Second)
 	followerIdx := (leaderIdx + 1) % 3
 
-	// put 10 before compaction
 	var lastResp api.PutResponse
 	for i := range 10 {
 		require.Equal(t, http.StatusOK, do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: fmt.Appendf(nil, "k-%d", i), Value: []byte("v")}, &lastResp))
 	}
 
-	// Compact the KV store on the leader at Revision (Latest - 5)
+	// doAdmin: compaction trigger is an admin route
 	compactRev := lastResp.Header.Revision - 5
-	require.Equal(t, http.StatusOK, do(t, l, http.MethodPost, _http.RouteAdminCompactionTrigger, api.CompactionRequest{TargetRev: compactRev}, nil))
+	require.Equal(t, http.StatusOK, doAdmin(t, l, http.MethodPost, _http.RouteAdminCompactionTrigger, api.CompactionRequest{TargetRev: compactRev}, nil))
 
-	// put 10 more after compaction
 	for i := range 10 {
 		do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: fmt.Appendf(nil, "k-%d", i), Value: []byte("v")}, nil)
 	}
 
-	// restart fw
 	c.cancels[followerIdx]()
 	c.restartNode(followerIdx)
 	fw := c.nodes[followerIdx]
 	c.waitReady(followerIdx)
 
-	// snapshot should capture compacted state
-	// all reads below/at compactedRev should fail
 	var getResp api.RangeResponse
 	status := do(t, fw, http.MethodGet, _http.RouteKvRange, api.RangeRequest{Key: []byte("k-1"), Revision: compactRev - 1, Serializable: true}, &getResp)
 	require.NotEqual(t, http.StatusOK, status, "expected error when reading compacted revision")
@@ -1145,7 +1099,6 @@ func Test_Integration_Snapshot_LeasesSurvive(t *testing.T) {
 	require.Eventually(t, func() bool {
 		var lookupResp api.LeaseLookupResponse
 		status := do(t, fw, http.MethodGet, _http.RouteLeaseLookup, api.LeaseLookupRequest{LeaseID: grantResp.LeaseID}, &lookupResp)
-		// Check that the lease was found and its TTL is roughly intact
 		return status == http.StatusOK && lookupResp.RemainingTTL > 0
 	}, 10*time.Second, 100*time.Millisecond, "Lease did not survive the snapshot transfer")
 }
@@ -1155,18 +1108,16 @@ func Test_Integration_Compaction_RemovesOldRevisions(t *testing.T) {
 	defer c.teardown()
 	l, _ := c.waitLeader(5 * time.Second)
 
-	// v1
 	var resp1 api.PutResponse
 	require.Equal(t, http.StatusOK, do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte("k"), Value: []byte("v1")}, &resp1))
 	rev1 := resp1.Header.Revision
 
-	// v2
 	var resp2 api.PutResponse
 	require.Equal(t, http.StatusOK, do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte("k"), Value: []byte("v2")}, &resp2))
 	rev2 := resp2.Header.Revision
 
-	// targetRev = rev1 + 1, since a compaction rev C needs to delete all entries at rev < C - 1 (so it keeps the current state)
-	require.Equal(t, http.StatusOK, do(t, l, http.MethodPost, _http.RouteAdminCompactionTrigger, api.CompactionRequest{TargetRev: rev1 + 1}, nil))
+	// doAdmin: compaction trigger is an admin route
+	require.Equal(t, http.StatusOK, doAdmin(t, l, http.MethodPost, _http.RouteAdminCompactionTrigger, api.CompactionRequest{TargetRev: rev1 + 1}, nil))
 
 	var getResp api.RangeResponse
 	status := do(t, l, http.MethodGet, _http.RouteKvRange, api.RangeRequest{Key: []byte("k"), Revision: rev1}, &getResp)
@@ -1187,7 +1138,8 @@ func Test_Integration_Compaction_DoesNotRemoveLatest(t *testing.T) {
 	require.Equal(t, http.StatusOK, do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte("foo"), Value: []byte("v1")}, &resp1))
 	rev1 := resp1.Header.Revision
 
-	require.Equal(t, http.StatusOK, do(t, l, http.MethodPost, _http.RouteAdminCompactionTrigger, api.CompactionRequest{TargetRev: rev1}, nil))
+	// doAdmin: compaction trigger is an admin route
+	require.Equal(t, http.StatusOK, doAdmin(t, l, http.MethodPost, _http.RouteAdminCompactionTrigger, api.CompactionRequest{TargetRev: rev1}, nil))
 
 	var getResp api.RangeResponse
 	status := do(t, l, http.MethodGet, _http.RouteKvRange, api.RangeRequest{Key: []byte("foo")}, &getResp)
@@ -1201,13 +1153,11 @@ func Test_Integration_Compaction_ContinuousLoad(t *testing.T) {
 	defer c.teardown()
 	l, _ := c.waitLeader(5 * time.Second)
 
-	// 1 writer + 1 compactor routine
 	var wg sync.WaitGroup
 	putNum := 50
 	wg.Go(func() {
 		for i := range putNum {
 			do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: fmt.Appendf(nil, "foo-%d", i), Value: []byte("val")}, nil)
-			// lil window to compact
 			time.Sleep(2 * time.Millisecond)
 		}
 	})
@@ -1223,7 +1173,8 @@ func Test_Integration_Compaction_ContinuousLoad(t *testing.T) {
 				continue
 			}
 			targetRev := currRev - 2
-			do(t, l, http.MethodPost, _http.RouteAdminCompactionTrigger, api.CompactionRequest{TargetRev: targetRev}, nil)
+			// doAdmin: compaction trigger is an admin route
+			doAdmin(t, l, http.MethodPost, _http.RouteAdminCompactionTrigger, api.CompactionRequest{TargetRev: targetRev}, nil)
 		}
 	})
 
@@ -1248,7 +1199,8 @@ func Test_Integration_Compaction_ReplicatedAcrossCluster(t *testing.T) {
 	}
 
 	targetRev := lastResp.Header.Revision - 2
-	require.Equal(t, http.StatusOK, do(t, l, http.MethodPost, _http.RouteAdminCompactionTrigger, api.CompactionRequest{TargetRev: targetRev}, nil))
+	// doAdmin: compaction trigger is an admin route
+	require.Equal(t, http.StatusOK, doAdmin(t, l, http.MethodPost, _http.RouteAdminCompactionTrigger, api.CompactionRequest{TargetRev: targetRev}, nil))
 
 	for _, n := range c.nodes {
 		require.Eventually(t, func() bool {
@@ -1256,7 +1208,7 @@ func Test_Integration_Compaction_ReplicatedAcrossCluster(t *testing.T) {
 			status := do(t, n, http.MethodGet, _http.RouteKvRange, api.RangeRequest{
 				Key:          []byte("foo"),
 				Revision:     targetRev - 1,
-				Serializable: true, // we need to knwo if each node applied the compaction to to its own fsm
+				Serializable: true,
 			}, &getResp)
 
 			return status != http.StatusOK // ErrCompacted
@@ -1274,7 +1226,8 @@ func Test_Integration_OT_FullRoundtrip(t *testing.T) {
 	cl := ot.MockOTClient{T: t}
 	choice := rand.IntN(otOpts.SlotCount)
 
-	require.Equal(t, http.StatusOK, do(t, l, http.MethodPost, _http.RouteOtWriteAll, api.OTWriteAllRequest{Blob: blob}, nil))
+	// doAdmin: OT WriteAll is an admin route
+	require.Equal(t, http.StatusOK, doAdmin(t, l, http.MethodPost, _http.RouteOtWriteAll, api.OTWriteAllRequest{Blob: blob}, nil))
 
 	var initResp api.OTInitResponse
 	require.Equal(t, http.StatusOK, do(t, l, http.MethodGet, _http.RouteOtInit, api.OTInitRequest{}, &initResp))
@@ -1300,7 +1253,8 @@ func Test_Integration_OT_NonChosenSlotsFail(t *testing.T) {
 	cl := ot.MockOTClient{T: t}
 	choice := rand.IntN(otOpts.SlotCount)
 
-	require.Equal(t, http.StatusOK, do(t, l, http.MethodPost, _http.RouteOtWriteAll, api.OTWriteAllRequest{Blob: blob}, nil))
+	// doAdmin: OT WriteAll is an admin route
+	require.Equal(t, http.StatusOK, doAdmin(t, l, http.MethodPost, _http.RouteOtWriteAll, api.OTWriteAllRequest{Blob: blob}, nil))
 
 	var initResp api.OTInitResponse
 	require.Equal(t, http.StatusOK, do(t, l, http.MethodGet, _http.RouteOtInit, api.OTInitRequest{}, &initResp))
@@ -1326,9 +1280,6 @@ func Test_Integration_OT_InitOnFollower(t *testing.T) {
 
 	followerIdx := (leaderIdx + 1) % 3
 	fw := c.nodes[followerIdx]
-	// NOTE: on bootstrap, there might be a slight delay after
-	// the ClusteKey is generated through the fsm
-	// but before the follower replicates it
 
 	var initResp api.OTInitResponse
 	status := do(t, fw, http.MethodGet, _http.RouteOtInit, api.OTInitRequest{}, &initResp)
@@ -1351,7 +1302,8 @@ func Test_Integration_OT_WriteAllProxiedFromFollower(t *testing.T) {
 	cl := ot.MockOTClient{T: t}
 	choice := rand.IntN(otOpts.SlotCount)
 
-	require.Equal(t, http.StatusOK, do(t, fw, http.MethodPost, _http.RouteOtWriteAll, api.OTWriteAllRequest{Blob: blob}, nil))
+	// doAdmin: OT WriteAll is an admin route (proxied through follower)
+	require.Equal(t, http.StatusOK, doAdmin(t, fw, http.MethodPost, _http.RouteOtWriteAll, api.OTWriteAllRequest{Blob: blob}, nil))
 	var initResp api.OTInitResponse
 	require.Equal(t, http.StatusOK, do(t, l, http.MethodGet, _http.RouteOtInit, api.OTInitRequest{}, &initResp))
 
@@ -1403,8 +1355,6 @@ func Test_Integration_Edge_HealthProbesDuringStartup(t *testing.T) {
 	_, leaderIdx := c.waitLeader(5 * time.Second)
 	fw1Idx := (leaderIdx + 1) % 3
 
-	// break qurom so hashicorps raft cant cache leader state / no new election can happend
-	// -> RaftService.Leader returns error
 	c.cancels[leaderIdx]()
 	c.cancels[fw1Idx]()
 
@@ -1414,7 +1364,6 @@ func Test_Integration_Edge_HealthProbesDuringStartup(t *testing.T) {
 	liveStatus := do(t, fw2, http.MethodGet, _http.RouteLivez, nil, nil)
 	require.Equal(t, http.StatusOK, liveStatus, "/livez should be 200 when running w/o leaderless")
 
-	// wait until heartbeat times out
 	require.Eventually(t, func() bool {
 		readyStatus := do(t, fw2, http.MethodGet, _http.RouteReadyz, nil, nil)
 		return readyStatus == http.StatusServiceUnavailable
@@ -1428,8 +1377,6 @@ func Test_Integration_Edge_DoubleBootstrapRejected(t *testing.T) {
 
 	c.cancels[leaderIdx]()
 
-	// HasExistingState() should return true
-	// and raft should recover logs terms etc
 	c.cfgs[leaderIdx].Bootstrap = true
 	c.restartNode(leaderIdx)
 

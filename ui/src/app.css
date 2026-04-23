@@ -36,8 +36,8 @@
 
 	--radius: 4px;
 
-	/* --mono: 'Space Mono', 'Courier New', monospace; */
-	--mono: 'Source Code Pro', 'Courier New', monospace;
+	--mono: 'Space Mono', 'Courier New', monospace;
+	/* --mono: 'Source Code Pro', 'Courier New', monospace; */
 	/* --mono: 'Roboto Mono', 'Courier New', monospace;     */
 
 	--sans: system-ui, -apple-system, sans-serif;

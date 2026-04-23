@@ -4,6 +4,8 @@ import * as kv from './kv';
 // NOTE: some reads use POST, because the browser does not supoert
 // bodies on GET (eventhough its valid http)
 export class KaveClient {
+	private readonly adminToken: string = import.meta.env.VITE_KAVE_CLUSTER_URL as string;
+
 	constructor(
 		public readonly baseURL: string,
 		public readonly otOptions: otlib.OTOptions
@@ -11,10 +13,14 @@ export class KaveClient {
 
 	private async do<T>(method: string, path: string, body?: unknown): Promise<T> {
 		let resp: Response;
+		let headers: any = { 'Content-Type': 'application/json' }
+		if (path.includes("/admin/")) {
+			headers["X-Kave-Admin-Token"] = this.adminToken
+		}
 		try {
 			resp = await fetch(`${this.baseURL}${path}`, {
 				method,
-				headers: { 'Content-Type': 'application/json' },
+				headers,
 				body: body !== undefined ? JSON.stringify(body) : undefined
 			});
 		} catch (e: unknown) {
