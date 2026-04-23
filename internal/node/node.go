@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/balits/kave/internal/command"
@@ -34,11 +35,12 @@ import (
 const APPLY_LAG_THRESHOLD = 20
 
 type Node struct {
-	Bootstrap  bool
-	Logger     *slog.Logger
-	Me         peer.Peer
-	IsShutdown bool          // usefull for tests
-	shutdownC  chan struct{} // channel that admin/kill?node_id=<some_id> uses to terminate this process gracefully
+	Bootstrap    bool
+	Logger       *slog.Logger
+	Me           peer.Peer
+	IsShutdown   bool          // usefull for tests
+	shutdownC    chan struct{} // channel that admin/kill?node_id=<some_id> uses to terminate this process gracefully
+	shutdownOnce sync.Once
 
 	ProposeFunc  util.ProposeFunc
 	IsLeaderFunc util.IsLeaderFunc
@@ -271,7 +273,14 @@ func (n *Node) bootstrap(ctx context.Context, me peer.Peer) error {
 	return nil
 }
 
-func (n *Node) Shutdown(ctx context.Context) error {
+func (n *Node) Shutdown(ctx context.Context) (err error) {
+	n.shutdownOnce.Do(func() {
+		err = n.doShutdown(ctx)
+	})
+	return
+}
+
+func (n *Node) doShutdown(ctx context.Context) error {
 	n.Logger.Info("Shutdown initiated")
 	timeout, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -298,6 +307,7 @@ func (n *Node) Shutdown(ctx context.Context) error {
 	n.Logger.Info("Shutdown completed")
 	n.IsShutdown = true
 	return nil
+
 }
 
 func (n *Node) initStorage(reg prometheus.Registerer, storageOpts storage.Options, otOpts ot.Options) error {

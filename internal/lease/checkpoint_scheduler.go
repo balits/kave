@@ -144,6 +144,8 @@ func (cs *CheckpointScheduler) tick() {
 
 func (cs *CheckpointScheduler) Stop() {
 	cs.logger.Info("Stopping checkpoint scheduler")
-	cs.cancel()
+	if cs.cancel != nil {
+		cs.cancel()
+	}
 	cs.running.Store(false)
 }

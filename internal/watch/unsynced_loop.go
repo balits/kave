@@ -69,7 +69,9 @@ func (u *UnsyncedLoop) Run(ctx context.Context) {
 
 func (u *UnsyncedLoop) Stop() {
 	u.logger.Info("Stopping unsynced watcher loop")
-	u.cancel()
+	if u.cancel != nil {
+		u.cancel()
+	}
 	u.running.Store(false)
 }
 

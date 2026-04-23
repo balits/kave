@@ -82,7 +82,9 @@ func (w *RaftEventWatcher) Run(ctx context.Context) error {
 }
 
 func (w *RaftEventWatcher) Stop() {
-	close(w.c)
+	if w.c != nil {
+		close(w.c)
+	}
 }
 
 var defaultFilterFn = func(ev *raft.Observation) bool {

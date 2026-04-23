@@ -219,6 +219,8 @@ func (cs *CompactionScheduler) tick(force bool) {
 
 func (cs *CompactionScheduler) Stop() {
 	cs.logger.Info("Stopping compactor")
-	cs.cancel()
+	if cs.cancel != nil {
+		cs.cancel()
+	}
 	cs.running.Store(false)
 }

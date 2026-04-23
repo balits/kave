@@ -155,6 +155,8 @@ func (ex *ExpiryLoop) tick() {
 
 func (ex *ExpiryLoop) Stop() {
 	ex.logger.Info("Stopping expiry loop")
-	ex.cancel()
+	if ex.cancel != nil {
+		ex.cancel()
+	}
 	ex.running.Store(false)
 }
