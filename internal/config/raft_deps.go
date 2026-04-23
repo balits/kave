@@ -21,9 +21,19 @@ type RaftDependencies struct {
 }
 
 func NewDefaultRaftConfig(nodeID string) *raft.Config {
-	rc := raft.DefaultConfig()
-	rc.LocalID = raft.ServerID(nodeID)
-	return rc
+	return &raft.Config{
+		ProtocolVersion:    raft.ProtocolVersionMax,
+		HeartbeatTimeout:   2500 * time.Millisecond,
+		ElectionTimeout:    5000 * time.Millisecond,
+		CommitTimeout:      100 * time.Millisecond,
+		MaxAppendEntries:   64,
+		ShutdownOnRemove:   true,
+		TrailingLogs:       10240,
+		SnapshotInterval:   120 * time.Second,
+		SnapshotThreshold:  8192,
+		LeaderLeaseTimeout: 1000 * time.Millisecond,
+		LogLevel:           "DEBUG",
+	}
 }
 
 func NewRaftDependencies(cfg *Config) (*RaftDependencies, error) {
