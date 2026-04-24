@@ -119,6 +119,7 @@ func (ex *ExpiryLoop) tick() {
 		ids = append(ids, l.ID)
 	}
 
+	ex.logger.Debug("proposing LeaseExpireCmd")
 	cmd := command.Command{
 		Kind: command.KindLeaseExpire,
 		LeaseExpired: &command.CmdLeaseExpire{
@@ -126,7 +127,6 @@ func (ex *ExpiryLoop) tick() {
 		},
 	}
 	result, err := ex.propose(ex.ctx, cmd)
-	ex.logger.Debug("proposing LeaseExpireCmd")
 	if err != nil {
 		ex.logger.Warn(
 			"expiry loop error: failed to propose LeaseExpireCmd",
