@@ -44,6 +44,7 @@ func newTestOTService(t *testing.T) (*testOTService, ot.MockOTClient) {
 
 	om, err := ot.NewOTManager(reg, logger, be, ot.DefaultOptions)
 	require.NoError(t, err)
+	require.NoError(t, om.ApplyGenerateClusterKey(ot.RandomKey256()), "failed to generate cluster key")
 
 	f := fsm.New(logger, me, kvstore, lm, om)
 
@@ -66,11 +67,6 @@ func newTestOTService(t *testing.T) (*testOTService, ot.MockOTClient) {
 		}
 		return &result, nil
 	}
-
-	_, err = propose(t.Context(), command.Command{
-		Kind: command.KindOTGenerateClusterKey,
-	})
-	require.NoError(t, err)
 
 	peerSvc := &MockRaftService{
 		Me_:     me,
