@@ -45,13 +45,13 @@ flowchart TB
             p3 -.-> raft_tls
 
             
-            %%subgraph init_flow["InitContainer: wait-for-dns"]
-            %%    direction TB
-            %%    check_dns["nslookup kave-voter-0"]:::plain
-            %%    check_tcp["nc -z (check Raft port open)"]:::plain
-            %%    proceed["Proceed with startup"]:::plain
-            %%    check_dns --> check_tcp --> proceed
-            %% end
+            subgraph init_flow["InitContainer: wait-for-dns"]
+               direction TB
+               check_dns["nslookup kave-voter-0"]:::plain
+               check_tcp["nc -z (check Raft port open)"]:::plain
+               proceed["Proceed with startup"]:::plain
+               check_dns --> check_tcp --> proceed
+            end
            
             p2 -.-> init_flow
             p3 -.-> init_flow
