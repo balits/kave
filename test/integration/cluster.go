@@ -150,7 +150,7 @@ func (c *cluster) run() {
 	require.NoError(c.tb, err)
 	rtx := leader.Backend.ReadTx()
 	rtx.RLock()
-	require.NoError(c.tb, leader.OtManager.UnsafeInitTokenCodec(rtx))
+	require.NoError(c.tb, leader.OtManager.UnsafeInitTokenCodecFromReadTx(rtx))
 	rtx.RUnlock()
 
 	// Wait for replication, then init codec on ALL nodes
@@ -158,7 +158,7 @@ func (c *cluster) run() {
 	for _, n := range c.nodes {
 		rtx := n.Backend.ReadTx()
 		rtx.RLock()
-		require.NoError(c.tb, n.OtManager.UnsafeInitTokenCodec(rtx))
+		require.NoError(c.tb, n.OtManager.UnsafeInitTokenCodecFromReadTx(rtx))
 		rtx.RUnlock()
 	}
 }

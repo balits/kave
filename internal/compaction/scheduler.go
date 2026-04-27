@@ -162,7 +162,7 @@ func (cs *CompactionScheduler) tick(force bool) {
 	cs.candidateRev = currentRev.Main
 
 	if cs.candidateRev < 0 {
-		cs.logger.Debug("first tick: setting candidateRev, skipping compaction")
+		cs.logger.Info("first tick: setting candidateRev, skipping compaction")
 		return
 	}
 

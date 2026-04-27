@@ -214,7 +214,7 @@ func (n *Node) BootstrapOrJoin(ctx context.Context, me peer.Peer) error {
 
 	if err != nil {
 		n.Logger.Error("Failed to read raft state", "error", err)
-		return err
+		return fmt.Errorf("failed to read raft state: %w", err)
 	}
 
 	if hasState {
@@ -230,7 +230,15 @@ func (n *Node) BootstrapOrJoin(ctx context.Context, me peer.Peer) error {
 	}
 
 	n.Logger.Info("No existing Raft state found; joining existing cluster")
-	return n.RaftService.JoinCluster(ctx, me, n.adminAuthToken)
+	if err := n.RaftService.JoinCluster(ctx, me, n.adminAuthToken); err != nil {
+		return fmt.Errorf("join failed: %w", err)
+	}
+
+	if err := n.OtManager.UnsafeInitTokenCodecFromBackend(); err != nil {
+		return fmt.Errorf("join failed: %w", err)
+	}
+
+	return nil
 }
 
 func (n *Node) bootstrap(ctx context.Context, me peer.Peer) error {

@@ -109,7 +109,7 @@ func (ex *ExpiryLoop) run() {
 func (ex *ExpiryLoop) tick() {
 	expired := ex.drainer.DrainExpiredLeases()
 	if len(expired) == 0 {
-		ex.logger.Info("expiry ticker skipped: no expired leases")
+		// ex.logger.Debug("expiry ticker skipped: no expired leases")
 		return
 	}
 	ex.logger.Info("proposing lease expiration(s)", "lease_count", len(expired))

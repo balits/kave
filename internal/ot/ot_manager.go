@@ -32,10 +32,10 @@ const (
 )
 
 var (
-	ErrClusterKeyGen     = errors.New("failed to generate cluter key")
-	ErrBlobUninitialized = errors.New("blob is uninitialized (nil or all zeroes)")
-	ErrBlobSizeCorrupted = errors.New("blob size is malformed, expected SlotCount * SlotSize")
-
+	ErrClusterKeyGen            = errors.New("failed to generate cluter key")
+	ErrBlobUninitialized        = errors.New("blob is uninitialized (nil or all zeroes)")
+	ErrBlobSizeCorrupted        = errors.New("blob size is malformed, expected SlotCount * SlotSize")
+	ErrTokenCodecNotInitialized = errors.New("TokenCodec not initialized")
 	// Default package wide group used for eliptic curve math
 	Group = group.Ristretto255
 )
@@ -97,7 +97,7 @@ func (om *OTManager) Options() Options {
 	return om.opts
 }
 
-// UnsafeInitTokenCodec initializes the token codec, setting its key to the cluster key stored in the backend
+// UnsafeInitTokenCodecFromReadTx initializes the token codec, setting its key to the cluster key stored in the backend
 // and its maxTTL to the provided ttl (in seconds).
 //
 // If the key is not found or invalid, an error is returned and the codec remains uninitialized.
@@ -107,7 +107,29 @@ func (om *OTManager) Options() Options {
 // and is separated from the constructor because the cluster key needs to be generated and stored
 // in a separate step (OTManager.ApplyGenerateClusterKey through the FSM so its replicated across all nodes)
 // before it can be used to initialize the codec.
-func (om *OTManager) UnsafeInitTokenCodec(rtx backend.ReadTx) error {
+func (om *OTManager) UnsafeInitTokenCodecFromReadTx(rtx backend.ReadTx) error {
+	clusterKey, err := rtx.UnsafeGet(schema.BucketOT, schema.KeyOTClusterKey)
+	if err != nil {
+		return fmt.Errorf("init token codec error: failed to retrieve cluster key: %w", err)
+	} else if clusterKey == nil {
+		return errors.New("init token codec error: cluster key is not set")
+	}
+
+	tc, err := newTokenCodec(clusterKey, om.opts.TokenTTL)
+	if err != nil {
+		return fmt.Errorf("init token codec error: %w", err)
+	}
+	om.codec = tc
+	return nil
+}
+
+// UnsafeInitTokenCodecFromBackend creates its own read transaction, then passes it to
+// [UnsafeInitTokenCodecFromReadTx].
+func (om *OTManager) UnsafeInitTokenCodecFromBackend() error {
+	rtx := om.backend.ReadTx()
+	rtx.RLock()
+	defer rtx.RUnlock()
+
 	clusterKey, err := rtx.UnsafeGet(schema.BucketOT, schema.KeyOTClusterKey)
 	if err != nil {
 		return fmt.Errorf("init token codec error: failed to retrieve cluster key: %w", err)
@@ -129,6 +151,10 @@ func (om *OTManager) UnsafeInitTokenCodec(rtx backend.ReadTx) error {
 // the next OTManager.TokenCodec.MaxTTL seconds.
 // The the point A is computed as a*G where G is the group generator.
 func (om *OTManager) Init() (pointA, token []byte, err error) {
+	if om.codec == nil {
+		return nil, nil, ErrTokenCodecNotInitialized
+	}
+
 	start := time.Now()
 	om.metrics.InitCount.Inc()
 	defer func() { om.metrics.InitDurationSec.Observe(time.Since(start).Seconds()) }()
@@ -172,6 +198,10 @@ func (om *OTManager) Init() (pointA, token []byte, err error) {
 //		compute keyHashed	= sha256(eKey)
 //		yield ciphertext	= GCM(key=keyHashed, plaintext=slot[i], nonce=RandomNonce())
 func (om *OTManager) Transfer(token, pointB []byte) (ciphertexts [][]byte, err error) {
+	if om.codec == nil {
+		return nil, ErrTokenCodecNotInitialized
+	}
+
 	start := time.Now()
 	om.metrics.TransferCount.Inc()
 	defer func() { om.metrics.TransferDurationSec.Observe(time.Since(start).Seconds()) }()
@@ -249,6 +279,10 @@ func (om *OTManager) Transfer(token, pointB []byte) (ciphertexts [][]byte, err e
 }
 
 func (om *OTManager) ApplyWriteAll(cmd command.CmdOTWriteAll) (*command.ResultOTWriteAll, error) {
+	if om.codec == nil {
+		return nil, ErrTokenCodecNotInitialized
+	}
+
 	start := time.Now()
 	om.metrics.WriteAllCount.Inc()
 	defer func() { om.metrics.WriteAllDurationSec.Observe(time.Since(start).Seconds()) }()
@@ -309,7 +343,7 @@ func (om *OTManager) ApplyGenerateClusterKey() error {
 	}
 
 	om.logger.Info("Initiating OT token codec")
-	if err := om.UnsafeInitTokenCodec(om.backend.ReadTx()); err != nil {
+	if err := om.UnsafeInitTokenCodecFromReadTx(om.backend.ReadTx()); err != nil {
 		return fmt.Errorf("%w: failed to init token codec: %w", ErrClusterKeyGen, err)
 	}
 
@@ -388,7 +422,7 @@ func (om *OTManager) CheckBlob(blob []byte) error {
 func (om *OTManager) Restore() error {
 	rtx := om.backend.ReadTx()
 	rtx.RLock()
-	if err := om.UnsafeInitTokenCodec(rtx); err != nil {
+	if err := om.UnsafeInitTokenCodecFromReadTx(rtx); err != nil {
 		rtx.RUnlock()
 		return fmt.Errorf("OT restore: failed to init new TokenCodec")
 	}
