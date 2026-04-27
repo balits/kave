@@ -24,10 +24,11 @@ type Command struct {
 
 	// =====  private, internal commands =====
 
-	LeaseCheckpoint *CmdLeaseCheckpoint
-	LeaseExpired    *CmdLeaseExpire
-	Compaction      *CompactionCmd
-	OTWriteAll      *CmdOTWriteAll
+	LeaseCheckpoint      *CmdLeaseCheckpoint
+	LeaseExpired         *CmdLeaseExpire
+	Compaction           *CompactionCmd
+	OTWriteAll           *CmdOTWriteAll
+	OTGenerateClusterKey *CmdOTGenerateClusterKey
 }
 
 type CmdKind string

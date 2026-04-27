@@ -315,7 +315,7 @@ func (om *OTManager) ApplyWriteAll(cmd command.CmdOTWriteAll) (*command.ResultOT
 // It checks for an existing key, returning error if found, otherwises generates
 // a [ClusterKeySize] cryptographically secure random key, and initializes
 // the managers tokenCodec
-func (om *OTManager) ApplyGenerateClusterKey() error {
+func (om *OTManager) ApplyGenerateClusterKey(key []byte) error {
 	wtx := om.backend.WriteTx()
 	wtx.Lock()
 	defer wtx.Unlock()
@@ -328,9 +328,6 @@ func (om *OTManager) ApplyGenerateClusterKey() error {
 		wtx.Rollback()
 		return fmt.Errorf("%w: cluster key already exists", ErrClusterKeyGen)
 	}
-
-	key := make([]byte, ClusterKeySize)
-	_, _ = rand.Read(key) // never returns error, only panics
 
 	if err := wtx.UnsafePut(schema.BucketOT, schema.KeyOTClusterKey, key); err != nil {
 		wtx.Rollback()

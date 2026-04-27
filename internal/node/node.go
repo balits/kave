@@ -276,7 +276,12 @@ func (n *Node) bootstrap(ctx context.Context, me peer.Peer) error {
 		return err
 	}
 
-	_, err = n.ProposeFunc(ctx, command.Command{Kind: command.KindOTGenerateClusterKey})
+	_, err = n.ProposeFunc(ctx, command.Command{
+		Kind: command.KindOTGenerateClusterKey,
+		OTGenerateClusterKey: &command.CmdOTGenerateClusterKey{
+			Key: ot.RandomKey256(), // this way all node's FSMs share the same key
+		},
+	})
 	if err != nil {
 		return err
 	}

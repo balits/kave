@@ -32,6 +32,14 @@ var (
 	ErrPlaintextCorrupted    = errors.New("token_codec error: decrypting token plaintext with unexpected size")
 )
 
+// RandomKey256 creates a cryptographically secure 32 byte key,
+// or crashes the program on failure
+func RandomKey256() []byte {
+	key := make([]byte, ClusterKeySize)
+	_, _ = rand.Read(key) // never returns error, only panics
+	return key
+}
+
 // newTokenCodec creates a new token codec with the supplied clusterKey and ttl in seconds.
 // If the ttl is negative or above the maximum allowed ttl, [DefaultTokenTTL] is used
 func newTokenCodec(clusterKey []byte, ttl int64) (*tokenCodec, error) {

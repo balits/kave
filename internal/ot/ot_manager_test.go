@@ -35,7 +35,7 @@ func newTestOTManager(t *testing.T, opts *Options) *OTManager {
 		panic(err)
 	}
 
-	err = om.ApplyGenerateClusterKey()
+	err = om.ApplyGenerateClusterKey(RandomKey256())
 	require.NoError(t, err)
 	return om
 }
@@ -56,7 +56,7 @@ func Test_OTManager_GenerateClusterKey(t *testing.T) {
 func Test_OTManager_GenerateClusterKey_OnlyOne(t *testing.T) {
 	t.Parallel()
 	om := newTestOTManager(t, nil)
-	err := om.ApplyGenerateClusterKey()
+	err := om.ApplyGenerateClusterKey(RandomKey256())
 	require.Error(t, err, "generating cluster key twice should fail")
 }
 
