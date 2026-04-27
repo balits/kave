@@ -1,0 +1,55 @@
+graph TB
+    %% Külső, publikus zóna
+    subgraph Publikus Zóna [Külső TLS Zóna - Egyirányú Hitelesítés]
+        Client([Kliens / Böngésző])
+        LE{{Let's Encrypt<br>ClusterIssuer}}
+        PubCert(Publikus Tanúsítvány<br>kave.balits.net)
+        Traefik[Traefik Ingress<br>Gateway]
+
+        LE -- "Kiállítja (DNS-01)" --> PubCert
+        PubCert -. "Felhasználja" .-> Traefik
+        Client -- "HTTPS (443)<br>Böngésző bízik a LE-ben" --> Traefik
+    end
+
+    %% Belső, privát zóna
+    subgraph Belső Zóna [Belső mTLS Zóna - Kölcsönös Hitelesítés]
+        direction TB
+        Self{{SelfSigned<br>Issuer}}
+        RootCA(Kávé Internal<br>Root CA)
+        CAIssuer{{CA Issuer}}
+        RaftCert(Raft Node<br>Tanúsítványok)
+
+        Self -- "Létrehozza" --> RootCA
+        RootCA -- "Meghatalmazza" --> CAIssuer
+        CAIssuer -- "Kiállítja (1 év)" --> RaftCert
+
+        subgraph StatefulSet [Kávé Raft Klaszter]
+            direction LR
+            Pod0[kave-0]
+            Pod1[kave-1]
+            Pod2[kave-2]
+        end
+
+        RaftCert -. "Injektálva (Secret)" .-> Pod0
+        RaftCert -. "Injektálva (Secret)" .-> Pod1
+        RaftCert -. "Injektálva (Secret)" .-> Pod2
+
+        %% mTLS kapcsolatok a podok között
+        Pod0 <== "mTLS (7000)<br>Kétirányú bizalom" ==> Pod1
+        Pod1 <== "mTLS (7000)<br>Kétirányú bizalom" ==> Pod2
+        Pod2 <== "mTLS (7000)<br>Kétirányú bizalom" ==> Pod0
+    end
+
+    %% Kapcsolat a két zóna között
+    Traefik -- "Belső forgalomirányítás<br>HTTP (8000)" --> Pod0
+    Traefik -- "Belső forgalomirányítás<br>HTTP (8000)" --> Pod1
+    Traefik -- "Belső forgalomirányítás<br>HTTP (8000)" --> Pod2
+
+    %% Stílusok a jobb olvashatóságért
+    classDef external fill:#e1f5fe,stroke:#0288d1,stroke-width:2px,color:#000
+    classDef internal fill:#f1f8e9,stroke:#689f38,stroke-width:2px,color:#000
+    classDef cert fill:#fff3e0,stroke:#f57c00,stroke-width:2px,stroke-dasharray: 5 5,color:#000
+
+    class LE,Traefik external
+    class Self,CAIssuer,Pod0,Pod1,Pod2 internal
+    class PubCert,RootCA,RaftCert cert

@@ -1,0 +1,21 @@
+# A Kávé Rendszer Kubernetes Architektúrája és Üzemeltetése
+A Kávé egy elosztott, állapottartó (stateful) adatbázis, amelynek robusztus működéséhez elengedhetetlen a megfelelő üzemeltetési környezet. A rendszer felhőnatív (cloud-native) telepítését és menedzsmentjét a Kubernetes (K8s) biztosítja, a konfigurációk dinamikus kezelését pedig egy egyedi Helm chart végzi. Ez a megközelítés garantálja a magas rendelkezésre állást, a hibatűrést és a skálázhatóságot.
+
+## 1. A Telepítési Modell és a Helm Chart
+A hagyományos, statikus YAML fájlok helyett a rendszer egy sablonosított Helm chartot használ. Ennek központja a values.yaml fájl, amely egyetlen belépési pontot (Single Source of Truth) biztosít az üzemeltető számára. Ezen keresztül dinamikusan szabályozható a Raft klaszter mérete (voters.replicas), az MVCC tömörítési stratégiája (compaction), az Oblivious Transfer rekeszméretei, valamint a beépített HTTP sebességkorlátozó (Rate Limiter) paraméterei. Ezek az értékek telepítéskor egy ConfigMap-en keresztül injektálódnak a Kávé node-ok futtatókörnyezetébe.
+
+## 2. Állapottartó Replikáció és Perzisztencia (StatefulSet)
+A Raft konszenzus protokoll és a BoltDB háttértár sajátosságai miatt a Kávé nem futtatható hagyományos (stateless) Kubernetes Deployment erőforrásként. Ehelyett a StatefulSet vezérlőt használjuk, amely két kritikus garanciát nyújt a Kávé számára:
+    - Stabil Hálózati Identitás: Minden node egyedi, determinisztikus és újraindulás után is megmaradó hosztnevet kap (pl. kave-0, kave-1). Ez elengedhetetlen a Raft klaszter belső kommunikációjához és a vezetőválasztáshoz.
+    - Dedikált Perzisztens Tárhely (PVC): Minden Pod saját, független fizikai kötetet (Persistent Volume Claim) kap. Ha egy gép összeomlik, vagy a Kubernetes áthelyezi egy másik fizikai szerverre, a StatefulSet garantálja, hogy a Pod újrainduláskor pontosan ugyanazt a kötetet (ugyanazt a BoltDB adatbázisfájlt és Raft naplót) kapja vissza, megelőzve az adatvesztést.
+
+## 3. Hálózati Topológia: Belső és Külső Felfedezés
+Az architektúra élesen elválasztja a klaszter belső replikációs hálózatát a külső kliensforgalomtól.
+    - **Belső hálózat (Headless Service):** A node-ok közötti Raft kommunikáció (alapértelmezetten a 7000-es porton) egy ún. Headless Service-en (kave-headless, clusterIP: None) keresztül zajlik. Ennek köszönhetően a Kubernetes nem oszt ki egyetlen virtuális IP-t, hanem a DNS-lekérdezés közvetlenül a futó Pod-ok IP-címeit adja vissza. A Kávé beépített "dinamikus felfedező" (peerDiscovery) modulja ezt a DNS-rekordot olvassa ki, így az új node-ok automatikusan rátalálnak a klaszter többi tagjára.
+    - **Külső hálózat (Ingress és External Service):** A kliensek HTTP kérései egy Ingress vezérlőn (Traefik) és a kave-external szolgáltatáson keresztül érkeznek a 8000-es portra. Ez a réteg felel a külső kérések terheléselosztásáért (load balancing) az éppen egészséges node-ok között.
+    
+## 4. Magas Rendelkezésre Állás Karbantartás Alatt (PDB)
+Mivel a Kávé egy tipikus $2N+1$ toleranciájú klaszter (pl. 3 gép esetén 2 gép szükséges a működéshez, azaz a Quorum meglétéhez), a Kubernetes adminisztrátorok nem indíthatják újra tetszőlegesen a gépeket egy szerverfrissítés során. A PodDisruptionBudget (PDB) erőforrás biztosítja a Kávé számára, hogy a Kubernetes egyszerre legfeljebb csak egy node-ot állíthasson le szándékosan. A rendszer addig nem engedélyezi a következő Kávé Pod leállítását, amíg a frissített node vissza nem tér, és fel nem zárkózik a Raft naplóval. Ez garantálja, hogy a rendszer karbantartás (node drain) alatt is képes kiszolgálni a klienseket.
+
+## 5. Hálózati Biztonság (mTLS és Cert-Manager)
+Egy felhős környezetben a belső hálózat (Zero Trust Network) sem tekinthető teljesen biztonságosnak. A Kávé Chartja integrálva van a Kubernetes cert-manager kiegészítőjével.A raft-cert.yaml erőforrás gondoskodik arról, hogy minden Kávé node automatikusan kapjon egy X.509-es tanúsítványt. A node-ok közötti Raft kommunikáció ezáltal Kölcsönös Hitelesítésen (mTLS - Mutual TLS) alapul: egy gép csak akkor tud csatlakozni a klaszterhez és adatot olvasni a naplóból, ha rendelkezik a közös belső Certificate Authority (CA) által aláírt, érvényes tanúsítvánnyal. A cert-manager a tanúsítványok automatikus megújítását (rotation) is végzi, emberi beavatkozás nélkül.
