@@ -86,6 +86,7 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 	watchHub := watch.NewWatchHub(reg, logger, kvstore)
 	lm := lease.NewManager(reg, logger, kvstore, backend)
 	om, err := ot.NewOTManager(reg, logger, backend, ot.DefaultOptions)
+	require.NoError(t, om.ApplyGenerateClusterKey(ot.RandomKey256()), "failed to generate cluster key (in single node test env)")
 	require.NoError(t, err)
 	t.Cleanup(func() { backend.Close() })
 	fsm := fsm.New(logger, me, kvstore, lm, om)
@@ -109,11 +110,6 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 		}
 		return &result, nil
 	}
-	genRes, err := propose(t.Context(), command.Command{
-		Kind: command.KindOTGenerateClusterKey,
-	})
-	require.NoError(t, err)
-	require.NoError(t, genRes.Error, "FSM returned error for cluster key gen")
 
 	discoverySvc := &mockDiscoveryService{me}
 	kvSvc := service.NewKVService(logger, me, kvstore, raftService, kvOpts, propose)

@@ -209,7 +209,7 @@ func (f *Fsm) applyOT(cmd command.Command) (res command.Result) {
 	var err error
 	switch cmd.Kind {
 	case command.KindOTGenerateClusterKey:
-		err = f.om.ApplyGenerateClusterKey()
+		err = f.om.ApplyGenerateClusterKey(cmd.OTGenerateClusterKey.Key)
 	case command.KindOTWriteAll:
 		var sub *command.ResultOTWriteAll
 		sub, err = f.om.ApplyWriteAll(*cmd.OTWriteAll)
