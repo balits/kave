@@ -96,7 +96,7 @@ export interface WatchClientOptions {
 export type WatchEventHandler = (event: WatchEvent) => void;
 
 export function toWsUrl(baseURL: string): string {
-	return baseURL.replace(/^https/, 'wss').replace(/^http/, 'ws');
+	return baseURL + "/v1/watch";
 }
 
 //   const wc = new WatchClient("ws://kave.example.com/v1/watch")

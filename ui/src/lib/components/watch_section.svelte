@@ -113,7 +113,6 @@
 </script>
 
 <section class="watch">
-	<!-- subscription bar -->
 	<div class="sub-bar">
 		<div class="sub-inputs">
 			<div class="field grow">
@@ -164,7 +163,6 @@
 	{/if}
 
 	<div class="body">
-		<!-- left: write panel -->
 		<div class="write-panel">
 			<div class="panel-title">WRITE</div>
 
@@ -218,7 +216,6 @@
 			</div>
 		</div>
 
-		<!-- right: event log -->
 		<div class="event-log">
 			<div class="log-header">
 				<span class="panel-title">EVENTS</span>

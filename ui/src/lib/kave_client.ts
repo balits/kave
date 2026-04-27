@@ -187,7 +187,7 @@ export class KaveClient {
 			header: kv.ResponseHeader;
 			point_a: string; // b64
 			token: string; // b64
-		}>('POST', '/v1/ot/init');
+		}>('POST', '/v1/ot/init', {}); // empty body to be open for extension
 
 		return {
 			header: raw.header,
@@ -223,6 +223,7 @@ export class KaveClient {
 				`expected ${this.otOptions.slotCount} slots, got ${slots.length}`
 			);
 		}
+		console.log("otWriteAll: length matches slot cound")
 
 		const blob = new Uint8Array(this.otOptions.slotCount * this.otOptions.slotSize);
 		const enc = new TextEncoder();
@@ -238,6 +239,7 @@ export class KaveClient {
 			blob.set(encoded, i * this.otOptions.slotSize); // remaining bytes stay 0x00
 		}
 
+		console.log("otWriteAll: slots encoded to bytes")
 		await this.do('POST', '/v1/ot/write-all', { blob: kv.bytesToB64(blob) });
 	}
 

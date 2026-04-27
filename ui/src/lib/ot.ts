@@ -70,10 +70,10 @@ export function blindedChoice(
  *	plain   = GCM_Open(hash, ciphertexts[c])
  */
 export async function tryDecrypt(
-	pointABytes: Uint8Array,
+	pointABytes: Uint8Array<ArrayBufferLike>,
 	scalarB: bigint,
-	ct: Uint8Array
-): Promise<Uint8Array> {
+	ct: Uint8Array<ArrayBufferLike>
+): Promise<Uint8Array<ArrayBufferLike>> {
 	const A = ristretto255.Point.fromBytes(pointABytes);
 
 	const key = A.multiply(scalarB);

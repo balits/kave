@@ -2,12 +2,14 @@
 	import Header from '$lib/components/header.svelte';
 	import KvExplorer from '$lib/components/kv_explorer.svelte';
 	import LeaseSection from '$lib/components/lease_section.svelte';
+	import OtSection from '$lib/components/ot_section.svelte';
+	import WatchSection from '$lib/components/watch_section.svelte';
 	import { KaveClient } from '$lib/kave_client';
 	import type { Component } from 'svelte';
 
 	const url: string = import.meta.env.VITE_KAVE_CLUSTER_URL as string;
-	const slotCount: number = import.meta.env.VITE_KAVE_OT_SLOT_COUNT as unknown as number;
-	const slotSize: number = import.meta.env.VITE_KAVE_OT_SLOT_SIZE as unknown as number;
+	const slotCount: number = Number(import.meta.env.VITE_KAVE_OT_SLOT_COUNT as unknown as number); // pls work ts gods
+	const slotSize: number = Number(import.meta.env.VITE_KAVE_OT_SLOT_SIZE as unknown as number);
 
 	const kvClient = $state(
 		new KaveClient(url, {
@@ -39,8 +41,8 @@
 			label: 'Watch',
 			tag: 'WS',
 			description: 'Watch API: Live event stream over WebSocket',
-			component: null,
-			ready: false
+			component: WatchSection,
+			ready: true
 		},
 		{
 			id: 'lease',
@@ -63,8 +65,8 @@
 			label: 'Oblivious Transfer',
 			tag: 'OT',
 			description: 'OT API: 1-out-of-N secret retrieval, where server learns nothing',
-			component: null,
-			ready: false
+			component: OtSection,
+			ready: true
 		},
 		{
 			id: 'raft',

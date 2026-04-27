@@ -208,8 +208,8 @@ export interface OTWriteAllResponse {
 export type OTInitRequest = unknown;
 export interface OTInitResponse {
 	header: ResponseHeader;
-	point_a: Uint8Array;
-	token: Uint8Array;
+	point_a: Uint8Array<ArrayBufferLike>;
+	token: Uint8Array<ArrayBufferLike>;
 }
 
 export interface OTTransferRequest {
