@@ -146,21 +146,13 @@ func (c *cluster) run() {
 	c.waitClusterReady(10 * time.Second)
 
 	leader, _ := c.waitLeader(5 * time.Second)
-	_, err := leader.ProposeFunc(c.ctx, command.Command{Kind: command.KindOTGenerateClusterKey})
+	_, err := leader.ProposeFunc(c.ctx, command.Command{
+		Kind: command.KindOTGenerateClusterKey,
+		OTGenerateClusterKey: &command.CmdOTGenerateClusterKey{
+			Key: ot.RandomKey256(),
+		},
+	})
 	require.NoError(c.tb, err)
-	rtx := leader.Backend.ReadTx()
-	rtx.RLock()
-	require.NoError(c.tb, leader.OtManager.UnsafeInitTokenCodecFromReadTx(rtx))
-	rtx.RUnlock()
-
-	// Wait for replication, then init codec on ALL nodes
-	time.Sleep(200 * time.Millisecond)
-	for _, n := range c.nodes {
-		rtx := n.Backend.ReadTx()
-		rtx.RLock()
-		require.NoError(c.tb, n.OtManager.UnsafeInitTokenCodecFromReadTx(rtx))
-		rtx.RUnlock()
-	}
 }
 
 func (c *cluster) waitLeader(timeout time.Duration) (*node.Node, int) {
