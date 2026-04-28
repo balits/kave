@@ -50,12 +50,12 @@
 		lookupInterval = setInterval(async () => {
 			if (!activeLease) return;
 			try {
-				actveLookup = await client.leaseLookup(activeLease.id);
-				activeRemainingSec = actveLookup.remaining_ttl;
-				if (activeRemainingSec <= 0) {
-					activeExpired = true;
-					clearIntervals();
-				}
+				// actveLookup = await client.leaseLookup(activeLease.id);
+				// activeRemainingSec = actveLookup.remaining_ttl;
+				// if (activeRemainingSec <= 0) {
+				// 	activeExpired = true;
+				// 	clearIntervals();
+				// }
 			} catch (e) {
 				if (e instanceof KaveError) {
 					console.log('error during lookup tick', e);
