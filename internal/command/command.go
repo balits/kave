@@ -3,6 +3,7 @@ package command
 import (
 	"bytes"
 	"encoding/gob"
+	"fmt"
 )
 
 // A Command az alparancsok úniója, amit raft log entryként küldönk az állapotgépnek
@@ -60,4 +61,67 @@ func Encode(cmd Command) ([]byte, error) {
 func Decode(data []byte) (cmd Command, err error) {
 	err = gob.NewDecoder(bytes.NewBuffer(data)).Decode(&cmd)
 	return
+}
+
+type InvalidCommandPayloadError struct {
+	kind CmdKind
+}
+
+func (e *InvalidCommandPayloadError) Error() string {
+	return fmt.Sprintf("command error: invalid or nil payload or command kind %s", e.kind)
+}
+
+func (cmd *Command) Check() error {
+	switch cmd.Kind {
+	case KindPut:
+		if cmd.Put == nil {
+			return &InvalidCommandPayloadError{cmd.Kind}
+		}
+	case KindDelete:
+		if cmd.Delete == nil {
+			return &InvalidCommandPayloadError{cmd.Kind}
+		}
+	case KindTxn:
+		if cmd.Txn == nil {
+			return &InvalidCommandPayloadError{cmd.Kind}
+		}
+	case KindLeaseGrant:
+		if cmd.LeaseGrant == nil {
+			return &InvalidCommandPayloadError{cmd.Kind}
+		}
+	case KindLeaseRevoke:
+		if cmd.LeaseRevoke == nil {
+			return &InvalidCommandPayloadError{cmd.Kind}
+		}
+	case KindLeaseKeepAlive:
+		if cmd.LeaseKeepAlive == nil {
+			return &InvalidCommandPayloadError{cmd.Kind}
+		}
+	case KindLeaseLookup:
+		if cmd.LeaseLookup == nil {
+			return &InvalidCommandPayloadError{cmd.Kind}
+		}
+	case KindLeaseCheckpoint:
+		if cmd.LeaseCheckpoint == nil {
+			return &InvalidCommandPayloadError{cmd.Kind}
+		}
+	case KindLeaseExpire:
+		if cmd.LeaseExpired == nil {
+			return &InvalidCommandPayloadError{cmd.Kind}
+		}
+	case KindCompaction:
+		if cmd.Compaction == nil {
+			return &InvalidCommandPayloadError{cmd.Kind}
+		}
+	case KindOTWriteAll:
+		if cmd.OTWriteAll == nil {
+			return &InvalidCommandPayloadError{cmd.Kind}
+		}
+	case KindOTGenerateClusterKey:
+		if cmd.OTGenerateClusterKey == nil {
+			return &InvalidCommandPayloadError{cmd.Kind}
+		}
+	}
+
+	return nil
 }

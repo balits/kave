@@ -80,6 +80,10 @@ func (f *Fsm) Apply(log *raft.Log) interface{} {
 		return command.Result{Error: err}
 	}
 
+	if err := cmd.Check(); err != nil {
+		return command.Result{Error: err}
+	}
+
 	f.store.UpdateRaftMeta(log.Index, log.Term)
 
 	var res command.Result
