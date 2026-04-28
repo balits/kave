@@ -1,0 +1,54 @@
+sequenceDiagram
+    autonumber
+    actor C as Kliens
+    participant Ses as Session (WS)
+    participant Str as Stream
+    participant Hub as WatchHub
+    participant UL as UnsyncedLoop
+    participant MVCC as Store/MVCC
+    participant FSM as Raft FSM
+
+    rect rgb(240, 248, 255)
+    Note over C, Hub: 1. Watch Inicializálása
+    C->>Ses: WS Üzenet (ClientWatchCreate, rev=10)
+    Ses->>Str: reader rutin továbbítja a Requestet
+    Str->>Hub: Stream.NewWatcher(rev=10)
+    Str->>Str: go runWatcher(w) (elindul az eseményfigyelő rutin a háttérben)
+    Hub->>MVCC: Jelenlegi verziósorszám betöltése (store.NewReader().Range() / store.Meta())
+    MVCC-->>Hub: Jelenlegi verziósorszám = 20
+    Note over Hub: 10 < 20 -> Lemaradt watcher! <br/>Hozzáadás az 'unsynced' csoporthoz
+    Hub-->>Str: unsynced watcher
+    Str-->>Ses: writer rutin továbbítja WatchCreateResponse(Success) választ
+    Ses-->>C: WS Üzenet (ServerWatchCreated)
+    end
+
+    rect rgb(255, 250, 240)
+    Note over UL, MVCC: 2. Múltbeli események szinkronizálása
+    loop Minden 500ms
+        UL->>Hub: Lekéri az unsynced watchereket (kötegezve)
+        UL->>MVCC: rtx.UnsafeGet (10-20 közötti verziósorszámok)
+        MVCC-->>UL: KvEvents (verziósorszám=[11..20])
+        UL->>Hub: watcher.sendAll(events)
+        Note right of Hub: Események a watcher csatornájába kerülnek
+        UL->>Hub: unsafePromote(watcher)
+        Note over Hub: A lemaradásnak vége!<br/>watcher átkerül a 'synced' csoportba
+    end
+    end
+
+    rect rgb(245, 255, 250)
+    Note over Hub, C: 3. Események továbbítása a klienshez
+    Hub-->>Str: KvEvent a watcher csatornáján
+    Note over Str: runWatcher átalakítja<br/>StreamEvent-té (watcher id hozzáadása)
+    Str-->>Ses: StreamEvent (outputC)
+    Note over Ses: writer rutin becsomagolja<br/>ServerMessage-be
+    Ses-->>C: WS Üzenet (ServerWatchEventPut / Delete)
+    end
+
+    rect rgb(255, 240, 245)
+    Note over FSM, C: 4. Valós idejű frissítések
+    FSM->>Hub: OnCommit(changes) (rev=21)
+    Note over Hub: Hub végigmegy a 'synced' csoporton
+    Hub->>Str: watcher.sendAll(events) (szűrőn átengedett események)
+    Str-->>Ses: StreamEvent (Stream.outputC csatorná)
+    Ses-->>C: WS Üzenet (ServerWatchEventPut / Delete)
+    end
