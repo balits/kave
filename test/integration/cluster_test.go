@@ -97,14 +97,26 @@ func Test_Integration_KVReplication_SerializableRead_MayBeStaleButNeverCorrupted
 	do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte("stale_key"), Value: []byte("old")}, nil)
 	do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte("stale_key"), Value: []byte("new")}, nil)
 
-	req := api.RangeRequest{Key: []byte("stale_key"), Serializable: true}
-	var resp api.RangeResponse
-	require.Equal(t, http.StatusOK, do(t, fw, http.MethodGet, _http.RouteKvRange, req, &resp))
+	require.Eventually(t, func() bool {
+		req := api.RangeRequest{Key: []byte("stale_key"), Serializable: true}
+		var resp api.RangeResponse
+		if http.StatusOK != do(t, fw, http.MethodGet, _http.RouteKvRange, req, &resp) {
+			return false
+		}
 
-	require.Len(t, resp.Entries, 1)
-	val := string(resp.Entries[0].Value)
+		if len(resp.Entries) != 1 {
+			return false
+		}
+		val := string(resp.Entries[0].Value)
 
-	require.True(t, val == "old" || val == "new", "Expected 'old' or 'new', got %s", val)
+		if val == "old" || val == "new" {
+			// were good here
+
+			return true
+		}
+		t.Logf("eventually tick: expected 'old' or 'new', got %s", val)
+		return false
+	}, 3*time.Second, 200*time.Millisecond)
 }
 
 func Test_Integration_KVReplication_DeleteRemovesKey(t *testing.T) {

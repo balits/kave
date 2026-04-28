@@ -22,7 +22,9 @@ export function bytesToBigintLE(bytes: Uint8Array): bigint {
 export function randomScalar(): bigint {
 	const randomBytes = crypto.getRandomValues(new Uint8Array(64));
 	const randomBigInt = bytesToBigintLE(randomBytes);
-	return randomBigInt % OT_SCALAR_ORDER;
+	const sc = randomBigInt % OT_SCALAR_ORDER;
+	if (sc === 0n) return randomScalar(); 
+    return sc;
 }
 
 export function fakeBlob(slotCount: number, slotSize: number): Uint8Array {
@@ -49,13 +51,18 @@ export function blindedChoice(
 ): { pointBBytes: Uint8Array; scalarB: bigint } {
 	const A = ristretto255.Point.fromBytes(pointABytes);
 
-	const cScalar = BigInt(choice);
-	const cA = A.multiply(cScalar);
-
 	const scalarB = randomScalar();
 	const bG = ristretto255.Point.BASE.multiply(scalarB);
 
-	const B = bG.add(cA);
+	let B;
+	if (choice === 0) {
+		B = bG
+	} else {
+		const cScalar = BigInt(choice);
+		const cA = A.multiply(cScalar);
+		B = bG.add(cA);
+	}
+
 
 	return {
 		pointBBytes: B.toBytes(),
