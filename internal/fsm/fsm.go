@@ -67,7 +67,7 @@ func (f *Fsm) RegisterObservers(obs ...WriteObserver) {
 
 // Apply should be as fast as possible, therefore:
 // 1) validate command structure and arguments before callig Apply
-func (f *Fsm) Apply(log *raft.Log) interface{} {
+func (f *Fsm) Apply(log *raft.Log) any {
 	// this makes test way easier
 	if f.metrics != nil {
 		start := time.Now()
@@ -77,6 +77,10 @@ func (f *Fsm) Apply(log *raft.Log) interface{} {
 
 	cmd, err := command.Decode(log.Data)
 	if err != nil {
+		return command.Result{Error: err}
+	}
+
+	if err := cmd.Check(); err != nil {
 		return command.Result{Error: err}
 	}
 
