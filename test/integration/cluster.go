@@ -153,6 +153,8 @@ func (c *cluster) run() {
 		},
 	})
 	require.NoError(c.tb, err)
+
+	time.Sleep(1000 * time.Millisecond) // wait for replication
 }
 
 func (c *cluster) waitLeader(timeout time.Duration) (*node.Node, int) {

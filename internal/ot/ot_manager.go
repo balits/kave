@@ -86,7 +86,7 @@ func NewOTManager(reg prometheus.Registerer, logger *slog.Logger, backend backen
 
 	return &OTManager{
 		opts:    opts,
-		codec:   nil, // codec needs a cluster key -> two phase init (when the cluster key gets generated)
+		codec:   nil, // codec needs a cluster key -> two phase init (in ApplyGenerateClusterKey)
 		backend: backend,
 		metrics: metrics.NewOTMetrics(reg),
 		logger:  logger.With("component", "ot_manager"),
@@ -95,54 +95,6 @@ func NewOTManager(reg prometheus.Registerer, logger *slog.Logger, backend backen
 
 func (om *OTManager) Options() Options {
 	return om.opts
-}
-
-// UnsafeInitTokenCodecFromReadTx initializes the token codec, setting its key to the cluster key stored in the backend
-// and its maxTTL to the provided ttl (in seconds).
-//
-// If the key is not found or invalid, an error is returned and the codec remains uninitialized.
-// This method should be called after the OTManager is created and before any OT operations are performed.
-//
-// NOTE: this method is the mandatory part of the two phase initialization of the OTManager
-// and is separated from the constructor because the cluster key needs to be generated and stored
-// in a separate step (OTManager.ApplyGenerateClusterKey through the FSM so its replicated across all nodes)
-// before it can be used to initialize the codec.
-func (om *OTManager) UnsafeInitTokenCodecFromReadTx(rtx backend.ReadTx) error {
-	clusterKey, err := rtx.UnsafeGet(schema.BucketOT, schema.KeyOTClusterKey)
-	if err != nil {
-		return fmt.Errorf("init token codec error: failed to retrieve cluster key: %w", err)
-	} else if clusterKey == nil {
-		return errors.New("init token codec error: cluster key is not set")
-	}
-
-	tc, err := newTokenCodec(clusterKey, om.opts.TokenTTL)
-	if err != nil {
-		return fmt.Errorf("init token codec error: %w", err)
-	}
-	om.codec = tc
-	return nil
-}
-
-// UnsafeInitTokenCodecFromBackend creates its own read transaction, then passes it to
-// [UnsafeInitTokenCodecFromReadTx].
-func (om *OTManager) UnsafeInitTokenCodecFromBackend() error {
-	rtx := om.backend.ReadTx()
-	rtx.RLock()
-	defer rtx.RUnlock()
-
-	clusterKey, err := rtx.UnsafeGet(schema.BucketOT, schema.KeyOTClusterKey)
-	if err != nil {
-		return fmt.Errorf("init token codec error: failed to retrieve cluster key: %w", err)
-	} else if clusterKey == nil {
-		return errors.New("init token codec error: cluster key is not set")
-	}
-
-	tc, err := newTokenCodec(clusterKey, om.opts.TokenTTL)
-	if err != nil {
-		return fmt.Errorf("init token codec error: %w", err)
-	}
-	om.codec = tc
-	return nil
 }
 
 // Init generates a new token and returns it and the servers public point A.
@@ -339,10 +291,12 @@ func (om *OTManager) ApplyGenerateClusterKey(key []byte) error {
 		return fmt.Errorf("%w: %w", ErrClusterKeyGen, err)
 	}
 
-	om.logger.Info("Initiating OT token codec")
-	if err := om.UnsafeInitTokenCodecFromReadTx(om.backend.ReadTx()); err != nil {
-		return fmt.Errorf("%w: failed to init token codec: %w", ErrClusterKeyGen, err)
+	om.logger.Info("Wiring up ot.tokenCodec")
+	tc, err := newTokenCodec(key, om.opts.TokenTTL)
+	if err != nil {
+		return fmt.Errorf("%w: init token codec error: %w", ErrClusterKeyGen, err)
 	}
+	om.codec = tc
 
 	return nil
 }
@@ -419,10 +373,20 @@ func (om *OTManager) CheckBlob(blob []byte) error {
 func (om *OTManager) Restore() error {
 	rtx := om.backend.ReadTx()
 	rtx.RLock()
-	if err := om.UnsafeInitTokenCodecFromReadTx(rtx); err != nil {
+
+	om.logger.Info("Wiring up ot.tokenCodec")
+	key, err := rtx.UnsafeGet(schema.BucketOT, schema.KeyOTClusterKey)
+	if err != nil {
 		rtx.RUnlock()
-		return fmt.Errorf("OT restore: failed to init new TokenCodec")
+		return fmt.Errorf("OT restore: init token codec error: failed to read cluster key from backend: %w", err)
 	}
+
+	tc, err := newTokenCodec(key, om.opts.TokenTTL)
+	if err != nil {
+		rtx.RUnlock()
+		return fmt.Errorf("OT restore: init token codec error: %w", err)
+	}
+	om.codec = tc
 
 	blob, err := rtx.UnsafeGet(schema.BucketOT, schema.KeyOTBlob)
 	if err != nil {

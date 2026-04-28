@@ -234,10 +234,6 @@ func (n *Node) BootstrapOrJoin(ctx context.Context, me peer.Peer) error {
 		return fmt.Errorf("join failed: %w", err)
 	}
 
-	if err := n.OtManager.UnsafeInitTokenCodecFromBackend(); err != nil {
-		return fmt.Errorf("join failed: %w", err)
-	}
-
 	return nil
 }
 
