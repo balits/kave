@@ -24,6 +24,7 @@ export class KaveClient {
 				body: body !== undefined ? JSON.stringify(body) : undefined
 			});
 		} catch (e: unknown) {
+			console.log("KaveClient.do() failed: ", e)
 			if (e instanceof Error) throw new kv.KaveError(e.message, 'fetch failed');
 			throw new kv.KaveError('unknown network error', 'fetch failed');
 		}
@@ -36,6 +37,7 @@ export class KaveClient {
 				msg = err.error ?? msg;
 				cause = err.cause;
 			} catch (e) {
+				console.log("KaveClient.do() response not OK (+ failed): ", e)
 				if (e instanceof Error) {
 					msg = e.message ?? msg;
 					cause = `${e.cause}`;
@@ -52,11 +54,6 @@ export class KaveClient {
 		return this.do('GET', '/stats');
 	}
 
-	async killNode(nodeId: string): Promise<void> {
-		throw new kv.KaveError('/v1/admin/cluster/kill is unimplemented', 'WIP');
-		await this.do('DELETE', `/admin/cluster/kill?node_id=${encodeURIComponent(nodeId)}`);
-	}
-
 	async kvPut(key: string, value: string, opts: kv.PutOptions = {}): Promise<kv.PutResponse> {
 		const raw = await this.do<{
 			header: kv.ResponseHeader;
@@ -64,7 +61,7 @@ export class KaveClient {
 		}>('POST', '/v1/kv/put', {
 			key: kv.strToB64(key),
 			value: kv.strToB64(value),
-			lease_id: opts.leaseId ?? 0,
+			lease_id: opts.leaseID ?? 0,
 			prev_kv: opts.prevEntry ?? false,
 			ignore_value: opts.ignoreValue ?? false,
 			ignore_lease: opts.ignoreLease ?? false
@@ -166,19 +163,19 @@ export class KaveClient {
 		};
 	}
 
-	async leaseGrant(ttl: number, id = 0): Promise<kv.LeaseGrantResponse> {
+	async leaseGrant(ttl: number, id: string = "0"): Promise<kv.LeaseGrantResponse> {
 		return this.do('POST', '/v1/lease/grant', { ttl, id });
 	}
 
-	async leaseRevoke(id: number): Promise<kv.LeaseRevokeResponse> {
+	async leaseRevoke(id: string): Promise<kv.LeaseRevokeResponse> {
 		return this.do('DELETE', '/v1/lease/revoke', { id });
 	}
 
-	async leaseKeepAlive(id: number): Promise<kv.LeaseKeepAliveResponse> {
+	async leaseKeepAlive(id: string): Promise<kv.LeaseKeepAliveResponse> {
 		return this.do('POST', '/v1/lease/keep-alive', { id });
 	}
 
-	async leaseLookup(id: number): Promise<kv.LeaseLookupResponse> {
+	async leaseLookup(id: string): Promise<kv.LeaseLookupResponse> {
 		return this.do('POST', '/v1/lease/lookup', { id });
 	}
 
@@ -253,5 +250,13 @@ export class KaveClient {
 		const { ciphertexts } = await this.otTransfer(token, pointBBytes);
 		const plaintext = await otlib.tryDecrypt(point_a, scalarB, ciphertexts[choice]);
 		return { point_a, point_b: pointBBytes, ciphertexts, plaintext };
+	}
+
+	async compact(rev: number): Promise<kv.CompactionResponse>  {
+		return await this.do('POST', '/v1/admin/compaction/trigger', { target_rev: rev });
+	}
+
+	async killNode(nodeId: string): Promise<void> {
+		await this.do('DELETE', `/admin/cluster/kill?node_id=${encodeURIComponent(nodeId)}`);
 	}
 }

@@ -50,7 +50,7 @@ export function decodeEntry(raw: RawEntry): Entry {
 }
 
 export interface PutOptions {
-	leaseId?: number;
+	leaseID?: string; // json floats are not enough for go uint64
 	prevEntry?: boolean;
 	ignoreValue?: boolean;
 	ignoreLease?: boolean;
@@ -175,7 +175,7 @@ export interface TxnResponse {
 export interface LeaseGrantResponse {
 	// header: ResponseHeader
 	ttl: number;
-	id: number;
+	id: string; // json floats are not enough for go uint64
 }
 
 export interface LeaseRevokeResponse {
@@ -187,12 +187,12 @@ export interface LeaseRevokeResponse {
 export interface LeaseKeepAliveResponse {
 	// header: ResponseHeader
 	ttl: number;
-	id: number;
+	id: string; // json floats are not enough for go uint64
 }
 
 export interface LeaseLookupResponse {
 	// header: ResponseHeader
-	id: number;
+	id: string; // json floats are not enough for go uint64
 	original_ttl: number;
 	remaining_ttl: number;
 }
@@ -227,6 +227,15 @@ export interface OTFetchResult {
 	point_b: Uint8Array; // client's blinded choice point sent to server
 	ciphertexts: Uint8Array[]; // all N encrypted slots returned by server
 	plaintext: Uint8Array; // decrypted chosen slot
+}
+
+export interface CompactionRequest {
+	target_rev: number;
+}
+
+export interface CompactionResponse {
+	header: ResponseHeader;
+	success: boolean;
 }
 
 export interface KavePeer {

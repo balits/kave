@@ -1072,7 +1072,7 @@ func Test_Server_Watch_HubWiring_EventsDelivered(t *testing.T) {
 	require.Equal(t, watch.ServerWatchEventPut, msg.Kind)
 
 	ev := msg.AsStreamEvent(t)
-	require.Equal(t, wid, ev.Wid)
+	require.Equal(t, wid, ev.WatcherID)
 	require.Equal(t, "foo", string(ev.Event.Entry.Key))
 	require.Equal(t, "bar", string(ev.Event.Entry.Value))
 }
@@ -1100,7 +1100,7 @@ func Test_Server_Watch_FollowerReceivesEvents(t *testing.T) {
 	msg := readWatchMsg(t, conn)
 	require.Equal(t, watch.ServerWatchEventPut, msg.Kind)
 	ev := msg.AsStreamEvent(t)
-	require.Equal(t, wid, ev.Wid)
+	require.Equal(t, wid, ev.WatcherID)
 }
 
 func Test_Server_Watch_ConcurrentConnections_Isolated(t *testing.T) {
@@ -1121,7 +1121,7 @@ func Test_Server_Watch_ConcurrentConnections_Isolated(t *testing.T) {
 	msg1 := readWatchMsg(t, conn1)
 	require.Equal(t, watch.ServerWatchEventPut, msg1.Kind)
 	ev1 := msg1.AsStreamEvent(t)
-	require.Equal(t, wid1, ev1.Wid)
+	require.Equal(t, wid1, ev1.WatcherID)
 	require.Equal(t, "foo", string(ev1.Event.Entry.Key))
 
 	_, err := readWatchMsgTimeout(t, conn2, 100*time.Millisecond)
@@ -1136,7 +1136,7 @@ func Test_Server_Watch_ConcurrentConnections_Isolated(t *testing.T) {
 	msg2 := readWatchMsg(t, conn2)
 	require.Equal(t, watch.ServerWatchEventPut, msg2.Kind)
 	ev2 := msg2.AsStreamEvent(t)
-	require.Equal(t, wid2, ev2.Wid)
+	require.Equal(t, wid2, ev2.WatcherID)
 	require.Equal(t, "bar", string(ev2.Event.Entry.Key))
 
 	_, err = readWatchMsgTimeout(t, conn1, 100*time.Millisecond)
@@ -1202,7 +1202,7 @@ func Test_Server_Watch_EndToEnd_HTTPPut_ThenWatchEvent(t *testing.T) {
 	require.Equal(t, watch.ServerWatchEventPut, msg.Kind)
 
 	ev := msg.AsStreamEvent(t)
-	require.Equal(t, wid, ev.Wid)
+	require.Equal(t, wid, ev.WatcherID)
 	require.Equal(t, "e2e-key", string(ev.Event.Entry.Key))
 	require.Equal(t, "e2e-value", string(ev.Event.Entry.Value))
 }

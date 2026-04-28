@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ClusterSection from '$lib/components/cluster_section.svelte';
 	import Header from '$lib/components/header.svelte';
 	import KvExplorer from '$lib/components/kv_explorer.svelte';
 	import LeaseSection from '$lib/components/lease_section.svelte';
@@ -73,17 +74,9 @@
 			label: 'Raft Cluster',
 			tag: 'RAFT',
 			description: 'Raft cluster view: node states, leader election, kill & recover',
-			component: null,
-			ready: false
+			component: ClusterSection,
+			ready: true
 		},
-		{
-			id: 'compact',
-			label: 'Compaction',
-			tag: 'GC',
-			description: 'Manual compaction trigger and observe revision pruning',
-			component: null,
-			ready: false
-		}
 	];
 
 	let activeId = $state('kv');

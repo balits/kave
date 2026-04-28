@@ -14,7 +14,7 @@
 	let end = $state('');
 	let revision = $state(0);
 	let prefix = $state(false);
-	let leaseId = $state(0);
+	let leaseId: string = $state("0");
 
 	// output:
 	let loading = $state(false);
@@ -49,7 +49,7 @@
 			switch (op) {
 				case 'put': {
 					const res = await client.kvPut(key, value, {
-						leaseId: leaseId || undefined
+						leaseID: leaseId || undefined
 					});
 					header = res.header;
 					if (res.prev_entry) {

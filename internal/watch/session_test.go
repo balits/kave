@@ -206,7 +206,7 @@ func Test_Session_WatchCreate_ThenReceiveEvents(t *testing.T) {
 
 	ev := msg.AsStreamEvent(t)
 	t.Log(ev)
-	require.Equal(t, wid, ev.Wid)
+	require.Equal(t, wid, ev.WatcherID)
 	require.Equal(t, "foo", string(ev.Event.Entry.Key))
 	require.Equal(t, "bar", string(ev.Event.Entry.Value))
 }
@@ -251,8 +251,8 @@ func Test_Session_WatchCreate_RangeWatch(t *testing.T) {
 	ev1 := msg1.AsStreamEvent(t)
 	ev2 := msg2.AsStreamEvent(t)
 
-	require.Equal(t, wid, ev1.Wid)
-	require.Equal(t, wid, ev2.Wid)
+	require.Equal(t, wid, ev1.WatcherID)
+	require.Equal(t, wid, ev2.WatcherID)
 
 	keys := []string{string(ev1.Event.Entry.Key), string(ev2.Event.Entry.Key)}
 	require.Contains(t, keys, "a")
@@ -278,7 +278,7 @@ func Test_Session_WatchCreate_DeleteEvent(t *testing.T) {
 	require.Equal(t, ServerWatchEventDelete, msg.Kind)
 
 	ev := msg.AsStreamEvent(t)
-	require.Equal(t, wid, ev.Wid)
+	require.Equal(t, wid, ev.WatcherID)
 }
 
 func Test_Session_WatchCancel_StopsEvents(t *testing.T) {
@@ -345,7 +345,7 @@ func Test_Session_WatchCancel_OnlyAffectsTarget(t *testing.T) {
 	msg := read(t, conn)
 	require.Equal(t, ServerWatchEventPut, msg.Kind)
 	ev := msg.AsStreamEvent(t)
-	require.Equal(t, wid2, ev.Wid)
+	require.Equal(t, wid2, ev.WatcherID)
 
 	hub.OnCommit([]*kv.Entry{
 		{Key: []byte("foo"), Value: []byte("v"), ModRev: 7, CreateRev: 7, Version: 1},
@@ -373,7 +373,7 @@ func Test_Session_MultiplexedEvents(t *testing.T) {
 	ev1 := msg1.AsStreamEvent(t)
 	ev2 := msg2.AsStreamEvent(t)
 
-	wids := map[int64]string{ev1.Wid: string(ev1.Event.Entry.Key), ev2.Wid: string(ev2.Event.Entry.Key)}
+	wids := map[int64]string{ev1.WatcherID: string(ev1.Event.Entry.Key), ev2.WatcherID: string(ev2.Event.Entry.Key)}
 	require.Equal(t, "foo", wids[wid1])
 	require.Equal(t, "bar", wids[wid2])
 }
@@ -477,7 +477,7 @@ func Test_Session_SlowClient_EventsBuffered(t *testing.T) {
 			break
 		}
 		ev := msg.AsStreamEvent(t)
-		require.Equal(t, wid, ev.Wid)
+		require.Equal(t, wid, ev.WatcherID)
 		received = append(received, ev.Event.Entry.ModRev)
 	}
 

@@ -15,21 +15,21 @@ import (
 // thats produced by a [watcher]. It can optionally
 // attach an error if something went wrong.
 type StreamEvent struct {
-	Wid   int64    `json:"watcher_id"`
-	Event kv.Event `json:"event"`
+	WatcherID int64    `json:"watcher_id,string"` // stringify, cuz json float cant handle go int64
+	Event     kv.Event `json:"event"`
 }
 
 func putEvent(wid int64, ev kv.Event) StreamEvent {
 	return StreamEvent{
-		Wid:   wid,
-		Event: ev,
+		WatcherID: wid,
+		Event:     ev,
 	}
 }
 
 func deleteEvent(wid int64, ev kv.Event) StreamEvent {
 	return StreamEvent{
-		Wid:   wid,
-		Event: ev,
+		WatcherID: wid,
+		Event:     ev,
 	}
 }
 

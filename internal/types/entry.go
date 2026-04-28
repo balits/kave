@@ -9,7 +9,7 @@ type KvEntry struct {
 	CreateRev int64  `json:"create_revision"`
 	ModRev    int64  `json:"mod_revision"`
 	Version   int64  `json:"version"`
-	LeaseID   int64  `json:"lease_id,omitempty"`
+	LeaseID   int64  `json:"lease_id,string"`
 }
 
 func (e KvEntry) Tombstone() bool {

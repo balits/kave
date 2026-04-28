@@ -112,7 +112,7 @@ func Test_Stream_Watch_EventsFlowToOutput(t *testing.T) {
 	hub.OnCommit([]*kv.Entry{putEntry("foo", "bar", 6)})
 
 	got := collectStreamEvents(t, ws, 1)
-	require.Equal(t, res.WatchID, got[0].Wid)
+	require.Equal(t, res.WatchID, got[0].WatcherID)
 	require.Equal(t, kv.EventPut, got[0].Event.Kind)
 
 	ev := got[0].Event
@@ -129,7 +129,7 @@ func Test_Stream_Watch_DeleteEventFlowsToOutput(t *testing.T) {
 	hub.OnCommit([]*kv.Entry{testTombstoneEntry("foo", 6)})
 
 	got := collectStreamEvents(t, ws, 1)
-	require.Equal(t, res.WatchID, got[0].Wid)
+	require.Equal(t, res.WatchID, got[0].WatcherID)
 	require.Equal(t, kv.EventDelete, got[0].Event.Kind)
 }
 
@@ -175,7 +175,7 @@ func Test_Stream_FanIn_MultipleWatchersOnSingleOutput(t *testing.T) {
 
 	got := collectStreamEvents(t, ws, 2)
 
-	rs := map[int64]bool{got[0].Wid: true, got[1].Wid: true}
+	rs := map[int64]bool{got[0].WatcherID: true, got[1].WatcherID: true}
 	require.True(t, rs[res1.WatchID], "should see event from watcher 1")
 	require.True(t, rs[res2.WatchID], "should see event from watcher 2")
 }
@@ -215,7 +215,7 @@ func Test_Stream_Cancel_StopsEventDelivery(t *testing.T) {
 	// deliver one event first to confirm it works
 	hub.OnCommit([]*kv.Entry{putEntry("foo", "v1", 6)})
 	got := collectStreamEvents(t, ws, 1)
-	require.Equal(t, res.WatchID, got[0].Wid)
+	require.Equal(t, res.WatchID, got[0].WatcherID)
 
 	ws.Cancel(api.WatchCancelRequest{WatchID: res.WatchID})
 	time.Sleep(50 * time.Millisecond)
@@ -246,7 +246,7 @@ func Test_Stream_Cancel_OnlyAffectsTargetedWatcher(t *testing.T) {
 	hub.OnCommit([]*kv.Entry{putEntry("bar", "v", 6)})
 
 	got := collectStreamEvents(t, ws, 1)
-	require.Equal(t, res2.WatchID, got[0].Wid)
+	require.Equal(t, res2.WatchID, got[0].WatcherID)
 }
 
 func Test_Stream_Close_ClosesOutputChannel(t *testing.T) {
@@ -332,7 +332,7 @@ func Test_Stream_Watch_ContextCancelDoesNotAffectOtherWatchers(t *testing.T) {
 
 	hub.OnCommit([]*kv.Entry{putEntry("bar", "v", 6)})
 	got := collectStreamEvents(t, ws, 1)
-	require.Equal(t, res2.WatchID, got[0].Wid, "watcher 2 should still receive events")
+	require.Equal(t, res2.WatchID, got[0].WatcherID, "watcher 2 should still receive events")
 }
 
 func Test_Stream_Watch_RangeWatch(t *testing.T) {
@@ -350,8 +350,8 @@ func Test_Stream_Watch_RangeWatch(t *testing.T) {
 
 	got := collectStreamEvents(t, ws, 2)
 	require.Len(t, got, 2)
-	require.Equal(t, res.WatchID, got[0].Wid)
-	require.Equal(t, res.WatchID, got[1].Wid)
+	require.Equal(t, res.WatchID, got[0].WatcherID)
+	require.Equal(t, res.WatchID, got[1].WatcherID)
 
 	event1 := got[0].Event
 	require.Equal(t, "a", string(event1.Entry.Key))
@@ -365,7 +365,7 @@ func Test_Stream_Watch_RangeWatch(t *testing.T) {
 func Test_Stream_ToStreamEvent_PutMapping(t *testing.T) {
 	se := putEvent(42, kv.Event{Kind: kv.EventPut, Entry: putEntry("foo", "bar", 1)})
 
-	require.Equal(t, int64(42), se.Wid)
+	require.Equal(t, int64(42), se.WatcherID)
 	require.Equal(t, kv.EventPut, se.Event.Kind)
 
 	event := se.Event
@@ -375,7 +375,7 @@ func Test_Stream_ToStreamEvent_PutMapping(t *testing.T) {
 func Test_Stream_ToStreamEvent_DeleteMapping(t *testing.T) {
 	se := deleteEvent(42, kv.Event{Kind: kv.EventDelete, Entry: testTombstoneEntry("foo", 3)})
 
-	require.Equal(t, int64(42), se.Wid)
+	require.Equal(t, int64(42), se.WatcherID)
 	require.Equal(t, kv.EventDelete, se.Event.Kind)
 }
 
@@ -405,7 +405,7 @@ func Test_Stream_ReWatchAfterCancel(t *testing.T) {
 	hub.OnCommit([]*kv.Entry{putEntry("foo", "new", 6)})
 
 	got := collectStreamEvents(t, ws, 1)
-	require.Equal(t, res2.WatchID, got[0].Wid)
+	require.Equal(t, res2.WatchID, got[0].WatcherID)
 
 	ev := got[0].Event
 	require.Equal(t, "new", string(ev.Entry.Value))
