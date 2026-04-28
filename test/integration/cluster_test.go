@@ -1070,7 +1070,7 @@ func Test_Integration_Snapshot_CompactedRevisionsNotReadable(t *testing.T) {
 
 	// doAdmin: compaction trigger is an admin route
 	compactRev := lastResp.Header.Revision - 5
-	require.Equal(t, http.StatusOK, doAdmin(t, l, http.MethodPost, _http.RouteAdminCompactionTrigger, api.CompactionRequest{TargetRev: compactRev}, nil))
+	require.Equal(t, http.StatusOK, doAdmin(t, l, http.MethodPost, _http.RouteTriggerCompaction, api.CompactionRequest{TargetRev: compactRev}, nil))
 
 	for i := range 10 {
 		do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: fmt.Appendf(nil, "k-%d", i), Value: []byte("v")}, nil)
@@ -1129,7 +1129,7 @@ func Test_Integration_Compaction_RemovesOldRevisions(t *testing.T) {
 	rev2 := resp2.Header.Revision
 
 	// doAdmin: compaction trigger is an admin route
-	require.Equal(t, http.StatusOK, doAdmin(t, l, http.MethodPost, _http.RouteAdminCompactionTrigger, api.CompactionRequest{TargetRev: rev1 + 1}, nil))
+	require.Equal(t, http.StatusOK, doAdmin(t, l, http.MethodPost, _http.RouteTriggerCompaction, api.CompactionRequest{TargetRev: rev1 + 1}, nil))
 
 	var getResp api.RangeResponse
 	status := do(t, l, http.MethodGet, _http.RouteKvRange, api.RangeRequest{Key: []byte("k"), Revision: rev1}, &getResp)
@@ -1151,7 +1151,7 @@ func Test_Integration_Compaction_DoesNotRemoveLatest(t *testing.T) {
 	rev1 := resp1.Header.Revision
 
 	// doAdmin: compaction trigger is an admin route
-	require.Equal(t, http.StatusOK, doAdmin(t, l, http.MethodPost, _http.RouteAdminCompactionTrigger, api.CompactionRequest{TargetRev: rev1}, nil))
+	require.Equal(t, http.StatusOK, doAdmin(t, l, http.MethodPost, _http.RouteTriggerCompaction, api.CompactionRequest{TargetRev: rev1}, nil))
 
 	var getResp api.RangeResponse
 	status := do(t, l, http.MethodGet, _http.RouteKvRange, api.RangeRequest{Key: []byte("foo")}, &getResp)
@@ -1186,7 +1186,7 @@ func Test_Integration_Compaction_ContinuousLoad(t *testing.T) {
 			}
 			targetRev := currRev - 2
 			// doAdmin: compaction trigger is an admin route
-			doAdmin(t, l, http.MethodPost, _http.RouteAdminCompactionTrigger, api.CompactionRequest{TargetRev: targetRev}, nil)
+			doAdmin(t, l, http.MethodPost, _http.RouteTriggerCompaction, api.CompactionRequest{TargetRev: targetRev}, nil)
 		}
 	})
 
@@ -1212,7 +1212,7 @@ func Test_Integration_Compaction_ReplicatedAcrossCluster(t *testing.T) {
 
 	targetRev := lastResp.Header.Revision - 2
 	// doAdmin: compaction trigger is an admin route
-	require.Equal(t, http.StatusOK, doAdmin(t, l, http.MethodPost, _http.RouteAdminCompactionTrigger, api.CompactionRequest{TargetRev: targetRev}, nil))
+	require.Equal(t, http.StatusOK, doAdmin(t, l, http.MethodPost, _http.RouteTriggerCompaction, api.CompactionRequest{TargetRev: targetRev}, nil))
 
 	for _, n := range c.nodes {
 		require.Eventually(t, func() bool {

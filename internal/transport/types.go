@@ -13,8 +13,7 @@ const (
 	RouteOt    = ApiVersion + "/ot"
 	RouteWatch = ApiVersion + "/watch"
 
-	RouteAdmin   = ApiVersion + "/admin"
-	RouteCluster = RouteAdmin + "/cluster"
+	RouteAdmin = ApiVersion + "/admin"
 )
 
 type JoinRequest struct {

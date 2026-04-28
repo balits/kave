@@ -227,11 +227,11 @@ func (n *Node) BootstrapOrJoin(ctx context.Context, me peer.Peer) error {
 		if err := n.bootstrap(ctx, me); err != nil {
 			return fmt.Errorf("bootstrap failed: %w", err)
 		}
-	}
-
-	n.Logger.Info("No existing Raft state found; joining existing cluster")
-	if err := n.RaftService.JoinCluster(ctx, me, n.adminAuthToken); err != nil {
-		return fmt.Errorf("join failed: %w", err)
+	} else {
+		n.Logger.Info("No existing Raft state found; joining existing cluster")
+		if err := n.RaftService.JoinCluster(ctx, me, n.adminAuthToken); err != nil {
+			return fmt.Errorf("join failed: %w", err)
+		}
 	}
 
 	return nil

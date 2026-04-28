@@ -38,9 +38,9 @@ const (
 
 	RouteWatchWS = transport.RouteWatch
 
-	RouteAdminClusterJoin       = transport.RouteCluster + "/join"
-	RouteAdminCompactionTrigger = transport.RouteAdmin + "/compaction"
-	RouteAdminKillNode          = transport.RouteAdmin + "/kill"
+	RouteJoinCluster       = transport.RouteAdmin + "/join"
+	RouteTriggerCompaction = transport.RouteAdmin + "/compaction"
+	RouteKillNode          = transport.RouteAdmin + "/kill"
 
 	RouteStats   = "/stats"
 	RouteMetrics = "/metrics"
@@ -164,9 +164,9 @@ func NewHTTPServer(
 	mux.HandleFunc("GET "+RouteWatchWS, s.weakReadChain(s.handleWatch))
 
 	// admin / protected routes (auth WIP):
-	mux.HandleFunc("POST "+RouteAdminClusterJoin, s.adminChain(s.handleJoin))                                               // cluster
-	mux.HandleFunc("DELETE "+RouteAdminKillNode, s.adminChain(s.handleKillNode))                                            // kill a node given its id (forwarding request to given node, then killing self)
-	mux.HandleFunc("POST "+RouteAdminCompactionTrigger, chain(s.adminChain(s.handleCompactionTrigger), s.leaderMiddleware)) // manual compaction trigger, must go through leader
+	mux.HandleFunc("POST "+RouteJoinCluster, s.adminChain(s.handleJoin))                                               // cluster
+	mux.HandleFunc("DELETE "+RouteKillNode, s.adminChain(s.handleKillNode))                                            // kill a node given its id (forwarding request to given node, then killing self)
+	mux.HandleFunc("POST "+RouteTriggerCompaction, chain(s.adminChain(s.handleCompactionTrigger), s.leaderMiddleware)) // manual compaction trigger, must go through leader
 
 	// health / debug
 	mux.HandleFunc("GET "+RouteStats, s.handleStats)         // stats

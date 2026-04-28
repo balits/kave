@@ -182,7 +182,7 @@ func Test_CORSMiddleware_Preflight_DoesNotInvokeHandler(t *testing.T) {
 }
 func Test_AdminAuthMiddleware_ValidToken_OK(t *testing.T) {
 	ts := newTestServer(t, true)
-	resp := ts._doWithHeaders(http.MethodDelete, RouteAdminKillNode, nil, map[string]string{
+	resp := ts._doWithHeaders(http.MethodDelete, RouteKillNode, nil, map[string]string{
 		transport.AdminAuthTokenHeaderName: testAdminAuthToken,
 	})
 	t.Log("status_code", resp.StatusCode)
@@ -191,12 +191,12 @@ func Test_AdminAuthMiddleware_ValidToken_OK(t *testing.T) {
 
 func Test_AdminAuthMiddleware_InvalidOrEmptyToken_Forbidden(t *testing.T) {
 	ts := newTestServer(t, true)
-	resp := ts._doWithHeaders(http.MethodDelete, RouteAdminKillNode, nil, map[string]string{
+	resp := ts._doWithHeaders(http.MethodDelete, RouteKillNode, nil, map[string]string{
 		transport.AdminAuthTokenHeaderName: "",
 	})
 	require.Equal(t, http.StatusForbidden, resp.StatusCode)
 
-	resp = ts._doWithHeaders(http.MethodDelete, RouteAdminKillNode, nil, map[string]string{
+	resp = ts._doWithHeaders(http.MethodDelete, RouteKillNode, nil, map[string]string{
 		transport.AdminAuthTokenHeaderName: strings.Repeat(testAdminAuthToken, 2),
 	})
 	require.Equal(t, http.StatusForbidden, resp.StatusCode)

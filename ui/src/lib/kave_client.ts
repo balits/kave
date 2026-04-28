@@ -251,7 +251,7 @@ export class KaveClient {
 	}
 
 	async killNode(nodeId: string): Promise<kv.KillNodeResponse> {
-		return await this.do('DELETE', "/v1/admin/cluster/kill", { id: nodeId });
+		return await this.do('DELETE', "/v1/admin/kill", { id: nodeId });
 	}
 
 	async compact(target_rev: number): Promise<kv.CompactionRespone> {

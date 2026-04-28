@@ -172,7 +172,7 @@ func (rs *raftSvc) JoinCluster(ctx context.Context, me peer.Peer, adminToken str
 		if p.NodeID == me.NodeID {
 			continue
 		}
-		urls = append(urls, p.HttpURL()+transport.RouteCluster+"/join")
+		urls = append(urls, p.HttpURL()+transport.RouteAdmin+"/join")
 	}
 	rs.logger.Info("Attempting to join cluster", "peers", urls)
 
