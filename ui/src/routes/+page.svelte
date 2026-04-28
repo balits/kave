@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Header from '$lib/components/header.svelte';
-	import KvExplorer from '$lib/components/kv_explorer.svelte';
+	import KvSection from '$lib/components/kv_section.svelte';
 	import LeaseSection from '$lib/components/lease_section.svelte';
 	import OtSection from '$lib/components/ot_section.svelte';
 	import WatchSection from '$lib/components/watch_section.svelte';
@@ -33,7 +33,7 @@
 			label: 'KV Explorer',
 			tag: 'KV',
 			description: 'KV API: put, get, range, delete with full MVCC metadata',
-			component: KvExplorer,
+			component: KvSection,
 			ready: true
 		},
 		{
