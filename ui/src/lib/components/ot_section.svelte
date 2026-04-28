@@ -139,10 +139,7 @@
 
 	function hexSnippetBigint(int: bigint, n = 12): string {
 		let hex = int.toString(16).padStart(64, "0");
-		return Uint8Array.
-			from(hex.match(/../g)!
-			.map(b => parseInt(b, 16)))
-			.join('') + '...';
+		return hex.slice(0, 2* n) + '...';
 	}
 
 	function catchErr(e: unknown): string {
@@ -312,7 +309,7 @@
 							<span class="crypto-val">{hexSnippetBytes(pointB)}</span>
 						</div>
 						<div class="crypto-row client-only">
-							<span class="crypto-label">scalar_b (stays local 🔒)</span>
+							<span class="crypto-label">scalar_b (stays local)</span>
 							<span class="crypto-val">{hexSnippetBigint(scalarB)}</span>
 						</div>
 					</div>
@@ -387,7 +384,7 @@
 						{/if}
 					</div>
 					<div class="result-note">
-						<code>tryDecrypt</code> threw for every other slot: the elliptic curve math produces garbage
+						<code>tryDecrypt</code> threw errors for every other slot: the elliptic curve math produces garbage
 						without the correct scalar.
 					</div>
 				</div>
