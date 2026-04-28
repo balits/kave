@@ -10,13 +10,12 @@
 	let grantAttachKey = $state('');
 	let grantAttachValue = $state('');
 
-	// ── active lease ──────────────────────────────────────────
 	let activeLease = $state<LeaseGrantResponse | null>(null);
 	let actveLookup = $state<LeaseLookupResponse | null>(null);
 	let activeRemainingSec = $state(0);
 	let activeExpired = $state(false);
 
-	let loading = $state<string | null>(null); // which action is loading
+	let loading = $state<string | null>(null);
 	let error = $state<string | null>(null);
 
 	let countdownInterval: ReturnType<typeof setInterval> | null = null;
@@ -59,7 +58,7 @@
 				}
 			} catch (e) {
 				if (e instanceof KaveError) {
-					console.log('error while lookup tick', e);
+					console.log('error during lookup tick', e);
 				}
 				// lease probably expired on server
 				activeExpired = true;
@@ -87,7 +86,7 @@
 			// attach a key if provided
 			if (grantAttachKey.trim()) {
 				await client.kvPut(grantAttachKey, grantAttachValue || grantAttachKey, {
-					leaseId: activeLease.id
+					leaseID: activeLease.id
 				});
 			}
 		} catch (e) {
@@ -208,7 +207,6 @@
 				</div>
 			</div>
 
-			<!-- attached key -->
 			{#if grantAttachKey.trim()}
 				<div class="attached-key">
 					<span class="meta-label">attached key</span>
@@ -219,7 +217,6 @@
 				</div>
 			{/if}
 
-			<!-- lookup strip -->
 			{#if actveLookup}
 				<div class="lookup-strip">
 					<div class="lookup-cell">
@@ -233,7 +230,6 @@
 				</div>
 			{/if}
 
-			<!-- actions -->
 			<div class="actions">
 				{#if !activeExpired}
 					<button class="btn-keepalive" onclick={keepAlive} disabled={loading !== null}>
