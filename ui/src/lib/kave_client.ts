@@ -14,7 +14,7 @@ export class KaveClient {
 	private async do<T>(method: string, path: string, body?: unknown): Promise<T> {
 		let resp: Response;
 		let headers: any = { 'Content-Type': 'application/json' }
-		if (path.includes("/admin/")) {
+		if (path.includes("admin")) {
 			headers["X-Kave-Admin-Token"] = this.adminToken
 		}
 		try {
@@ -251,11 +251,11 @@ export class KaveClient {
 	}
 
 	async killNode(nodeId: string): Promise<kv.KillNodeResponse> {
-		return await this.do('DELETE', "/admin/cluster/kill", { id: nodeId });
+		return await this.do('DELETE', "/v1/admin/cluster/kill", { id: nodeId });
 	}
 
 	async compact(target_rev: number): Promise<kv.CompactionRespone> {
-		return await this.do('POST', "/admin/compaction/trigger", { target_rev })
+		return await this.do('POST', "/v1/admin/compaction", { target_rev })
 	}
 
 }

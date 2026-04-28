@@ -156,11 +156,11 @@
 					{@const role = peerRole(peer.id)}
 					<div class="node-chip" class:node-leader={role === 'leader'} class:node-follower={role === 'follower'} class:node-candidate={role === 'candidate'}>
 						<div class="node-chip-header">
-							<span class="node-id">ID:&nbsp;{peer.id}</span>
+							<span class="node-id">{peer.id}</span>
 							<span class="node-role-badge role-{role}">{role.toUpperCase()}</span>
 						</div>
 						<div class="node-addr">ADDR:&nbsp;{peer.address}</div>
-						<div class="node-suffrage">SUFFRAGE:&nbps;{peer.suffrage}</div>
+						<div class="node-suffrage">SUFFRAGE:&nbsp;{peer.suffrage}</div>
 					</div>
 				{/each}
 
@@ -211,9 +211,7 @@
 			>
 				{#if killLoading}
 					<span class="spinner"></span>
-				{:else}
-					⚡ KILL LEADER
-				{/if}
+				{:else}KILL LEADER{/if}
 			</button>
 		</div>
 

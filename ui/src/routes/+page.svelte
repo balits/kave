@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ClusterSection from '$lib/components/cluster_section.svelte';
 	import Header from '$lib/components/header.svelte';
 	import KvSection from '$lib/components/kv_section.svelte';
 	import LeaseSection from '$lib/components/lease_section.svelte';
@@ -73,8 +74,8 @@
 			label: 'Raft Cluster',
 			tag: 'RAFT',
 			description: 'Raft cluster view: node states, leader election, kill & recover',
-			component: null,
-			ready: false
+			component: ClusterSection,
+			ready: true,
 		},
 		{
 			id: 'compact',
