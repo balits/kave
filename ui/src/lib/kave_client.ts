@@ -64,7 +64,7 @@ export class KaveClient {
 		}>('POST', '/v1/kv/put', {
 			key: kv.strToB64(key),
 			value: kv.strToB64(value),
-			lease_id: opts.leaseId ?? 0,
+			lease_id: opts.leaseId ?? "0",
 			prev_kv: opts.prevEntry ?? false,
 			ignore_value: opts.ignoreValue ?? false,
 			ignore_lease: opts.ignoreLease ?? false
@@ -166,19 +166,19 @@ export class KaveClient {
 		};
 	}
 
-	async leaseGrant(ttl: number, id = 0): Promise<kv.LeaseGrantResponse> {
+	async leaseGrant(ttl: number, id: string = "0"): Promise<kv.LeaseGrantResponse> {
 		return this.do('POST', '/v1/lease/grant', { ttl, id });
 	}
 
-	async leaseRevoke(id: number): Promise<kv.LeaseRevokeResponse> {
+	async leaseRevoke(id: string): Promise<kv.LeaseRevokeResponse> {
 		return this.do('DELETE', '/v1/lease/revoke', { id });
 	}
 
-	async leaseKeepAlive(id: number): Promise<kv.LeaseKeepAliveResponse> {
+	async leaseKeepAlive(id: string): Promise<kv.LeaseKeepAliveResponse> {
 		return this.do('POST', '/v1/lease/keep-alive', { id });
 	}
 
-	async leaseLookup(id: number): Promise<kv.LeaseLookupResponse> {
+	async leaseLookup(id: string): Promise<kv.LeaseLookupResponse> {
 		return this.do('POST', '/v1/lease/lookup', { id });
 	}
 

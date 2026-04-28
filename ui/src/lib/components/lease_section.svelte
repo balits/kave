@@ -86,7 +86,7 @@
 			// attach a key if provided
 			if (grantAttachKey.trim()) {
 				await client.kvPut(grantAttachKey, grantAttachValue || grantAttachKey, {
-					leaseID: activeLease.id
+					leaseId: activeLease.id
 				});
 			}
 		} catch (e) {

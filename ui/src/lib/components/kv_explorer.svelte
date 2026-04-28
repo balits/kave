@@ -14,7 +14,7 @@
 	let end = $state('');
 	let revision = $state(0);
 	let prefix = $state(false);
-	let leaseId = $state(0);
+	let leaseId: string = $state("0");
 
 	// output:
 	let loading = $state(false);

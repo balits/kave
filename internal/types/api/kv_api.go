@@ -74,7 +74,7 @@ type PutRequest struct {
 	Value []byte `json:"value"`
 
 	// Az LeaseID egy lease hozzáadásához szükséges, amennyiben 0, akkor nem lesz lease-e
-	LeaseID int64 `json:"lease_id,omitempty"`
+	LeaseID int64 `json:"lease_id,string"`
 
 	// A PrevEntry kapcsolóval visszaküldjök a kulcs előző értékét, ami egy extra olvasást igényel
 	PrevEntry bool `json:"prev_kv,omitempty"`

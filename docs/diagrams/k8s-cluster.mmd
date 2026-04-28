@@ -9,24 +9,23 @@ flowchart TB
         direction TB
 
         subgraph ingress_layer["Ingress Layer"]
-            ingress[Traefik IngressRoute, Middleware]:::k8s
-            pub_cert[(kave-public-tls\nCertificate)]:::plain
+            ingress[Traefik IngressRoute\n+ Middleware]:::k8s
+            pub_cert[(kave-public-tls<br/>Certificate)]:::plain
             ingress --> ext_svc
             ingress -.-> pub_cert
         end
 
         subgraph services["Internal Services"]
-            ext_svc["kave-external Service (ClusterIP)"]:::k8s
-            headless_svc["kave-headless Service (Headless, DNS)"]:::k8s
+            ext_svc["kave-external Service<br/>(ClusterIP)"]:::k8s
+            headless_svc["kave-headless Service<br/>(Headless, DNS)"]:::k8s
         end
 
-        subgraph statefulset["StatefulSet:  3 voter pod"]
+        subgraph statefulset["StatefulSet: 3 voter pod"]
             direction LR
             p1["kave-voter-0"]:::k8s
             p2["kave-voter-1"]:::k8s
             p3["kave-voter-2"]:::k8s
 
-            
             p1 <--> p2
             p2 <--> p3
             p1 <--> p3
@@ -57,7 +56,6 @@ flowchart TB
             p3 -.-> init_flow
         end
 
-        %% Internal connectivity
         ext_svc --> p1 & p2 & p3
         headless_svc -.-> p1 & p2 & p3
     end
@@ -65,16 +63,15 @@ flowchart TB
     subgraph cert_infra["kave cert-manager"]
         direction TB
         issuer_self["SelfSigned Issuer"]:::k8s
-        issuer_ca["kave-ca-issuer (Internal CA)"]:::k8s
-        issuer_letsencrypt["letsencrypt-prod ACME Issuer"]:::k8s
+        issuer_ca["kave-ca-issuer<br/>(Internal CA)"]:::k8s
+        issuer_letsencrypt["letsencrypt-prod<br/>ACME Issuer"]:::k8s
         issuer_self --> issuer_ca
         issuer_ca --> raft_tls
         issuer_letsencrypt --> pub_cert
     end
-
   
-    pdb["PodDisruptionBudget (minAvailable = 2)"]:::plain
-    netpol["NetworkPolicy to limit Raft access"]:::plain
+    pdb["PodDisruptionBudget<br/>(minAvailable = 2)"]:::plain
+    netpol["NetworkPolicy <br/>(limits Raft port access"]:::plain
     pdb -.-> statefulset
     netpol -.-> statefulset
 

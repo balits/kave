@@ -50,7 +50,7 @@ export function decodeEntry(raw: RawEntry): Entry {
 }
 
 export interface PutOptions {
-	leaseId?: number;
+	leaseId?: string; // json floats cant handle go int64s
 	prevEntry?: boolean;
 	ignoreValue?: boolean;
 	ignoreLease?: boolean;
@@ -175,7 +175,7 @@ export interface TxnResponse {
 export interface LeaseGrantResponse {
 	// header: ResponseHeader
 	ttl: number;
-	id: number;
+	id: string; // json floats cant handle go int64s
 }
 
 export interface LeaseRevokeResponse {
@@ -187,12 +187,12 @@ export interface LeaseRevokeResponse {
 export interface LeaseKeepAliveResponse {
 	// header: ResponseHeader
 	ttl: number;
-	id: number;
+	id: string; // json floats cant handle go int64s
 }
 
 export interface LeaseLookupResponse {
 	// header: ResponseHeader
-	id: number;
+	id: string; // json floats cant handle go int64s
 	original_ttl: number;
 	remaining_ttl: number;
 }
