@@ -12,3 +12,11 @@ type CompactionResponse struct {
 	CompactionResponseNoHeader
 	Header ResponseHeader `json:"header"`
 }
+
+type KillNodeRequest struct {
+	NodeID string `json:"id"`
+}
+
+type KillNodeRespone struct {
+	Success bool `json:"success"`
+}

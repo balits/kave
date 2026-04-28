@@ -557,15 +557,22 @@ func (s *HttpServer) handleCompactionTrigger(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *HttpServer) handleKillNode(w http.ResponseWriter, r *http.Request) {
-	victimID := r.URL.Query().Get("node_id")
+	var req api.KillNodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, jsonDecodeErrMsg, err, http.StatusBadRequest)
+		return
+	}
+
+	victimID := req.NodeID
+
 	if len(victimID) == 0 {
-		s.writeError(w, killNodeErrMsg, errors.New("empty node_id"), http.StatusBadRequest)
+		s.writeError(w, killNodeErrMsg, errors.New("empty node id"), http.StatusBadRequest)
 		return
 	}
 
 	if s.me.NodeID == victimID {
 		s.nodeKillSwitch()
-		s.writeJSON(w, nil, http.StatusOK)
+		s.writeJSON(w, api.KillNodeRespone{Success: true}, http.StatusOK)
 		return
 	}
 
@@ -585,8 +592,7 @@ func (s *HttpServer) handleKillNode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.logger.Info("killing node: victim peer not found", "victim_id", victimID)
-	s.writeError(w, killNodeErrMsg, fmt.Errorf("peer not found with id %s", victimID), http.StatusNotFound)
+	s.writeError(w, killNodeErrMsg, fmt.Errorf("node not found with id %s", victimID), http.StatusNotFound)
 }
 
 func (s *HttpServer) writeJSON(w http.ResponseWriter, response any, status int) {

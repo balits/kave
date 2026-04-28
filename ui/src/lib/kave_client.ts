@@ -52,11 +52,6 @@ export class KaveClient {
 		return this.do('GET', '/stats');
 	}
 
-	async killNode(nodeId: string): Promise<void> {
-		throw new kv.KaveError('/v1/admin/cluster/kill is unimplemented', 'WIP');
-		await this.do('DELETE', `/admin/cluster/kill?node_id=${encodeURIComponent(nodeId)}`);
-	}
-
 	async kvPut(key: string, value: string, opts: kv.PutOptions = {}): Promise<kv.PutResponse> {
 		const raw = await this.do<{
 			header: kv.ResponseHeader;
@@ -254,4 +249,13 @@ export class KaveClient {
 		const plaintext = await otlib.tryDecrypt(point_a, scalarB, ciphertexts[choice]);
 		return { point_a, point_b: pointBBytes, ciphertexts, plaintext };
 	}
+
+	async killNode(nodeId: string): Promise<kv.KillNodeResponse> {
+		return await this.do('DELETE', "/admin/cluster/kill", { id: nodeId });
+	}
+
+	async compact(target_rev: number): Promise<kv.CompactionRespone> {
+		return await this.do('POST', "/admin/compaction/trigger", { target_rev })
+	}
+
 }

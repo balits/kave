@@ -229,6 +229,15 @@ export interface OTFetchResult {
 	plaintext: Uint8Array; // decrypted chosen slot
 }
 
+export interface CompactionRespone {
+	success: boolean;
+}
+
+export interface KillNodeResponse {
+	success: boolean;
+}
+
+
 export interface KavePeer {
 	suffrage: string;
 	id: string;
