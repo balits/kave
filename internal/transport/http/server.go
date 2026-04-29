@@ -127,6 +127,7 @@ func NewHTTPServer(
 		Handler: s.corsMuxMiddleware(mux),
 	}
 	s._adminAuthToken = adminAuthToken
+	s.nodeKillSwitch = nodeKillSwitch
 
 	// TODO(ratelimiter): run real benchmarks to determine rps and burst: something around 75% of peak capacity
 	s.readLimiter = newRateLimiter(readLimitConfig)
