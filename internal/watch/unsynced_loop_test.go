@@ -100,7 +100,7 @@ func Test_UnsyncedLoop_PartialCatchUpOnKey_StillPromotes(t *testing.T) {
 	require.Equal(t, int64(10), rev.Main)
 
 	// watcher on foo starting at rev 0
-	req := api.WatchCreateRequest{Key: []byte("foo")}
+	req := api.WatchCreateRequest{Key: []byte("foo"), StartRevision: 1}
 	w, err := hub.NewWatcher(t.Context(), req)
 	require.NoError(t, err)
 
@@ -112,7 +112,7 @@ func Test_UnsyncedLoop_PartialCatchUpOnKey_StillPromotes(t *testing.T) {
 	require.Equal(t, int64(3), w.currentRev)
 
 	got := drainEvents(w.c)
-	require.Len(t, got, 3)
+	require.Len(t, got, 2)
 }
 
 func Test_UnsyncedLoop_CompactionErrorDropsWatcher(t *testing.T) {
@@ -173,7 +173,7 @@ func Test_UnsyncedLoop_DropsWatcherOnContextCancel(t *testing.T) {
 	mustPut(t, store, "foo", "v2")
 
 	ctx, cancel := context.WithCancel(t.Context())
-	req := api.WatchCreateRequest{Key: []byte("foo")}
+	req := api.WatchCreateRequest{Key: []byte("foo"), StartRevision: 1}
 	w, err := hub.NewWatcher(ctx, req)
 	require.NoError(t, err)
 
@@ -187,11 +187,11 @@ func Test_UnsyncedLoop_DropsWatcherOnContextCancel(t *testing.T) {
 func Test_UnsyncedLoop_OverloadIncrementsFailureButKeepsWatcher(t *testing.T) {
 	loop, hub, store := newTestLoop(t)
 
-	for i := 1; i <= watcherChannelBufferSize*2; i++ {
+	for i := 1; i <= watcherChannelBufferSize*2+2; i++ {
 		mustPut(t, store, "foo", fmt.Sprintf("v%d", i))
 	}
 
-	req := api.WatchCreateRequest{Key: []byte("foo")}
+	req := api.WatchCreateRequest{Key: []byte("foo"), StartRevision: 1}
 	w, err := hub.NewWatcher(t.Context(), req)
 	require.NoError(t, err)
 	loop.tick()
@@ -204,8 +204,9 @@ func Test_UnsyncedLoop_ClearsFailureCounterOnPromotion(t *testing.T) {
 	loop, hub, store := newTestLoop(t)
 
 	mustPut(t, store, "foo", "v1")
+	mustPut(t, store, "foo", "v2")
 
-	req := api.WatchCreateRequest{Key: []byte("foo")}
+	req := api.WatchCreateRequest{Key: []byte("foo"), StartRevision: 1}
 	w, err := hub.NewWatcher(t.Context(), req)
 	require.NoError(t, err)
 
@@ -221,9 +222,10 @@ func Test_UnsyncedLoop_ClearsFailureCounterOnPromotion(t *testing.T) {
 func Test_UnsyncedLoop_Integration_AfterPromotion_OnCommitDelivers(t *testing.T) {
 	loop, hub, store := newTestLoop(t)
 
-	mustPut(t, store, "foo", "historical")
+	mustPut(t, store, "foo", "historical1")
+	mustPut(t, store, "foo", "historical2")
 
-	req := api.WatchCreateRequest{Key: []byte("foo")}
+	req := api.WatchCreateRequest{Key: []byte("foo"), StartRevision: 1}
 	w, err := hub.NewWatcher(t.Context(), req)
 	require.NoError(t, err)
 
@@ -233,7 +235,7 @@ func Test_UnsyncedLoop_Integration_AfterPromotion_OnCommitDelivers(t *testing.T)
 	// drain catch-up events
 	catchUp := drainEvents(w.c)
 	require.Len(t, catchUp, 1)
-	require.Equal(t, "historical", string(catchUp[0].Entry.Value))
+	require.Equal(t, "historical2", string(catchUp[0].Entry.Value))
 
 	// write new data through the store
 	// In real usage, Engine.ApplyWrite calls w.End() then hub.OnCommit(changes).
@@ -252,14 +254,15 @@ func Test_UnsyncedLoop_Integration_NoDoubleDeliveryOnPromotion(t *testing.T) {
 
 	mustPut(t, store, "foo", "v1") // rev 1
 	mustPut(t, store, "foo", "v2") // rev 2
+	mustPut(t, store, "foo", "v3") // rev 3
 
-	req := api.WatchCreateRequest{Key: []byte("foo")}
+	req := api.WatchCreateRequest{Key: []byte("foo"), StartRevision: 1}
 	w, err := hub.NewWatcher(t.Context(), req)
 	require.NoError(t, err)
 
 	loop.tick()
 	require.Contains(t, hub.synced, w.id)
-	require.Equal(t, int64(2), w.currentRev)
+	require.Equal(t, int64(3), w.currentRev)
 
 	// simulate the race: OnCommit fires with the same rev 2 data
 	// (as if the Engine callback arrived right after promotion)
@@ -269,8 +272,8 @@ func Test_UnsyncedLoop_Integration_NoDoubleDeliveryOnPromotion(t *testing.T) {
 
 	all := drainEvents(w.c)
 	require.Len(t, all, 2, "idempotent check should prevent double delivery")
-	require.Equal(t, "v1", string(all[0].Entry.Value))
-	require.Equal(t, "v2", string(all[1].Entry.Value))
+	require.Equal(t, "v2", string(all[0].Entry.Value))
+	require.Equal(t, "v3", string(all[1].Entry.Value))
 }
 
 func Test_UnsyncedLoop_EmptyGroupNoOp(t *testing.T) {
@@ -281,14 +284,15 @@ func Test_UnsyncedLoop_EmptyGroupNoOp(t *testing.T) {
 func Test_UnsyncedLoop_ProcessesMultipleWatchers(t *testing.T) {
 	loop, hub, store := newTestLoop(t)
 
-	mustPut(t, store, "a", "va") // rev 1
-	mustPut(t, store, "b", "vb") // rev 2
+	mustPut(t, store, "x", "seed0") // rev 1
+	mustPut(t, store, "a", "seed1") // rev 2
+	mustPut(t, store, "b", "seed2") // rev 3
 
-	req1 := api.WatchCreateRequest{Key: []byte("a")}
+	req1 := api.WatchCreateRequest{Key: []byte("a"), StartRevision: 1}
 	w1, err := hub.NewWatcher(t.Context(), req1)
 	require.NoError(t, err)
 
-	req2 := api.WatchCreateRequest{Key: []byte("b")}
+	req2 := api.WatchCreateRequest{Key: []byte("b"), StartRevision: 1}
 	w2, err := hub.NewWatcher(t.Context(), req2)
 	require.NoError(t, err)
 
@@ -310,10 +314,11 @@ func Test_UnsyncedLoop_ProcessesMultipleWatchers(t *testing.T) {
 func Test_UnsyncedLoop_TombstoneBecomesDeleteEvent(t *testing.T) {
 	loop, hub, store := newTestLoop(t)
 
+	mustPut(t, store, "x", "seed")
 	mustPut(t, store, "foo", "alive")
 	mustDelete(t, store, "foo")
 
-	req := api.WatchCreateRequest{Key: []byte("foo")}
+	req := api.WatchCreateRequest{Key: []byte("foo"), StartRevision: 1}
 	w, err := hub.NewWatcher(t.Context(), req)
 	require.NoError(t, err)
 
@@ -328,12 +333,13 @@ func Test_UnsyncedLoop_TombstoneBecomesDeleteEvent(t *testing.T) {
 func Test_UnsyncedLoop_RangeWatch_CatchesUpMultipleKeys(t *testing.T) {
 	loop, hub, store := newTestLoop(t)
 
-	mustPut(t, store, "a", "va") // rev 1
-	mustPut(t, store, "b", "vb") // rev 2
-	mustPut(t, store, "c", "vc") // rev 3
-	mustPut(t, store, "d", "vd") // rev 4
+	mustPut(t, store, "x", "seed") // rev 1
+	mustPut(t, store, "a", "va")   // rev 1
+	mustPut(t, store, "b", "vb")   // rev 2
+	mustPut(t, store, "c", "vc")   // rev 3
+	mustPut(t, store, "d", "vd")   // rev 4
 
-	req := api.WatchCreateRequest{Key: []byte("a"), End: []byte("d")}
+	req := api.WatchCreateRequest{Key: []byte("a"), End: []byte("d"), StartRevision: 1}
 	w, err := hub.NewWatcher(t.Context(), req)
 	require.NoError(t, err)
 

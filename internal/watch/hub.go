@@ -154,14 +154,19 @@ func (h *WatchHub) NewWatcher(ctx context.Context, req api.WatchCreateRequest) (
 		end = kv.PrefixEnd(req.Key)
 	}
 
+	currentRev, _, _, _ := h.store.Meta()
+	// if start revision is 0, the user wants to watch from currentRev
+	if req.StartRevision == 0 {
+		req.StartRevision = currentRev.Main
+	}
+
 	// fix: "synced" means watcher is caught up to its keys revision, not to the global revision
 	var lastRevision int64
 	if end != nil {
 		// range or prefix watch, default to main rev,
 		// and unsynced loop will feed all needed events
-		r, _, _, _ := h.store.Meta()
-		lastRevision = r.Main
-		fmt.Println("last rev for range/prefix is store rev:", r.Main)
+		lastRevision = currentRev.Main
+		fmt.Println("last rev for range/prefix is store rev:", currentRev.Main)
 	} else {
 		_, _, rev, err := h.store.NewReader().Range(req.Key, nil, 0, 0)
 		fmt.Println("last rev for single key:", rev)
@@ -194,7 +199,7 @@ func (h *WatchHub) NewWatcher(ctx context.Context, req api.WatchCreateRequest) (
 		return nil, ErrWatcherIDConflict
 	}
 
-	derivedCtx, cancel := context.WithCancel(ctx)
+	derivedCtx, cancel := context.WithCancelCause(ctx)
 	w := &watcher{
 		id:         id,
 		startRev:   req.StartRevision,
@@ -271,7 +276,7 @@ func (h *WatchHub) OnCommit(changes []*kv.Entry) {
 				"watcher_id", r.wid,
 				"error", r.cause,
 			)
-			h.unsafeDropFromGroup(h.synced, r.wid)
+			h.unsafeDropFromGroup(h.synced, r.wid, r.cause)
 		}
 	}
 }
@@ -287,9 +292,9 @@ func (h *WatchHub) DropWatcher(wid int64) bool {
 		if !ok {
 			return false
 		}
-		h.unsafeDropFromGroup(h.unsynced, wid)
+		h.unsafeDropFromGroup(h.unsynced, wid, context.Canceled)
 	} else {
-		h.unsafeDropFromGroup(h.synced, wid)
+		h.unsafeDropFromGroup(h.synced, wid, context.Canceled)
 	}
 
 	return true
@@ -305,9 +310,9 @@ func (h *WatchHub) unsafeDropWatcher(wid int64) {
 		if !ok {
 			return
 		}
-		h.unsafeDropFromGroup(h.unsynced, wid)
+		h.unsafeDropFromGroup(h.unsynced, wid, context.Canceled)
 	} else {
-		h.unsafeDropFromGroup(h.synced, wid)
+		h.unsafeDropFromGroup(h.synced, wid, context.Canceled)
 	}
 }
 
@@ -319,12 +324,11 @@ func (h *WatchHub) DropAll() {
 	h.logger.Info("Dropping all watchers from the store",
 		"watcher_count", len(h.synced)+len(h.unsynced),
 	)
-
 	for id := range h.synced {
-		h.unsafeDropFromGroup(h.synced, id)
+		h.unsafeDropFromGroup(h.synced, id, context.Canceled)
 	}
 	for id := range h.unsynced {
-		h.unsafeDropFromGroup(h.unsynced, id)
+		h.unsafeDropFromGroup(h.unsynced, id, context.Canceled)
 	}
 }
 
@@ -332,14 +336,14 @@ func (h *WatchHub) DropAll() {
 // its context and channel through watcher.close()
 //
 // NOTE: caller should hold the lock
-func (h *WatchHub) unsafeDropFromGroup(group map[int64]*watcher, wid int64) {
-	h.logger.Debug("dropping watcher", "watcher_id", wid)
+func (h *WatchHub) unsafeDropFromGroup(group map[int64]*watcher, wid int64, cause error) {
+	h.logger.Debug("dropping watcher", "watcher_id", wid, "cause", cause)
 	w, ok := group[wid]
 	if !ok {
 		h.logger.Warn("dropping watcher failed: watcher not found in group", "watcher_id", wid)
 		return
 	}
-	w.close()
+	w.close(cause)
 	delete(group, w.id)
 }
 

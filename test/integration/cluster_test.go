@@ -655,6 +655,7 @@ func Test_Integration_Watch_StartRevCatchesUp(t *testing.T) {
 	key := []byte("foo")
 
 	var resp1 api.PutResponse
+	do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: []byte("initial_seed"), Value: []byte("initial_seed")}, nil)
 	do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: key, Value: []byte("v1")}, &resp1)
 	do(t, l, http.MethodPost, _http.RouteKvPut, api.PutRequest{Key: key, Value: []byte("v2")}, nil)
 
@@ -662,7 +663,7 @@ func Test_Integration_Watch_StartRevCatchesUp(t *testing.T) {
 	defer cancel()
 	defer ws.Close(websocket.StatusNormalClosure, "")
 
-	payload, err := json.Marshal(api.WatchCreateRequest{Key: key, StartRevision: 0})
+	payload, err := json.Marshal(api.WatchCreateRequest{Key: key, StartRevision: 1})
 	require.NoError(t, err, "failed to marshal client message payload")
 	createWatchMsg := watch.ClientMessage{
 		Kind:    watch.ClientWatchCreate,

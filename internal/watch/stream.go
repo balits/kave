@@ -13,7 +13,10 @@ import (
 
 const streamEventBufferSize = 4
 
-var ErrStreamClosed = errors.New("watch stream is closed")
+var (
+	ErrStreamClosed          = errors.New("watch stream is closed")
+	errClientCanceledWatcher = errors.New("client canceled watcher")
+)
 
 // Stream is an ephemeral handle to the [WatchHub],
 // providing methods to create and cancel watchers,
@@ -149,7 +152,13 @@ func (s *stream) runWatcher(watcher *watcher) {
 		// if the stream is canceled/closed,
 		// the watchers are gonne get dropped
 		if s.ctx.Err() == nil {
-			// otherwise, drop the watcher in place
+			cause := context.Cause(watcher.ctx)
+			if cause != nil && cause != context.Canceled {
+				select {
+				case s.outputC <- cancelEvent(watcher.id, cause):
+				case <-s.ctx.Done():
+				}
+			}
 			s.logger.Info("watcher canceled while stream is intact, dropping it manually")
 			s.hub.DropWatcher(watcher.id)
 		}

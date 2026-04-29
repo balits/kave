@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/balits/kave/internal/kv"
@@ -174,7 +175,7 @@ func Test_WatchHub_OnCommit_DropsWatcherOnCancelledCtx(t *testing.T) {
 	req := api.WatchCreateRequest{StartRevision: 5, Key: []byte("foo")}
 	w, err := hub.NewWatcher(t.Context(), req)
 	require.NoError(t, err)
-	w.cancel()
+	w.cancel(errors.New("abrupt cancel"))
 
 	hub.OnCommit([]*kv.Entry{putEntry("foo", "v", 6)})
 
@@ -225,7 +226,7 @@ func Test_WatchHub_Drop_ClosesAndRemoves(t *testing.T) {
 	require.NoError(t, err)
 
 	hub.mu.Lock()
-	hub.unsafeDropFromGroup(hub.synced, w.id)
+	hub.unsafeDropFromGroup(hub.synced, w.id, errors.New("abrupt cancel"))
 	hub.mu.Unlock()
 
 	require.NotContains(t, hub.synced, w.id)

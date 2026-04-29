@@ -16,12 +16,12 @@ func newTestWatcher(t *testing.T, key, end []byte, startRev int64, f *kv.EventFi
 	t.Helper()
 
 	var derivedCtx context.Context
-	var cancel context.CancelFunc
+	var cancel context.CancelCauseFunc
 
 	if ctx == nil {
-		derivedCtx, cancel = context.WithCancel(t.Context())
+		derivedCtx, cancel = context.WithCancelCause(t.Context())
 	} else {
-		derivedCtx, cancel = context.WithCancel(ctx)
+		derivedCtx, cancel = context.WithCancelCause(ctx)
 	}
 
 	w := &watcher{
@@ -148,7 +148,7 @@ func Test_Watcher_Send_OverloadsWhenFull(t *testing.T) {
 func Test_Watcher_Send_ReturnsErrorOnCancelledCtx(t *testing.T) {
 	w := newTestWatcher(t, []byte("foo"), nil, 0, nil, nil)
 
-	w.cancel()
+	w.cancel(nil)
 
 	sent, err := w.send(testPutEvent("foo", "v", 5))
 	require.False(t, sent)
@@ -269,7 +269,7 @@ func Test_Watcher_Matches_PrefixRangeWatch(t *testing.T) {
 
 func Test_Watcher_Close_CancelsContextAndClosesChannel(t *testing.T) {
 	w := newTestWatcher(t, []byte("foo"), nil, 0, nil, nil)
-	w.close()
+	w.close(nil)
 
 	require.Error(t, w.ctx.Err(), "context should be cancelled after close")
 

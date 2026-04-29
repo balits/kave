@@ -29,7 +29,7 @@ type watcher struct {
 	filter     *kv.EventFilter // either NO_PUT or NO_DELETE, or empty for no filter
 	prevEntry  bool
 	ctx        context.Context
-	cancel     context.CancelFunc
+	cancel     context.CancelCauseFunc
 	c          chan kv.Event
 }
 
@@ -42,8 +42,8 @@ func (w *watcher) String() string {
 	)
 }
 
-func (w *watcher) close() {
-	w.cancel()
+func (w *watcher) close(cause error) {
+	w.cancel(cause)
 	close(w.c)
 }
 

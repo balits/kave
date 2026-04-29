@@ -15,8 +15,10 @@ import (
 // thats produced by a [watcher]. It can optionally
 // attach an error if something went wrong.
 type StreamEvent struct {
-	Wid   int64    `json:"watcher_id"`
-	Event kv.Event `json:"event"`
+	Wid         int64    `json:"watcher_id"`
+	Event       kv.Event `json:"event"`
+	Canceled    bool     `json:"canceled"`
+	CancelCause string   `json:"cancel_cause,omitempty"`
 }
 
 func putEvent(wid int64, ev kv.Event) StreamEvent {
@@ -30,6 +32,14 @@ func deleteEvent(wid int64, ev kv.Event) StreamEvent {
 	return StreamEvent{
 		Wid:   wid,
 		Event: ev,
+	}
+}
+
+func cancelEvent(wid int64, cause error) StreamEvent {
+	return StreamEvent{
+		Wid:         wid,
+		Canceled:    true,
+		CancelCause: cause.Error(),
 	}
 }
 

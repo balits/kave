@@ -221,6 +221,6 @@ func (u *UnsyncedLoop) unsafeDropFailedWatcher(wid int64, cause error) {
 		"failure_count", u.unsyncedFailures[w.id],
 		"cause", cause,
 	)
-	u.hub.unsafeDropFromGroup(u.hub.unsynced, w.id)
+	u.hub.unsafeDropFromGroup(u.hub.unsynced, w.id, cause)
 	delete(u.unsyncedFailures, w.id)
 }
