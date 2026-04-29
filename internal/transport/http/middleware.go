@@ -216,13 +216,18 @@ func (s *HttpServer) corsMuxMiddleware(next http.Handler) http.Handler {
 
 func (s *HttpServer) adminAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get(transport.AdminAuthTokenHeaderName)
-		if len(token) == 0 {
+		requestToken := r.Header.Get(transport.AdminAuthTokenHeaderName)
+		s.logger.Info("DEBUGGING ADMIN_AUTH_TOKEN",
+			"client_sent", requestToken,
+			"server_has", s._adminAuthToken,
+		)
+
+		if len(requestToken) == 0 {
 			s.writeError(w, authErrMsg, errAuthTokenNotFound, http.StatusForbidden)
 			return
 		}
 
-		if token != s._adminAuthToken {
+		if requestToken != s._adminAuthToken {
 			s.writeError(w, authErrMsg, errAuthTokenMismatch, http.StatusForbidden)
 			return
 		}

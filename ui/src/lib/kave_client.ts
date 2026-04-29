@@ -4,7 +4,7 @@ import * as kv from './kv';
 // NOTE: some reads use POST, because the browser does not supoert
 // bodies on GET (eventhough its valid http)
 export class KaveClient {
-	private readonly adminToken: string = import.meta.env.VITE_KAVE_CLUSTER_URL as string;
+	private readonly adminToken: string = import.meta.env.VITE_KAVE_ADMIN_TOKEN as string;
 
 	constructor(
 		public readonly baseURL: string,
@@ -13,9 +13,9 @@ export class KaveClient {
 
 	private async do<T>(method: string, path: string, body?: unknown): Promise<T> {
 		let resp: Response;
-		let headers: any = { 'Content-Type': 'application/json' }
-		if (path.includes("admin")) {
-			headers["X-Kave-Admin-Token"] = this.adminToken
+		let headers: any = { 'Content-Type': 'application/json' };
+		if (path.includes('admin')) {
+			headers['X-Kave-Admin-Token'] = this.adminToken;
 		}
 		try {
 			resp = await fetch(`${this.baseURL}${path}`, {
@@ -59,7 +59,7 @@ export class KaveClient {
 		}>('POST', '/v1/kv/put', {
 			key: kv.strToB64(key),
 			value: kv.strToB64(value),
-			lease_id: opts.leaseId ?? "0",
+			lease_id: opts.leaseId ?? '0',
 			prev_kv: opts.prevEntry ?? false,
 			ignore_value: opts.ignoreValue ?? false,
 			ignore_lease: opts.ignoreLease ?? false
@@ -136,32 +136,39 @@ export class KaveClient {
 		return {
 			header: raw.header,
 			success: raw.success,
-			results: raw.results.map((r) => ({
-				put: r.put
-					? {
-							header: raw.header,
-							prev_entry: r.put.prev_entry ? kv.decodeEntry(r.put.prev_entry) : undefined
-						}
-					: undefined,
-				delete: r.delete
-					? {
-							header: raw.header,
-							num_deleted: r.delete.num_deleted,
-							prev_entries: r.delete.prev_entries?.map(kv.decodeEntry)
-						}
-					: undefined,
-				range: r.range
-					? {
-							header: raw.header,
-							entries: (r.range.entries ?? []).map(kv.decodeEntry),
-							count: r.range.count
-						}
-					: undefined
-			}))
+			results: raw.results.map((r: any) => {
+				// broken json tags on go side, js to be sure here :)
+				const putData = r.put || r.Put;
+				const delData = r.delete || r.Delete;
+				const rangeData = r.range || r.Range;
+
+				return {
+					put: putData
+						? {
+								header: raw.header,
+								prev_entry: putData.prev_entry ? kv.decodeEntry(putData.prev_entry) : undefined
+							}
+						: undefined,
+					delete: delData
+						? {
+								header: raw.header,
+								num_deleted: delData.num_deleted,
+								prev_entries: delData.prev_entries?.map(kv.decodeEntry)
+							}
+						: undefined,
+					range: rangeData
+						? {
+								header: raw.header,
+								entries: (rangeData.entries ?? []).map(kv.decodeEntry),
+								count: rangeData.count
+							}
+						: undefined
+				};
+			})
 		};
 	}
 
-	async leaseGrant(ttl: number, id: string = "0"): Promise<kv.LeaseGrantResponse> {
+	async leaseGrant(ttl: number, id: string = '0'): Promise<kv.LeaseGrantResponse> {
 		return this.do('POST', '/v1/lease/grant', { ttl, id });
 	}
 
@@ -251,11 +258,10 @@ export class KaveClient {
 	}
 
 	async killNode(nodeId: string): Promise<kv.KillNodeResponse> {
-		return await this.do('DELETE', "/v1/admin/kill", { id: nodeId });
+		return await this.do('DELETE', '/v1/admin/kill', { id: nodeId });
 	}
 
 	async compact(target_rev: number): Promise<kv.CompactionRespone> {
-		return await this.do('POST', "/v1/admin/compaction", { target_rev })
+		return await this.do('POST', '/v1/admin/compaction', { target_rev });
 	}
-
 }

@@ -25,7 +25,7 @@ export interface Entry {
 	create_revision: number;
 	mod_revision: number;
 	version: number;
-	lease_id: number;
+	lease_id: string;
 }
 
 // Raw entry that arrives over the network, b64 encoded strings
@@ -35,7 +35,7 @@ export interface RawEntry {
 	create_revision: number;
 	mod_revision: number;
 	version: number;
-	lease_id?: number;
+	lease_id?: string;
 }
 
 export function decodeEntry(raw: RawEntry): Entry {
@@ -45,7 +45,7 @@ export function decodeEntry(raw: RawEntry): Entry {
 		create_revision: raw.create_revision,
 		mod_revision: raw.mod_revision,
 		version: raw.version,
-		lease_id: raw.lease_id ?? 0
+		lease_id: raw.lease_id ?? "0"
 	};
 }
 
@@ -119,7 +119,7 @@ export function encodeComparison(c: Comparison): unknown {
 }
 
 export type TxnOp =
-	| { type: 'PUT'; put: { key: string; value: string; leaseId?: number } }
+	| { type: 'PUT'; put: { key: string; value: string; leaseId?: string } }
 	| { type: 'DEL'; delete: { key: string; end?: string } }
 	| { type: 'RANGE'; range: { key: string; end?: string; revision?: number } };
 
@@ -143,7 +143,7 @@ export function encodeTxnOp(op: TxnOp): unknown {
 				put: {
 					key: strToB64(op.put.key),
 					value: strToB64(op.put.value),
-					lease_id: op.put.leaseId ?? 0
+					lease_id: op.put.leaseId ?? "0"
 				}
 			};
 		case 'DEL':

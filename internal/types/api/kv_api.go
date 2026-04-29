@@ -193,7 +193,7 @@ type TxnOp struct {
 	Type   TxnOpType      `json:"type"`
 	Put    *PutRequest    `json:"put,omitempty"`
 	Delete *DeleteRequest `json:"delete,omitempty"`
-	Range  *RangeRequest  `jsgn:"range,omitempty"`
+	Range  *RangeRequest  `json:"range,omitempty"`
 }
 
 func (op *TxnOp) Check() error {
