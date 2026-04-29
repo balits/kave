@@ -34,19 +34,19 @@ func newTestOTService(t *testing.T) (*testOTService, ot.MockOTClient) {
 	logger := slog.Default()
 	me := peer.TestPeer()
 	reg := metrics.InitTestPrometheus()
-	be := backend.New(reg, logger, storage.Options{
+	backend := backend.New(reg, logger, storage.Options{
 		Kind:           storage.StorageKindInMemory,
 		InitialBuckets: schema.AllBuckets,
 	})
-	kvstore := mvcc.NewKvStore(reg, logger, be)
-	lm := lease.NewManager(reg, logger, kvstore, be)
-	t.Cleanup(func() { be.Close() })
+	kvstore := mvcc.NewKvStore(reg, logger, backend)
+	lm := lease.NewManager(reg, logger, kvstore, backend)
+	t.Cleanup(func() { backend.Close() })
 
-	om, err := ot.NewOTManager(reg, logger, be, ot.DefaultOptions)
+	om, err := ot.NewOTManager(reg, logger, backend, ot.DefaultOptions)
 	require.NoError(t, err)
 	require.NoError(t, om.ApplyGenerateClusterKey(ot.RandomKey256()), "failed to generate cluster key")
 
-	f := fsm.New(logger, me, kvstore, lm, om)
+	f := fsm.New(logger, me,  backend, kvstore, lm, om)
 
 	var logIndex atomic.Uint64
 	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {

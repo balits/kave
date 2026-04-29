@@ -36,7 +36,7 @@ func newTestScheduler(t *testing.T, threshold int64, ticker util.Ticker, isLeade
 	store := mvcc.NewKvStore(reg, logger, backend)
 	t.Cleanup(func() { backend.Close() })
 
-	fsm := fsm.New(logger, peer.TestPeer(), store, nil, nil)
+	fsm := fsm.New(logger, peer.TestPeer(), backend, store, nil, nil)
 	var logIndex atomic.Uint64
 	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {
 		bs, err := command.Encode(cmd)

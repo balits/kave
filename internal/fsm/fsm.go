@@ -13,6 +13,7 @@ import (
 	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/ot"
 	"github.com/balits/kave/internal/peer"
+	"github.com/balits/kave/internal/storage/backend"
 	"github.com/hashicorp/raft"
 )
 
@@ -24,6 +25,7 @@ var (
 
 type Fsm struct {
 	me             peer.Peer
+	backend        backend.Backend
 	store          *mvcc.KvStore
 	engine         *mvcc.Engine
 	lm             *lease.LeaseManager
@@ -34,21 +36,22 @@ type Fsm struct {
 }
 
 // NewWithEngine creates an fsm with the supplied engine
-func NewWithEngine(logger *slog.Logger, me peer.Peer, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager, engine *mvcc.Engine) *Fsm {
+func NewWithEngine(logger *slog.Logger, me peer.Peer, b backend.Backend, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager, engine *mvcc.Engine) *Fsm {
 	f := &Fsm{
-		me:     me,
-		store:  store,
-		engine: engine,
-		lm:     lm,
-		om:     om,
-		logger: logger.With("component", "fsm"),
+		me:      me,
+		backend: b,
+		store:   store,
+		engine:  engine,
+		lm:      lm,
+		om:      om,
+		logger:  logger.With("component", "fsm"),
 	}
 	return f
 }
 
 // New creates an fsm with a newly created engine
-func New(logger *slog.Logger, me peer.Peer, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager) *Fsm {
-	return NewWithEngine(logger, me, store, lm, om, mvcc.NewEngine(store, lm))
+func New(logger *slog.Logger, me peer.Peer, b backend.Backend, store *mvcc.KvStore, lm *lease.LeaseManager, om *ot.OTManager) *Fsm {
+	return NewWithEngine(logger, me, b, store, lm, om, mvcc.NewEngine(store, lm))
 }
 
 // SetMetrics is needed for a two phase init of the fsm
@@ -238,13 +241,25 @@ func (f *Fsm) Snapshot() (raft.FSMSnapshot, error) {
 // Restore can be slower, it will never run concurrently with Apply.
 // Also, no metrics should be replayed during restoration!
 func (f *Fsm) Restore(snapshot io.ReadCloser) error {
-	if err := f.store.Restore(snapshot); err != nil {
+	if err := f.backend.Close(); err != nil {
+		f.logger.Error("fsm restore error: failed to close backend", "error", err)
+		return err
+	}
+	if err := f.backend.Restore(snapshot); err != nil {
+		f.logger.Error("fsm restore error: failed to restore backend", "error", err)
+		return err
+	}
+
+	if err := f.store.Restore(); err != nil {
+		f.logger.Error("fsm restore error: failed to restore mvcc.KvStore", "error", err)
 		return err
 	}
 	if err := f.lm.Restore(); err != nil {
+		f.logger.Error("fsm restore error: failed to restore lease.LeaseManager", "error", err)
 		return err
 	}
 	if err := f.om.Restore(); err != nil {
+		f.logger.Error("fsm restore error: failed to restore ot.OTManager", "error", err)
 		return err
 	}
 	return nil

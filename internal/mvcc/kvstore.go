@@ -2,7 +2,6 @@ package mvcc
 
 import (
 	"fmt"
-	"io"
 	"log/slog"
 	"math"
 	"sync"
@@ -116,17 +115,9 @@ func (s *KvStore) RaftMeta() (logIndex, term uint64) {
 	return s.applyIndex, s.raftTerm
 }
 
-func (s *KvStore) Restore(r io.Reader) error {
+func (s *KvStore) Restore() error {
 	s.storeMu.Lock()
 	defer s.storeMu.Unlock()
-
-	if err := s.backend.Close(); err != nil {
-		s.logger.Error("restore error: failed to close backend", "error", err)
-	}
-	if err := s.backend.Restore(r); err != nil {
-		s.logger.Error("restore error: failed to restore backend", "error", err)
-		return err
-	}
 
 	restoredKey := int64(0)
 	lastRev := kv.Revision{Main: 0, Sub: 0}

@@ -39,7 +39,7 @@ func newTestLeaseService(t *testing.T) *testLeaseService {
 	kvstore := mvcc.NewKvStore(reg, logger, backend)
 	t.Cleanup(func() { backend.Close() })
 	lm := lease.NewManager(reg, logger, kvstore, backend)
-	fsm := fsm.New(logger, peer.TestPeer(), kvstore, lm, nil)
+	fsm := fsm.New(logger, peer.TestPeer(),  backend, kvstore, lm, nil)
 
 	var logIndex atomic.Uint64
 	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {

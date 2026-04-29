@@ -52,8 +52,12 @@ up3build: ## Builds image and runs 3-node cluster
 test-unit:
 	go test -v ./internal/... --timeout=90s
 
+test-integ-stress:
+	@echo "> running integrations stress (with stress tests)"
+	go test ./test/integration/... --timeout 10m -p 1 --tags=stress
 test-integ:
-	go test ./test/integration/... --timeout 5m -p 1 --tags=stress
+	@echo "> running integrations stress (without stress tests)"
+	go test ./test/integration/... --timeout 10m -p 1
 
 test-smoke:
 	@echo "> 1.1 init: deleting previous Kind cluster..."

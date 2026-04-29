@@ -89,7 +89,7 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 	require.NoError(t, om.ApplyGenerateClusterKey(ot.RandomKey256()), "failed to generate cluster key (in single node test env)")
 	require.NoError(t, err)
 	t.Cleanup(func() { backend.Close() })
-	fsm := fsm.New(logger, me, kvstore, lm, om)
+	fsm := fsm.New(logger, me, backend, kvstore, lm, om)
 
 	var logIndex atomic.Uint64
 	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {

@@ -277,6 +277,10 @@ func (om *OTManager) ApplyGenerateClusterKey(key []byte) error {
 		return fmt.Errorf("%w: failed to read previous cluster key: %w", ErrClusterKeyGen, err)
 	}
 	if existingKey != nil {
+		om.logger.Info("exting cluster key found, initializing ot.tokenCodec")
+		if err := om.unsafeInitTokenCodec(key); err != nil {
+			return fmt.Errorf("%w: init token codec error: %w", ErrClusterKeyGen, err)
+		}
 		wtx.Rollback()
 		return fmt.Errorf("%w: cluster key already exists", ErrClusterKeyGen)
 	}
@@ -290,14 +294,20 @@ func (om *OTManager) ApplyGenerateClusterKey(key []byte) error {
 		wtx.Rollback()
 		return fmt.Errorf("%w: %w", ErrClusterKeyGen, err)
 	}
-	om.logger.Info("OT: cluster key generated")
+	if err := om.unsafeInitTokenCodec(key); err != nil {
+		return fmt.Errorf("%w: init token codec error: %w", ErrClusterKeyGen, err)
+	}
+	return nil
+}
+
+func (om *OTManager) unsafeInitTokenCodec(key []byte) error {
 	om.logger.Info("Wiring up ot.tokenCodec")
 	tc, err := newTokenCodec(key, om.opts.TokenTTL)
 	if err != nil {
-		return fmt.Errorf("%w: init token codec error: %w", ErrClusterKeyGen, err)
+		return fmt.Errorf("init ot.tokenCodec failed: %w", err)
 	}
 	om.codec = tc
-	om.logger.Info("OT: ot.tokenCodec instantiated")
+	om.logger.Info("ot.tokenCodec instantiated")
 	return nil
 }
 

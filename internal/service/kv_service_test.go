@@ -43,7 +43,7 @@ func newTestKVService(t *testing.T) *testKVService {
 	kvstore := mvcc.NewKvStore(reg, logger, backend)
 	lm := lease.NewManager(reg, logger, kvstore, backend)
 	t.Cleanup(func() { backend.Close() })
-	fsm := fsm.New(logger, me, kvstore, lm, nil)
+	fsm := fsm.New(logger, me,  backend, kvstore, lm, nil)
 
 	var logIndex atomic.Uint64
 	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {

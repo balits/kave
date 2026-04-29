@@ -331,12 +331,19 @@ func (n *Node) initStorage(reg prometheus.Registerer, storageOpts storage.Option
 	if err != nil {
 		return err
 	}
-	// we need to read the ClusterKey from the backend,
-	// by this no node in cluster would have generated it
-	// if err := om.InitTokenCodec(); err != nil {
-	// 	return err
-	// }
 	n.OtManager = om
+
+	if err := n.KvStore.Restore(); err != nil {
+		n.Logger.Warn("initStorage: KvStore restore skipped/failed", "err", err)
+	}
+
+	if err := n.LeaseManager.Restore(); err != nil {
+		n.Logger.Warn("initStorage: LeaseManager restore skipped/failed", "err", err)
+	}
+
+	if err := n.OtManager.Restore(); err != nil {
+		n.Logger.Warn("initStorage: OTManager restore skipped/failed", "err", err)
+	}
 
 	n.WatchHub = watch.NewWatchHub(reg, n.Logger, n.KvStore)
 	n.UnsyncedLoop = watch.NewUnsyncedLoop(n.Logger, n.WatchHub, n.KvIndex, n.Backend.ReadTx(), n.KvStore)
@@ -346,7 +353,7 @@ func (n *Node) initStorage(reg prometheus.Registerer, storageOpts storage.Option
 }
 
 func (n *Node) initRaft(reg prometheus.Registerer, cfg *config.Config) error {
-	n.Fsm = fsm.NewWithEngine(n.Logger, cfg.Me, n.KvStore, n.LeaseManager, n.OtManager, n.Engine)
+	n.Fsm = fsm.NewWithEngine(n.Logger, cfg.Me, n.Backend, n.KvStore, n.LeaseManager, n.OtManager, n.Engine)
 
 	slogLevel := cfg.LoggerOptions.Level.ToSlogLevel()
 	// override raft.Config logging options (raft.Config is still injectible, just not the logger fields)
