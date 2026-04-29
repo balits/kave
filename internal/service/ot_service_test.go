@@ -46,7 +46,7 @@ func newTestOTService(t *testing.T) (*testOTService, ot.MockOTClient) {
 	require.NoError(t, err)
 	require.NoError(t, om.ApplyGenerateClusterKey(ot.RandomKey256()), "failed to generate cluster key")
 
-	f := fsm.New(logger, me,  backend, kvstore, lm, om)
+	f := fsm.New(logger, me, backend, kvstore, lm, om)
 
 	var logIndex atomic.Uint64
 	propose := func(ctx context.Context, cmd command.Command) (*command.Result, error) {

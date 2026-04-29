@@ -76,7 +76,7 @@ type PutRequest struct {
 	// Az LeaseID egy lease hozzáadásához szükséges, amennyiben 0, akkor nem lesz lease-e
 	LeaseID int64 `json:"lease_id,string"`
 
-	// A PrevEntry kapcsolóval visszaküldjök a kulcs előző értékét, ami egy extra olvasást igényel
+	// A PrevEntry kapcsolóval visszaküldjök a kulcs előző értékét
 	PrevEntry bool `json:"prev_kv,omitempty"`
 
 	// Az IgnoreValue kapcsolóval frissíthetjük a kulcsot az érték módosítása nélkül. Hibát dob a kulcs nem létezett ezelőtt.

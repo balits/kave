@@ -14,8 +14,7 @@ import (
 const streamEventBufferSize = 4
 
 var (
-	ErrStreamClosed          = errors.New("watch stream is closed")
-	errClientCanceledWatcher = errors.New("client canceled watcher")
+	ErrStreamClosed = errors.New("watch stream is closed")
 )
 
 // Stream is an ephemeral handle to the [WatchHub],
