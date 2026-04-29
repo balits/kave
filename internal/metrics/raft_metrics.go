@@ -9,17 +9,14 @@ import (
 )
 
 type RaftMetrics struct {
-	raftLibDerivedMetrics
-
 	ElectionsTotal     prometheus.Counter
 	LeaderChangesTotal prometheus.Counter
 	ApplyTotal         prometheus.Counter
 
-	IsLeader    prometheus.Gauge
+	IsLeader    prometheus.GaugeFunc
 	ApplyIndex  prometheus.GaugeFunc // derived from fsm.lastAppliedIndex
 	CommitIndex prometheus.GaugeFunc // derived from fsm.commitIndex
 	Lag         prometheus.GaugeFunc // derived from commitIndex - lastAppliedIndex
-	Ready       prometheus.GaugeFunc
 
 	ElectionDurationSec prometheus.Histogram
 	ApplyDurationSec    prometheus.Histogram
@@ -27,10 +24,9 @@ type RaftMetrics struct {
 
 func NewRaftMetrics(reg prometheus.Registerer, r *raft.Raft, applyLagThresholt uint) *RaftMetrics {
 	factory := promauto.With(reg)
+	reg.MustRegister(newRaftStatsCollector(r))
 
 	return &RaftMetrics{
-		raftLibDerivedMetrics: newRaftLibDerivedMetrics(reg, r),
-
 		ElectionsTotal: factory.NewCounter(prometheus.CounterOpts{
 			Namespace: "kave",
 			Subsystem: "raft",
@@ -40,7 +36,7 @@ func NewRaftMetrics(reg prometheus.Registerer, r *raft.Raft, applyLagThresholt u
 		LeaderChangesTotal: factory.NewCounter(prometheus.CounterOpts{
 			Namespace: "kave",
 			Subsystem: "raft",
-			Name:      "leader_changes_toatl",
+			Name:      "leader_changes_total",
 			Help:      "Total number of leader changes.",
 		}),
 		ApplyTotal: factory.NewCounter(prometheus.CounterOpts{
@@ -50,11 +46,16 @@ func NewRaftMetrics(reg prometheus.Registerer, r *raft.Raft, applyLagThresholt u
 			Help:      "Total number of Apply calls from Raft to the state machine.",
 		}),
 
-		IsLeader: factory.NewGauge(prometheus.GaugeOpts{
+		IsLeader: factory.NewGaugeFunc(prometheus.GaugeOpts{
 			Namespace: "kave",
 			Subsystem: "raft",
 			Name:      "is_leader",
 			Help:      "Whether this node is currently the leader (1 for leader, 0 for follower).",
+		}, func() float64 {
+			if r.State() == raft.Leader {
+				return 1
+			}
+			return 0
 		}),
 		ApplyIndex: factory.NewGaugeFunc(prometheus.GaugeOpts{
 			Namespace: "kave",
@@ -80,20 +81,6 @@ func NewRaftMetrics(reg prometheus.Registerer, r *raft.Raft, applyLagThresholt u
 		}, func() float64 {
 			return float64(r.CommitIndex() - r.AppliedIndex())
 		}),
-		Ready: factory.NewGaugeFunc(prometheus.GaugeOpts{
-			Namespace: "kave",
-			Subsystem: "raft",
-			Name:      "ready",
-			Help:      "Whether the node is ready to serve requests (leader and not lagging behind). 1 is we are ready, 0 if not.",
-		}, func() float64 {
-			if r.State() == raft.Shutdown {
-				return 0
-			}
-			if r.CommitIndex()-r.AppliedIndex() > uint64(applyLagThresholt) {
-				return 0
-			}
-			return 1
-		}),
 
 		ElectionDurationSec: factory.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "kave",
@@ -113,7 +100,6 @@ func NewRaftMetrics(reg prometheus.Registerer, r *raft.Raft, applyLagThresholt u
 }
 
 type raftLibDerivedMetrics struct {
-	RaftState         prometheus.GaugeFunc // UnknownError = -1, follower = 0, candidate = 1, leader = 2, Shutdown 3
 	RaftTerm          prometheus.GaugeFunc
 	LastLogIndex      prometheus.GaugeFunc
 	LastLogTerm       prometheus.GaugeFunc
@@ -162,30 +148,7 @@ func newRaftLibDerivedMetrics(reg prometheus.Registerer, r *raft.Raft) raftLibDe
 		return parseUint(stats["last_snapshot_term"])
 	}
 
-	raftState := func() float64 {
-		stats := r.Stats()
-		switch stats["state"] {
-		case "Follower":
-			return float64(0)
-		case "Candidate":
-			return float64(1)
-		case "Leader":
-			return float64(2)
-		case "Shutdown":
-			return float64(3)
-		default:
-			// UnknownError
-			return float64(-1)
-		}
-	}
-
 	return raftLibDerivedMetrics{
-		RaftState: factory.NewGaugeFunc(prometheus.GaugeOpts{
-			Namespace: "kave",
-			Subsystem: "raft",
-			Name:      "state",
-			Help:      "Current state of the Raft node (0=follower, 1=candidate, 2=leader, 3=shutdown, -1=unknown/error).",
-		}, raftState),
 		RaftTerm: factory.NewGaugeFunc(prometheus.GaugeOpts{
 			Namespace: "kave",
 			Subsystem: "raft",
@@ -207,7 +170,7 @@ func newRaftLibDerivedMetrics(reg prometheus.Registerer, r *raft.Raft) raftLibDe
 		CommitIndex: factory.NewGaugeFunc(prometheus.GaugeOpts{
 			Namespace: "kave",
 			Subsystem: "raft",
-			Name:      "cobmmit_index_lib",
+			Name:      "commmit_index_lib",
 			Help:      "Highest commited log entry.",
 		}, commitIndex),
 		AppliedIndex: factory.NewGaugeFunc(prometheus.GaugeOpts{
@@ -243,4 +206,114 @@ func parseUint(s string) float64 {
 		return -1
 	}
 	return float64(u)
+}
+
+// raftStatsCollector implements prometheus.Collector
+// to fetch all Raft stats with a single r.Stats() call.
+// r.Stats() stalls the fsm, and previously we called it
+// on every gaugeFunc
+type raftStatsCollector struct {
+	r *raft.Raft
+
+	stateDesc             *prometheus.Desc
+	termDesc              *prometheus.Desc
+	lastLogIndexDesc      *prometheus.Desc
+	lastLogTermDesc       *prometheus.Desc
+	commitIndexDesc       *prometheus.Desc
+	appliedIndexDesc      *prometheus.Desc
+	fsmPendingDesc        *prometheus.Desc
+	lastSnapshotIndexDesc *prometheus.Desc
+	lastSnapshotTermDesc  *prometheus.Desc
+}
+
+func newRaftStatsCollector(r *raft.Raft) *raftStatsCollector {
+	return &raftStatsCollector{
+		r: r,
+		stateDesc: prometheus.NewDesc(
+			"kave_raft_state",
+			"Current state of the Raft node (0=follower, 1=candidate, 2=leader, 3=shutdown, -1=unknown/error).",
+			nil, nil,
+		),
+		termDesc: prometheus.NewDesc(
+			"kave_raft_term",
+			"Current term of the Raft node.",
+			nil, nil,
+		),
+		lastLogIndexDesc: prometheus.NewDesc(
+			"kave_raft_last_log_index",
+			"Index of the last log entry.",
+			nil, nil,
+		),
+		lastLogTermDesc: prometheus.NewDesc(
+			"kave_raft_last_log_term",
+			"Term of the last log entry.",
+			nil, nil,
+		),
+		commitIndexDesc: prometheus.NewDesc(
+			"kave_raft_commit_index_lib",
+			"Highest commited log entry.",
+			nil, nil,
+		),
+		appliedIndexDesc: prometheus.NewDesc(
+			"kave_raft_applied_index_lib",
+			"Index of the last log entry applied to the FSM.",
+			nil, nil,
+		),
+		fsmPendingDesc: prometheus.NewDesc(
+			"kave_raft_fsm_pending",
+			"Number of FSM commands pending.",
+			nil, nil,
+		),
+		lastSnapshotIndexDesc: prometheus.NewDesc(
+			"kave_raft_last_snapshot_index_lib",
+			"Index of the last snapshot.",
+			nil, nil,
+		),
+		lastSnapshotTermDesc: prometheus.NewDesc(
+			"kave_raft_last_snapshot_term_lib",
+			"Term of the last snapshot.",
+			nil, nil,
+		),
+	}
+}
+
+func (c *raftStatsCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.stateDesc
+	ch <- c.termDesc
+	ch <- c.lastLogIndexDesc
+	ch <- c.lastLogTermDesc
+	ch <- c.commitIndexDesc
+	ch <- c.appliedIndexDesc
+	ch <- c.fsmPendingDesc
+	ch <- c.lastSnapshotIndexDesc
+	ch <- c.lastSnapshotTermDesc
+}
+
+// Collect calls r.Stats() once, instead of calling it in every gaugeFunc
+func (c *raftStatsCollector) Collect(ch chan<- prometheus.Metric) {
+	stats := c.r.Stats()
+
+	var stateVal float64
+	switch stats["state"] {
+	case "Follower":
+		stateVal = 0
+	case "Candidate":
+		stateVal = 1
+	case "Leader":
+		stateVal = 2
+	case "Shutdown":
+		stateVal = 3
+	default:
+		stateVal = -1
+	}
+
+	ch <- prometheus.MustNewConstMetric(c.stateDesc, prometheus.GaugeValue, stateVal)
+	ch <- prometheus.MustNewConstMetric(c.termDesc, prometheus.GaugeValue, parseUint(stats["term"]))
+	ch <- prometheus.MustNewConstMetric(c.lastLogIndexDesc, prometheus.GaugeValue, parseUint(stats["last_log_index"]))
+	ch <- prometheus.MustNewConstMetric(c.lastLogTermDesc, prometheus.GaugeValue, parseUint(stats["last_log_term"]))
+	ch <- prometheus.MustNewConstMetric(c.commitIndexDesc, prometheus.GaugeValue, parseUint(stats["commit_index"]))
+	ch <- prometheus.MustNewConstMetric(c.appliedIndexDesc, prometheus.GaugeValue, parseUint(stats["applied_index"]))
+	ch <- prometheus.MustNewConstMetric(c.fsmPendingDesc, prometheus.GaugeValue, parseUint(stats["fsm_pending"]))
+	ch <- prometheus.MustNewConstMetric(c.lastSnapshotIndexDesc, prometheus.GaugeValue, parseUint(stats["last_snapshot_index"]))
+	ch <- prometheus.MustNewConstMetric(c.lastSnapshotTermDesc, prometheus.GaugeValue, parseUint(stats["last_snapshot_term"]))
 }

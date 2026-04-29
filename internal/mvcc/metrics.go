@@ -6,6 +6,7 @@ import (
 )
 
 func newKVMetrics(reg prometheus.Registerer, s *KvStore) *metrics.KVMetrics {
+	// double locking but ugh....
 	currentRevFn := func() float64 {
 		rev, _ := s.Revisions()
 		return float64(rev.Main)
@@ -14,6 +15,9 @@ func newKVMetrics(reg prometheus.Registerer, s *KvStore) *metrics.KVMetrics {
 		_, compacted := s.Revisions()
 		return float64(compacted)
 	}
+	keyCountFn := func() float64 {
+		return float64(s.KeyCount())
+	}
 
-	return metrics.NewKVMetrics(reg, currentRevFn, compactedRevFn)
+	return metrics.NewKVMetrics(reg, currentRevFn, compactedRevFn, keyCountFn)
 }

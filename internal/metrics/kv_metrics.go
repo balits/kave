@@ -6,8 +6,7 @@ import (
 )
 
 type KVMetrics struct {
-	KeyCount      prometheus.Gauge
-	LeaseCount    prometheus.Gauge
+	KeyCount      prometheus.GaugeFunc
 	WatchersCount prometheus.Gauge
 
 	// derived from mvcc.KVStore
@@ -39,22 +38,17 @@ func NewKVMetrics(
 	reg prometheus.Registerer,
 	currentRevFn gaugeFn,
 	compactedRevFn gaugeFn,
+	keyCountFn gaugeFn,
 ) *KVMetrics {
 	factory := promauto.With(reg)
 
 	return &KVMetrics{
-		KeyCount: factory.NewGauge(prometheus.GaugeOpts{
+		KeyCount: factory.NewGaugeFunc(prometheus.GaugeOpts{
 			Namespace: "kave",
 			Subsystem: "kv",
 			Name:      "key_count",
 			Help:      "Current number of keys in the store.",
-		}),
-		LeaseCount: factory.NewGauge(prometheus.GaugeOpts{
-			Namespace: "kave",
-			Subsystem: "kv",
-			Name:      "lease_count",
-			Help:      "Current number of leases in the store.",
-		}),
+		}, keyCountFn),
 		WatchersCount: factory.NewGauge(prometheus.GaugeOpts{
 			Namespace: "kave",
 			Subsystem: "kv",

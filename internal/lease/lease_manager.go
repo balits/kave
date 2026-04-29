@@ -56,6 +56,8 @@ func NewManager(reg prometheus.Registerer, logger *slog.Logger, store *mvcc.KvSt
 		logger:   logger.With("component", "lease_manager"),
 	}
 	activeLeasesFunc := func() int {
+		m.rwlock.Lock()
+		defer m.rwlock.Lock()
 		return len(m.leaseMap)
 	}
 	m.metrics = metrics.NewLeaseMetrics(reg, activeLeasesFunc)
@@ -542,6 +544,9 @@ func (lm *LeaseManager) Restore() error {
 		"regranted_lease_count", leaseCountTotal,
 		"reattached_key_count", keyCountTotal,
 	)
+
+	// as this isnt a gaugeFunc it needs to be reset on restore
+	lm.metrics.LeasedKeys.Set(float64(keyCountTotal))
 
 	return nil
 }

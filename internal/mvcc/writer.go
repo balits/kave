@@ -272,7 +272,6 @@ func (w *writer) End() error {
 	w.store.metrics.PutsTotal.Add(float64(info.NewKeys))
 	w.store.metrics.DeletesTotal.Add(float64(info.DeletedKeys))
 	w.store.keyCount.Add(keyDelta)
-	w.store.metrics.KeyCount.Add(float64(keyDelta))
 
 	return nil
 }

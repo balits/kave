@@ -63,12 +63,6 @@ func (w *RaftEventWatcher) Run(ctx context.Context) error {
 			leadershipGranted := eventType.LeaderID == w.myID
 			w.logger.Debug("leadership", "granted", leadershipGranted)
 
-			if leadershipGranted {
-				w.metrics.IsLeader.Inc()
-			} else {
-				w.metrics.IsLeader.Dec()
-			}
-
 			for _, ob := range w.leadershipObservers {
 				if leadershipGranted {
 					ob.OnLeadershipGranted()

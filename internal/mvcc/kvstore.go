@@ -128,6 +128,7 @@ func (s *KvStore) Restore(r io.Reader) error {
 		return err
 	}
 
+	restoredKey := int64(0)
 	lastRev := kv.Revision{Main: 0, Sub: 0}
 	min := kv.EncodeRevisionAsBucketKey(lastRev, kv.NewRevBytes())
 	max := kv.EncodeRevisionAsBucketKey(kv.Revision{Main: math.MaxInt64, Sub: math.MaxInt64}, kv.NewRevBytes())
@@ -151,6 +152,7 @@ func (s *KvStore) Restore(r io.Reader) error {
 			}
 		}
 		lastRev = bk.Revision
+		restoredKey++
 		return nil
 	})
 	if err != nil {
@@ -205,6 +207,8 @@ func (s *KvStore) Restore(r io.Reader) error {
 	s.currentRev = lastRev
 	s.compactedMainRev = finalCompacteRev
 	s.metaMu.Unlock()
+
+	s.keyCount.Store(restoredKey)
 
 	return nil
 }

@@ -106,7 +106,7 @@ func NewLeaseMetrics(reg prometheus.Registerer, activeLeasesFunc func() int) *Le
 		ApplyExpiredDurationSec: factory.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "kave",
 			Subsystem: "lease",
-			Name:      "apply_expited_latency_seconds",
+			Name:      "apply_expired_latency_seconds",
 			Help:      "Latency of ApplyExpired operations.",
 			Buckets:   []float64{0.0005, 0.001, 0.002, 0.005, .010, .025, .05, .1, .25, .5, 1, 2, 5},
 		}),
