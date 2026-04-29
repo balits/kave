@@ -22,6 +22,7 @@ func (s *mockStore) Revisions() (kv.Revision, int64) {
 	return kv.Revision{Main: s.currentRev}, s.compactedRev
 }
 
+func (s *mockStore) KeyCount() int64            { return 0 }
 func (s *mockStore) RaftMeta() (uint64, uint64) { return 0, 0 }
 func (s *mockStore) Ping() error                { return nil }
 

@@ -237,3 +237,36 @@ func Test_Reader_RangeEmptyStore(t *testing.T) {
 		t.Errorf("empty store: entries=%d total=%d", len(entries), total)
 	}
 }
+
+func Test_Reader_RangeFetchAll(t *testing.T) {
+	t.Parallel()
+	s := newTestKVStore(t)
+	defer s.backend.Close()
+
+	w := s.NewWriter()
+	w.Put([]byte("a"), []byte("1"), 0)
+	w.Put([]byte("b"), []byte("2"), 0)
+	w.Put([]byte("c"), []byte("3"), 0)
+	w.Put([]byte("d"), []byte("4"), 0)
+	w.End()
+
+	r := s.NewReader()
+
+	entries, total, _, err := r.Range([]byte{0x00}, []byte{0x00}, 0, 0)
+	if err != nil {
+		t.Fatalf("Range: %v", err)
+	}
+	if total != 4 {
+		t.Errorf("total = %d, want 4", total)
+	}
+	if len(entries) != 4 {
+		t.Fatalf("entries = %d, want 4", len(entries))
+	}
+
+	expectedKeys := []string{"a", "b", "c", "d"}
+	for i, entry := range entries {
+		if string(entry.Key) != expectedKeys[i] {
+			t.Errorf("entry[%d].Key = %s, want %s", i, entry.Key, expectedKeys[i])
+		}
+	}
+}

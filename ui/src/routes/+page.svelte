@@ -54,14 +54,6 @@
 			ready: true
 		},
 		{
-			id: 'txn',
-			label: 'Transactions',
-			tag: 'TXN',
-			description: 'KV Transactions: atomic CAS backed by MVCC revisions',
-			component: null,
-			ready: false
-		},
-		{
 			id: 'ot',
 			label: 'Oblivious Transfer',
 			tag: 'OT',
@@ -71,20 +63,12 @@
 		},
 		{
 			id: 'raft',
-			label: 'Raft Cluster',
-			tag: 'RAFT',
+			label: 'Cluster',
+			tag: 'CLUSTER',
 			description: 'Raft cluster view: node states, leader election, kill & recover',
 			component: ClusterSection,
 			ready: true,
 		},
-		{
-			id: 'compact',
-			label: 'Compaction',
-			tag: 'GC',
-			description: 'Manual compaction trigger and observe revision pruning',
-			component: null,
-			ready: false
-		}
 	];
 
 	let activeId = $state('kv');

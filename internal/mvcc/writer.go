@@ -264,11 +264,15 @@ func (w *writer) End() error {
 		return fmt.Errorf("%s: %w", msg, err)
 	}
 
+	// todo: fuse this into metrics as gaugeFunc
+	keyDelta := info.NewKeys - info.DeletedKeys
+
 	w.store.metrics.CommitedWritesTotal.Add(1)
 	w.store.metrics.TxnDurationSec.Observe(time.Since(w.startTime).Seconds())
 	w.store.metrics.PutsTotal.Add(float64(info.NewKeys))
 	w.store.metrics.DeletesTotal.Add(float64(info.DeletedKeys))
-	w.store.metrics.KeyCount.Add(float64(info.NewKeys - info.DeletedKeys))
+	w.store.keyCount.Add(keyDelta)
+	w.store.metrics.KeyCount.Add(float64(keyDelta))
 
 	return nil
 }

@@ -32,36 +32,36 @@ var (
 	errAuthTokenNotFound = errors.New("auth token not found")
 )
 
-type middleware = func(http.HandlerFunc) http.HandlerFunc
+type middleware = func(http.Handler) http.Handler
 
-func chain(base http.HandlerFunc, ms ...middleware) http.HandlerFunc {
+func chain(base http.Handler, ms ...middleware) http.Handler {
 	for _, m := range ms {
 		base = m(base)
 	}
 	return base
 }
 
-func (s *HttpServer) writeChain(base http.HandlerFunc) http.HandlerFunc {
+func (s *HttpServer) writeChain(base http.HandlerFunc) http.Handler {
 	return chain(base, s.requestLoggingMiddleware, s.writeLimitMiddleware, s.leaderMiddleware)
 }
 
-func (s *HttpServer) strongReadChain(base http.HandlerFunc) http.HandlerFunc {
+func (s *HttpServer) strongReadChain(base http.HandlerFunc) http.Handler {
 	return chain(base, s.requestLoggingMiddleware, s.readLimitMiddleware, s.consitencyMiddleware)
 }
 
 // weakReadChain does not contain the consistentcy middleware in the chain,
 // making reads return possible stale state (fine for OtInit for example)
-func (s *HttpServer) weakReadChain(base http.HandlerFunc) http.HandlerFunc {
+func (s *HttpServer) weakReadChain(base http.HandlerFunc) http.Handler {
 	return chain(base, s.requestLoggingMiddleware, s.readLimitMiddleware)
 }
 
-func (s *HttpServer) adminChain(base http.HandlerFunc) http.HandlerFunc {
+func (s *HttpServer) adminChain(base http.HandlerFunc) http.Handler {
 	// adminAuthMiddleware before writeLimitMiddleware:	dont waste write tokens if the auth header is invalid
 	return chain(base, s.requestLoggingMiddleware, s.adminAuthMiddleware, s.writeLimitMiddleware, s.leaderMiddleware)
 }
 
-func (s *HttpServer) consitencyMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func (s *HttpServer) consitencyMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		drainedBytes, err := drainBody(r.Body)
 		if err != nil {
 			s.writeError(w, errMsgReadMiddleware, err, http.StatusBadRequest)
@@ -79,7 +79,7 @@ func (s *HttpServer) consitencyMiddleware(next http.HandlerFunc) http.HandlerFun
 		}
 
 		if peek.Serializable {
-			next(w, r)
+			next.ServeHTTP(w, r)
 			return
 		}
 
@@ -99,8 +99,8 @@ func (s *HttpServer) consitencyMiddleware(next http.HandlerFunc) http.HandlerFun
 			return
 		}
 
-		next(w, r)
-	}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func drainBody(oldBody io.ReadCloser) (read []byte, err error) {
@@ -115,8 +115,8 @@ func drainBody(oldBody io.ReadCloser) (read []byte, err error) {
 	return
 }
 
-func (s *HttpServer) leaderMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func (s *HttpServer) leaderMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		leader, err := s.raftSvc.Leader(r.Context())
 		if err != nil {
 			s.writeError(w, errMsgWriteMiddleware, err, http.StatusServiceUnavailable)
@@ -128,8 +128,8 @@ func (s *HttpServer) leaderMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		next(w, r)
-	}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func newReverseProxy(advertisedAddr string) *httputil.ReverseProxy {
@@ -173,8 +173,8 @@ func (s *HttpServer) proxyToLeader(w http.ResponseWriter, r *http.Request, leade
 	proxy.ServeHTTP(w, r)
 }
 
-func (s *HttpServer) requestLoggingMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func (s *HttpServer) requestLoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		s.logger.WithGroup("request").
 			Debug("new request",
@@ -193,7 +193,7 @@ func (s *HttpServer) requestLoggingMiddleware(next http.HandlerFunc) http.Handle
 				"elapsed_time", time.Since(start),
 				"status_code", i.statusCode,
 			)
-	}
+	})
 }
 
 // corsMuxMiddleware sets general CORS headers on the servers Multiplexer,
@@ -214,8 +214,26 @@ func (s *HttpServer) corsMuxMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func (s *HttpServer) adminAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func (s *HttpServer) panicRecoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				s.logger.Error("HTTP request panicked",
+					"error", err,
+					"path", r.URL.Path,
+					"method", r.Method,
+				)
+
+				s.writeError(w, "Internal Server Error", fmt.Errorf("unexpected error (panicked): %v", err), http.StatusInternalServerError)
+			}
+		}()
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *HttpServer) adminAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestToken := r.Header.Get(transport.AdminAuthTokenHeaderName)
 		s.logger.Info("DEBUGGING ADMIN_AUTH_TOKEN",
 			"client_sent", requestToken,
@@ -232,8 +250,8 @@ func (s *HttpServer) adminAuthMiddleware(next http.HandlerFunc) http.HandlerFunc
 			return
 		}
 
-		next(w, r)
-	}
+		next.ServeHTTP(w, r)
+	})
 }
 
 type statusCodeInterceptor struct {

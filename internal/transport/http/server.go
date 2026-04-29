@@ -124,7 +124,7 @@ func NewHTTPServer(
 	s.rootLogger = logger
 	s.server = &http.Server{
 		Addr:    listenAddr,
-		Handler: s.corsMuxMiddleware(mux),
+		Handler: s.panicRecoveryMiddleware(s.corsMuxMiddleware(mux)),
 	}
 	s._adminAuthToken = adminAuthToken
 	s.nodeKillSwitch = nodeKillSwitch
@@ -140,34 +140,34 @@ func NewHTTPServer(
 	)
 
 	// kv
-	mux.HandleFunc("POST "+RouteKvRange, s.strongReadChain(s.handleKvRange)) // hack so browsers accept GET with body
-	mux.HandleFunc("GET "+RouteKvRange, s.strongReadChain(s.handleKvRange))
-	mux.HandleFunc("POST "+RouteKvPut, s.writeChain(s.handleKvPut))
-	mux.HandleFunc("DELETE "+RouteKvDelete, s.writeChain(s.handleKvDelete))
-	mux.HandleFunc("POST "+RouteKvTxn, s.writeChain(s.handleKvTxn))
+	mux.Handle("POST "+RouteKvRange, s.strongReadChain(s.handleKvRange)) // hack so browsers accept GET with body
+	mux.Handle("GET "+RouteKvRange, s.strongReadChain(s.handleKvRange))
+	mux.Handle("POST "+RouteKvPut, s.writeChain(s.handleKvPut))
+	mux.Handle("DELETE "+RouteKvDelete, s.writeChain(s.handleKvDelete))
+	mux.Handle("POST "+RouteKvTxn, s.writeChain(s.handleKvTxn))
 
 	// lease
-	mux.HandleFunc("POST "+RouteLeaseGrant, s.writeChain(s.handleLeaseGrant))
-	mux.HandleFunc("DELETE "+RouteLeaseRevoke, s.writeChain(s.handleLeaseRevoke))
-	mux.HandleFunc("POST "+RouteLeaseKeepAlive, s.writeChain(s.handleLeaseKeepAlive))
+	mux.Handle("POST "+RouteLeaseGrant, s.writeChain(s.handleLeaseGrant))
+	mux.Handle("DELETE "+RouteLeaseRevoke, s.writeChain(s.handleLeaseRevoke))
+	mux.Handle("POST "+RouteLeaseKeepAlive, s.writeChain(s.handleLeaseKeepAlive))
 	// since leases are time sensitive, the only correct lookup should be done on the leader
-	mux.HandleFunc("POST "+RouteLeaseLookup, chain(s.handleLeaseLookup, s.requestLoggingMiddleware, s.readLimitMiddleware, s.leaderMiddleware)) // hack so browsers accept GET with body
-	mux.HandleFunc("GET "+RouteLeaseLookup, chain(s.handleLeaseLookup, s.requestLoggingMiddleware, s.readLimitMiddleware, s.leaderMiddleware))
+	mux.Handle("POST "+RouteLeaseLookup, chain(http.HandlerFunc(s.handleLeaseLookup), s.requestLoggingMiddleware, s.readLimitMiddleware, s.leaderMiddleware)) // hack so browsers accept GET with body
+	mux.Handle("GET "+RouteLeaseLookup, chain(http.HandlerFunc(s.handleLeaseLookup), s.requestLoggingMiddleware, s.readLimitMiddleware, s.leaderMiddleware))
 
 	// ot
-	mux.HandleFunc("POST "+RouteOtInit, s.weakReadChain(s.handleOTInit)) // hack so browsers accept GET with body
-	mux.HandleFunc("GET "+RouteOtInit, s.weakReadChain(s.handleOTInit))
-	mux.HandleFunc("POST "+RouteOtTransfer, s.strongReadChain(s.handleOTTransfer)) // hack so browsers accept GET with body
-	mux.HandleFunc("GET "+RouteOtTransfer, s.strongReadChain(s.handleOTTransfer))
-	mux.HandleFunc("POST "+RouteOtWriteAll, s.writeChain(s.handleOTWriteAll))
+	mux.Handle("POST "+RouteOtInit, s.weakReadChain(s.handleOTInit)) // hack so browsers accept GET with body
+	mux.Handle("GET "+RouteOtInit, s.weakReadChain(s.handleOTInit))
+	mux.Handle("POST "+RouteOtTransfer, s.strongReadChain(s.handleOTTransfer)) // hack so browsers accept GET with body
+	mux.Handle("GET "+RouteOtTransfer, s.strongReadChain(s.handleOTTransfer))
+	mux.Handle("POST "+RouteOtWriteAll, s.writeChain(s.handleOTWriteAll))
 
 	// watch: watches can be served from any node
-	mux.HandleFunc("GET "+RouteWatchWS, s.weakReadChain(s.handleWatch))
+	mux.Handle("GET "+RouteWatchWS, s.weakReadChain(s.handleWatch))
 
 	// admin / protected routes (auth WIP):
-	mux.HandleFunc("POST "+RouteJoinCluster, s.adminChain(s.handleJoin))                                               // cluster
-	mux.HandleFunc("DELETE "+RouteKillNode, s.adminChain(s.handleKillNode))                                            // kill a node given its id (forwarding request to given node, then killing self)
-	mux.HandleFunc("POST "+RouteTriggerCompaction, chain(s.adminChain(s.handleCompactionTrigger), s.leaderMiddleware)) // manual compaction trigger, must go through leader
+	mux.Handle("POST "+RouteJoinCluster, s.adminChain(s.handleJoin))                                               // cluster
+	mux.Handle("DELETE "+RouteKillNode, s.adminChain(s.handleKillNode))                                            // kill a node given its id (forwarding request to given node, then killing self)
+	mux.Handle("POST "+RouteTriggerCompaction, chain(s.adminChain(s.handleCompactionTrigger), s.leaderMiddleware)) // manual compaction trigger, must go through leader
 
 	// health / debug
 	mux.HandleFunc("GET "+RouteStats, s.handleStats)         // stats
@@ -631,7 +631,7 @@ func (s *HttpServer) writeError(w http.ResponseWriter, msg string, err error, st
 
 // readLimitMiddleware is a wrapper around the internal read rate limiters in the [HttpServer]
 // that fits the type definition of [middleware] functions.
-func (s *HttpServer) readLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
+func (s *HttpServer) readLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		l := s.readLimiter.Limiter(r.URL.Path)
 
@@ -646,8 +646,8 @@ func (s *HttpServer) readLimitMiddleware(next http.HandlerFunc) http.HandlerFunc
 
 // writeMiddleware is a wrapper around the internal write rate limiters in the [HttpServer]
 // that fits the type definition of [middleware] functions.
-func (s *HttpServer) writeLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func (s *HttpServer) writeLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		l := s.writeLimiter.Limiter(r.URL.Path)
 
 		if !l.Allow() {
@@ -656,5 +656,5 @@ func (s *HttpServer) writeLimitMiddleware(next http.HandlerFunc) http.HandlerFun
 		}
 
 		next.ServeHTTP(w, r)
-	})
+	}))
 }

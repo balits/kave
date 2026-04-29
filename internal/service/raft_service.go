@@ -314,6 +314,7 @@ func (rs *raftSvc) Stats(ctx context.Context) map[string]string {
 	rev, compactedRev := rs.store.Revisions()
 	s["revision"] = strconv.FormatInt(rev.Main, 10)
 	s["compacted_revision"] = strconv.FormatInt(compactedRev, 10)
+	s["key_count"] = strconv.FormatInt(rs.store.KeyCount(), 10)
 
 	conf, err := rs.RaftConfiguration(ctx)
 	if err != nil {

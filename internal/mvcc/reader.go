@@ -81,6 +81,14 @@ func (r *reader) RevisionRange(startRev, endRev int64, limit int64) (entries []*
 // doRange performs a range query for the given key range and revision, returning up to the given limit of entries.
 // It abstracts away the common logic of a range query, making it resuable for both Reader and Watcher implementations.
 func doRange(l *slog.Logger, kvIndex kv.Index, readTx backend.ReadTx, currRev, compactedRev, targetRev int64, key, end []byte, limit int64) (entries []*kv.Entry, count int, lastRev int64, err error) {
+	// etcd like fetchAll
+	// key = \x00: absolute beginning
+	// end = \x00: "infinity"
+	if len(key) == 1 && key[0] == 0x00 && len(end) == 1 && end[0] == 0x00 {
+		key = []byte{} //
+		end = nil      //
+	}
+
 	if targetRev > currRev {
 		return nil, 0, 0, fmt.Errorf("future revision requested")
 	}

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"sync"
+	"sync/atomic"
 
 	"github.com/balits/kave/internal/kv"
 	"github.com/balits/kave/internal/metrics"
@@ -18,6 +19,7 @@ import (
 type StoreMetaReader interface {
 	Meta() (currentRev kv.Revision, compactedRev int64, logIndex, logTerm uint64)
 	Revisions() (currentRev kv.Revision, compactedRev int64)
+	KeyCount() int64
 }
 
 type ReadOnlyStore interface {
@@ -40,8 +42,9 @@ type KvStore struct {
 	raftTerm         uint64       // latest applied raft term, protected by metaMu
 	applyIndex       uint64       // latest applied raft index, protected by metaMu
 
-	logger  *slog.Logger
-	metrics *metrics.KVMetrics
+	logger   *slog.Logger
+	metrics  *metrics.KVMetrics
+	keyCount atomic.Int64 // todo: fuse this into metrics as a gaugeFunc
 }
 
 func NewKvStoreWithIndex(reg prometheus.Registerer, logger *slog.Logger, b backend.Backend, index kv.Index) *KvStore {
@@ -69,6 +72,10 @@ func (s *KvStore) Meta() (currentRev kv.Revision, compactedRev int64, logIndex, 
 	s.metaMu.RLock()
 	defer s.metaMu.RUnlock()
 	return s.currentRev, s.compactedMainRev, s.applyIndex, s.raftTerm
+}
+
+func (s *KvStore) KeyCount() int64 {
+	return s.keyCount.Load()
 }
 
 // Writer acquires RLock so multiple writers can proceed concurrently

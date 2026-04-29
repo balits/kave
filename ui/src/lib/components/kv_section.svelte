@@ -89,6 +89,14 @@
 			}
 		}
 
+		let reqKey = key;
+		let reqEnd = end;
+		// maybe add deleteAll too?
+		if (kvOp == 'range' && key === '*') {
+			reqKey = '\x00';
+			reqEnd = '\x00';
+		}
+
 		reset_output();
 		loading = true;
 
@@ -117,8 +125,8 @@
 					break;
 				}
 				case 'range': {
-					const res = await client.kvRange(key, {
-						end: end || undefined,
+					const res = await client.kvRange(reqKey, {
+						end: reqEnd || undefined,
 						prefix,
 						revision: revision || undefined
 					});
@@ -203,7 +211,11 @@
 	{#if kvOp !== 'txn'}
 		<div class="field">
 			<label for="key">key</label>
-			<input id="key" bind:value={key} placeholder="e.g. myapp/config" spellcheck="false" />
+			<input
+			id="key"
+			bind:value={key}
+			placeholder={kvOp === 'range' || kvOp === 'delete' ? "e.g. myapp/config (or use * for all keys)" : "e.g. myapp/config"}
+			spellcheck="false" />
 		</div>
 
 		{#if kvOp === 'put'}
