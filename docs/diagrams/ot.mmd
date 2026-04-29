@@ -1,0 +1,29 @@
+sequenceDiagram
+    autonumber
+    actor C as Kliens
+    participant S as Szerver (OT Manager)
+
+    rect rgb(240, 248, 255)
+    Note over C, S: 1. Inicializálás (Init)
+    Note right of S: a = random skalár (szerver titka)<br/>A = a · G (publikus pont)<br/>token = seal(a)
+    S-->>C: A pont, token
+    end
+
+    rect rgb(255, 250, 240)
+    Note over C, S: 2. Kliens választásának elvakítása
+    Note left of C: c = választott index<br/>b = random skalár (kliens titka)<br/>B = b · G + c · A (elvakított pont)
+    C->>S: B pont, token
+    end
+
+    rect rgb(245, 255, 250)
+    Note over S, C: 3. Rekeszek titkosítása (Transfer)
+    Note right of S: a = open(token) -> token érvényességének vizgálata<br/>T = a · A (eltolás alapja)<br/>aB = a · B
+    Note right of S: Minden e indexű rekeszre:<br/>K_e = aB - e · T (rekesz kulcsa)<br/>C_e = GCM(h(K_e), rekesz_e)
+    S-->>C: Titkosított rekeszek tömbje: [C_0, C_1, ..., C_n]
+    end
+
+    rect rgb(255, 240, 245)
+    Note over C, S: 4. Visszafejtés (Decryption)
+    Note left of C: Közös titkos kulcs kiszámítása a saját c indexre:<br/>K_c = b · A
+    Note left of C: Csak a 'c' indexű rekesz fejthető vissza hibamentesen:<br/>plaintext = GCM_Open(h(K_c), C_c)
+    end

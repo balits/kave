@@ -61,10 +61,7 @@ spec:
             - name: NODE_ROLE
               value: voter
             - name: ADMIN_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: kave-admin-token
-                  key: token
+              value: {{ .Values.config.adminAuthToken }}
           ports:
             - name: raft
               containerPort: {{ .Values.ports.raft }}

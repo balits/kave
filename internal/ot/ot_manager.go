@@ -142,11 +142,11 @@ func (om *OTManager) Init() (pointA, token []byte, err error) {
 //
 //	recompute point A  = a * G
 //	compute point aB = a * B
-//	compute point T  = a * Ab
+//	compute point T  = a * A
 //	for each index i in [0, N):
 //		compute scalar e	= new Scalar(i)
 //		compute point eT   	= e * T
-//		compute key 	= a*B - e*T
+//		compute key 	= aB - eT
 //		compute keyHashed	= sha256(eKey)
 //		yield ciphertext	= GCM(key=keyHashed, plaintext=slot[i], nonce=RandomNonce())
 func (om *OTManager) Transfer(token, pointB []byte) (ciphertexts [][]byte, err error) {
@@ -290,14 +290,14 @@ func (om *OTManager) ApplyGenerateClusterKey(key []byte) error {
 		wtx.Rollback()
 		return fmt.Errorf("%w: %w", ErrClusterKeyGen, err)
 	}
-
+	om.logger.Info("OT: cluster key generated")
 	om.logger.Info("Wiring up ot.tokenCodec")
 	tc, err := newTokenCodec(key, om.opts.TokenTTL)
 	if err != nil {
 		return fmt.Errorf("%w: init token codec error: %w", ErrClusterKeyGen, err)
 	}
 	om.codec = tc
-
+	om.logger.Info("OT: ot.tokenCodec instantiated")
 	return nil
 }
 

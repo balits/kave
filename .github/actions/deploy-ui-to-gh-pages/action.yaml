@@ -13,7 +13,7 @@ inputs:
     description: slot count of the OT api 
   admin_token:
     required: true
-    description: admin token for protected routes
+    description: admin token for protected admin routes
 
 outputs:
   page_url:

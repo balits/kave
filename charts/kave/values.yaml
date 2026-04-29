@@ -14,6 +14,7 @@ ports:
   http: 8000
 
 config:
+  adminAuthToken: "-" # gets injected through ENV instead of config.json
   logger: 
     kind: "text" # text | json | discard
     level: "debug" # debug | info | warn | error

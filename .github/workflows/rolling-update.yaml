@@ -68,6 +68,7 @@ jobs:
           kubeconfig_b64: ${{ secrets.KUBECONFIG_B64 }}
           app_name: "kave" # just to be explicit
           image_tag: ${{ needs.build-img.outputs.image_tag }}
+          admin_token: ${{ secrets.ADMIN_TOKEN }}
 
   extract-helm-config-values:
     name: Extract config values from the helm chart  
