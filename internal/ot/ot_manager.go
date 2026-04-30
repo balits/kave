@@ -20,11 +20,11 @@ import (
 
 const (
 	MinSlotCount     int = 16
-	DefaultSlotCount int = 64
+	DefaultSlotCount int = 32
 	MaxSlotCount     int = 512
 
 	MinSlotSize     int = 32
-	DefaultSlotSize int = 256
+	DefaultSlotSize int = 64
 	MaxSlotSize     int = 4096
 
 	MinTokenTTL int64 = 15 // Min time-to-live for any token in secons
