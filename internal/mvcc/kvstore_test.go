@@ -63,7 +63,7 @@ func Test_KVStoreUpdateRaftMeta(t *testing.T) {
 	t.Parallel()
 	s := newTestKVStore(t)
 
-	s.UpdateRaftMeta(100, 5)
+	s.UpdateInmemRaftMeta(100, 5)
 	if s.applyIndex != 100 {
 		t.Errorf("raftIndex = %d, want 100", s.applyIndex)
 	}
@@ -232,7 +232,7 @@ func Test_KVStoreRestoreInmem(t *testing.T) {
 		InitialBuckets: schema.AllBuckets,
 	}))
 
-	s.UpdateRaftMeta(10, 3)
+	s.UpdateInmemRaftMeta(10, 3)
 	w := s.NewWriter()
 	w.Put([]byte("rk"), []byte("rv"), 0)
 	w.End()
@@ -269,7 +269,7 @@ func Test_KVStoreRestoreBoltdb(t *testing.T) {
 	b1 := backend.New(prometheus.NewRegistry(), slog.Default(), opts1)
 	s1 := NewKvStore(prometheus.NewRegistry(), slog.Default(), b1)
 
-	s1.UpdateRaftMeta(10, 3)
+	s1.UpdateInmemRaftMeta(10, 3)
 	w := s1.NewWriter()
 	w.Put([]byte("k"), []byte("v"), 0)
 	w.End()

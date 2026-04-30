@@ -71,6 +71,13 @@ func (f *Fsm) RegisterObservers(obs ...WriteObserver) {
 // Apply should be as fast as possible, therefore:
 // 1) validate command structure and arguments before callig Apply
 func (f *Fsm) Apply(log *raft.Log) any {
+	lastAppliedIndex, _ := f.store.RaftMeta()
+	if log.Index <= lastAppliedIndex {
+		f.logger.Debug("skipping already applied raft log (replay)", "log_index", log.Index, "last_applied", lastAppliedIndex)
+		// safe to return empty result during boot replays here
+		return command.Result{}
+	}
+
 	// this makes test way easier
 	if f.metrics != nil {
 		start := time.Now()
@@ -87,7 +94,7 @@ func (f *Fsm) Apply(log *raft.Log) any {
 		return command.Result{Error: err}
 	}
 
-	f.store.UpdateRaftMeta(log.Index, log.Term)
+	f.store.UpdateInmemRaftMeta(log.Index, log.Term)
 
 	var res command.Result
 
@@ -112,6 +119,7 @@ func (f *Fsm) Apply(log *raft.Log) any {
 	res.Header.NodeID = f.me.NodeID
 
 	if res.Error == nil {
+		f.store.PersistRaftMeta()
 		for _, o := range f.writeObservers {
 			o.OnWrite(res.Header.Revision)
 		}

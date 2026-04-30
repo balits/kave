@@ -102,11 +102,25 @@ func (s *KvStore) NewReader() Reader {
 	return &reader{store: s, metrics: s.metrics}
 }
 
-func (s *KvStore) UpdateRaftMeta(logIndex, term uint64) {
+func (s *KvStore) UpdateInmemRaftMeta(logIndex, term uint64) {
 	s.metaMu.Lock()
 	defer s.metaMu.Unlock()
 	s.applyIndex = logIndex
 	s.raftTerm = term
+}
+
+func (s *KvStore) PersistRaftMeta() {
+	s.metaMu.RLock()
+	idx := s.applyIndex
+	term := s.raftTerm
+	s.metaMu.RUnlock()
+
+	wtx := s.backend.WriteTx()
+	wtx.Lock()
+	defer wtx.Unlock()
+	_ = wtx.UnsafePut(schema.BucketMeta, schema.KeyRaftApplyIndex, util.EncodeUint64(idx))
+	_ = wtx.UnsafePut(schema.BucketMeta, schema.KeyRaftTerm, util.EncodeUint64(term))
+	_, _ = wtx.Commit()
 }
 
 func (s *KvStore) RaftMeta() (logIndex, term uint64) {
@@ -188,6 +202,11 @@ func (s *KvStore) Restore() error {
 	var finalCompacteRev int64
 	if scheduledCompactedRev > finishedCompactedRev {
 		finalCompacteRev = scheduledCompactedRev
+		s.logger.Info("resuming interrupted compaction from previous run",
+			"target_rev", scheduledCompactedRev,
+			"previously_finished_rev", finishedCompactedRev,
+		)
+		go s.doCompact(scheduledCompactedRev, finishedCompactedRev)
 	} else {
 		finalCompacteRev = finishedCompactedRev
 	}

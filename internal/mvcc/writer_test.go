@@ -517,7 +517,7 @@ func Test_Writer_End_PersistsRaftMeta(t *testing.T) {
 	s := newTestKVStore(t)
 	defer s.backend.Close()
 
-	s.UpdateRaftMeta(42, 7)
+	s.UpdateInmemRaftMeta(42, 7)
 
 	w := s.NewWriter()
 	w.Put([]byte("k"), []byte("v"), 0)
