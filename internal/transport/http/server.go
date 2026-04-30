@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/balits/kave/internal/lease"
+	"github.com/balits/kave/internal/mvcc"
 	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/service"
 	"github.com/balits/kave/internal/transport"
@@ -85,6 +86,7 @@ type HttpServer struct {
 	otSvc           service.OTService
 	raftSvc         service.RaftService
 	watchHub        *watch.WatchHub
+	store           mvcc.StoreMetaReader
 	nodeKillSwitch  func()
 	readLimiter     *rateLimiter
 	writeLimiter    *rateLimiter
@@ -103,6 +105,7 @@ func NewHTTPServer(
 	otService service.OTService,
 	raftService service.RaftService,
 	watchHub *watch.WatchHub,
+	store mvcc.StoreMetaReader,
 	nodeKillSwitch func(),
 	reg *prometheus.Registry,
 	readLimitConfig ratelimiterConfig,
@@ -120,6 +123,7 @@ func NewHTTPServer(
 	s.otSvc = otService
 	s.raftSvc = raftService
 	s.watchHub = watchHub
+	s.store = store
 	s.logger = logger.With("component", "http_server", "addr", advAddr)
 	s.rootLogger = logger
 	s.server = &http.Server{
@@ -521,7 +525,7 @@ func (s *HttpServer) handleWatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session := watch.NewSession(conn, r.Context(), s.watchHub, s.rootLogger, 0, 0)
+	session := watch.NewSession(conn, r.Context(), s.watchHub, s.store, s.me, s.rootLogger, 0, 0)
 	defer session.Close()
 
 	if err = session.Run(); err != nil {

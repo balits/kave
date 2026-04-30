@@ -99,7 +99,7 @@ func (s *stream) Watch(ctx context.Context, req api.WatchCreateRequest) (res api
 	return
 }
 
-func (s *stream) Cancel(req api.WatchCancelRequest) (res api.WatchCreateResponse) {
+func (s *stream) Cancel(req api.WatchCancelRequest) (res api.WatchCancelResponse) {
 	s.logger.Info("Recieved WATCH_CANCEL request")
 	if s.closed.Load() {
 		res.Error = ErrStreamClosed

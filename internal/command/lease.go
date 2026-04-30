@@ -3,16 +3,16 @@ package command
 import "github.com/balits/kave/internal/types/api"
 
 type CmdLeaseGrant = api.LeaseGrantRequest
-type ResultLeaseGrant = api.LeaseGrantResponse
+type ResultLeaseGrant = api.LeaseGrantNoHeaderResponse
 
 type CmdLeaseRevoke = api.LeaseRevokeRequest
-type ResultLeaseRevoke = api.LeaseRevokeResponse
+type ResultLeaseRevoke = api.LeaseRevokeNoHeaderResponse
 
 type CmdLeaseKeepAlive = api.LeaseKeepAliveRequest
-type ResultLeaseKeepAlive = api.LeaseKeepAliveResponse
+type ResultLeaseKeepAlive = api.LeaseKeepAliveNoHeaderResponse
 
 type CmdLeaseLookup = api.LeaseLookupRequest
-type ResultLeaseLookup = api.LeaseLookupResponse
+type ResultLeaseLookup = api.LeaseLookupNoHeaderResponse
 
 // CmdLeaseCheckpoint is non-public command coming from lease.CheckpointScheduler
 // and it refreshed the leases remaining TTLs periodically

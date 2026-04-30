@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/balits/kave/internal/kv"
+	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/types/api"
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -26,7 +27,7 @@ func newSessionHandler(t *testing.T, hub *WatchHub) (*httptest.Server, string) {
 		require.NoError(t, err)
 		defer conn.CloseNow()
 
-		session := NewSession(conn, context.Background(), hub, testLogger(), 0, 0)
+		session := NewSession(conn, context.Background(), hub, &mockStore{}, peer.TestPeer(), testLogger(), 0, 0)
 		defer session.Close()
 		session.Run()
 		conn.Close(websocket.StatusNormalClosure, "done")

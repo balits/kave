@@ -113,11 +113,11 @@ func newTestServer(t *testing.T, isLeaderValue bool) *testServer {
 
 	discoverySvc := &mockDiscoveryService{me}
 	kvSvc := service.NewKVService(logger, me, kvstore, raftService, kvOpts, propose)
-	leaseSvc := service.NewLeaseService(logger, propose)
+	leaseSvc := service.NewLeaseService(logger, me, kvstore, propose)
 	otSvc := service.NewOTService(logger, me, kvstore, om, raftService, propose)
 	rateLimiterConfig := NewRateLimiterConfig(2000, 2000) // set to a gorbillion so tests can run in parallel
 
-	httpServer := NewHTTPServer(logger, me, discoverySvc, kvSvc, leaseSvc, otSvc, raftService, watchHub, func() {}, reg, rateLimiterConfig, rateLimiterConfig, testAdminAuthToken)
+	httpServer := NewHTTPServer(logger, me, discoverySvc, kvSvc, leaseSvc, otSvc, raftService, watchHub, kvstore, func() {}, reg, rateLimiterConfig, rateLimiterConfig, testAdminAuthToken)
 
 	ts := httptest.NewServer(httpServer.server.Handler)
 	t.Cleanup(ts.Close)

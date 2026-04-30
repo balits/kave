@@ -30,6 +30,7 @@ type testLeaseService struct {
 
 func newTestLeaseService(t *testing.T) *testLeaseService {
 	t.Helper()
+	me := peer.TestPeer()
 	logger := slog.Default()
 	reg := metrics.InitTestPrometheus()
 	backend := backend.New(reg, logger, storage.Options{
@@ -61,7 +62,7 @@ func newTestLeaseService(t *testing.T) *testLeaseService {
 		return &result, nil
 	}
 
-	svc := NewLeaseService(logger, propose)
+	svc := NewLeaseService(logger, me, kvstore, propose)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	t.Cleanup(cancel)
 

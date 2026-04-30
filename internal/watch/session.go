@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/balits/kave/internal/kv"
+	"github.com/balits/kave/internal/mvcc"
+	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/types/api"
 	"github.com/balits/kave/internal/util"
 	"github.com/coder/websocket"
@@ -41,20 +43,24 @@ var (
 // messages, the other sends control messages or watcher events to the client.
 // If any of these go routines produce an error, the session is terminated
 type Session struct {
-	id             int64              // ID of the session
-	conn           *websocket.Conn    // handle to ws
-	g              *errgroup.Group    // err group to handle go routines
-	ctx            context.Context    // session level ctx
-	stream         Stream             // handle to event stream
-	writeTimeoutMs int64              // timeout for writes
-	outC           chan ServerMessage // channel for writing messages to the client
-	logger         *slog.Logger       // hmm i wonder what this could be...
+	id             int64                // ID of the session
+	conn           *websocket.Conn      // handle to ws
+	g              *errgroup.Group      // err group to handle go routines
+	ctx            context.Context      // session level ctx
+	stream         Stream               // handle to event stream
+	writeTimeoutMs int64                // timeout for writes
+	outC           chan ServerMessage   // channel for writing messages to the client
+	store          mvcc.StoreMetaReader // used to stamp a Header on newly created watches
+	me             peer.Peer            // used to stamp a Header on newly created watches
+	logger         *slog.Logger         // hmm i wonder what this could be...
 }
 
 func NewSession(
 	conn *websocket.Conn,
 	ctx context.Context,
 	hub *WatchHub,
+	store mvcc.StoreMetaReader,
+	me peer.Peer,
 	logger *slog.Logger,
 	readTimeoutMs,
 	writeTimeoutMs int64,
@@ -76,6 +82,8 @@ func NewSession(
 		g:              g,
 		ctx:            derived,
 		stream:         NewStream(derived, logger, hub),
+		store:          store,
+		me:             me,
 		writeTimeoutMs: wt,
 		outC:           make(chan ServerMessage, streamEventBufferSize/2),
 		logger:         logger.With("component", "session", "session_id", id),
@@ -213,6 +221,14 @@ func (s *Session) reader() (err error) {
 				response, err = toServerErrorMessage(errInvalidWatchRequestPayload, msg)
 			} else {
 				res := s.stream.Watch(s.ctx, payload)
+				currRev, compactedRev, raftIndex, raftTerm := s.store.Meta()
+				res.Header = api.ResponseHeader{
+					Revision:     currRev.Main,
+					CompactedRev: compactedRev,
+					RaftTerm:     raftTerm,
+					RaftIndex:    raftIndex,
+					NodeID:       s.me.NodeID,
+				}
 				response, err = toServerWatchCreate(res)
 			}
 		case ClientWatchCancel:

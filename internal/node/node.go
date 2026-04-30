@@ -117,6 +117,7 @@ func New(cfg *config.Config, logger *slog.Logger, reg *prometheus.Registry) (*No
 		n.OtService,
 		n.RaftService,
 		n.WatchHub,
+		n.KvStore,
 		func() { n.shutdownC <- struct{}{} },
 		reg,
 		cfg.RatelimiterOpts.Read,
@@ -396,7 +397,7 @@ func (n *Node) initServices(cfg *config.Config) error {
 	}
 	n.DiscoveryService = discoveryService
 	n.RaftService = service.NewRaftService(n.Logger, n.Raft, APPLY_LAG_THRESHOLD, n.KvStore)
-	n.LeaseService = service.NewLeaseService(n.Logger, n.ProposeFunc)
+	n.LeaseService = service.NewLeaseService(n.Logger, n.Me, n.KvStore, n.ProposeFunc)
 	n.OtService = service.NewOTService(n.Logger, cfg.Me, n.KvStore, n.OtManager, n.RaftService, n.ProposeFunc)
 	n.KvService = service.NewKVService(n.Logger, cfg.Me, n.KvStore, n.RaftService, cfg.KvOptions, n.ProposeFunc)
 	return nil

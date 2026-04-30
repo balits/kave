@@ -25,7 +25,10 @@ func (r *WatchCreateRequest) Check() error {
 	return nil
 }
 
-type WatchCreateResponse = watchResponse
+type WatchCreateResponse struct {
+	Header ResponseHeader `json:"header"`
+	watchResponse
+}
 
 type WatchCancelRequest struct {
 	WatchID int64 `json:"watch_id"`

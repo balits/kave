@@ -7,6 +7,8 @@ import (
 
 	"github.com/balits/kave/internal/command"
 	"github.com/balits/kave/internal/fsm"
+	"github.com/balits/kave/internal/mvcc"
+	"github.com/balits/kave/internal/peer"
 	"github.com/balits/kave/internal/types/api"
 	"github.com/balits/kave/internal/util"
 )
@@ -18,14 +20,18 @@ type LeaseService interface {
 	Lookup(ctx context.Context, req api.LeaseLookupRequest) (res *api.LeaseLookupResponse, err error)
 }
 
-func NewLeaseService(logger *slog.Logger, propose util.ProposeFunc) LeaseService {
+func NewLeaseService(logger *slog.Logger, me peer.Peer, store mvcc.StoreMetaReader, propose util.ProposeFunc) LeaseService {
 	return &leaseSvc{
+		store:  store,
+		me:     me,
 		propse: propose,
 		logger: logger.With("component", "lease_service"),
 	}
 }
 
 type leaseSvc struct {
+	store  mvcc.StoreMetaReader
+	me     peer.Peer
 	propse util.ProposeFunc
 	logger *slog.Logger
 }
@@ -55,7 +61,10 @@ func (ls *leaseSvc) Grant(ctx context.Context, req api.LeaseGrantRequest) (*api.
 		return nil, fmt.Errorf("grant failed: %w", fsm.ErrNilApplyResult)
 	}
 
-	return result.LeaseGrant, nil
+	return &api.LeaseGrantResponse{
+		Header:                     makeHeader(ls.store, ls.me.NodeID),
+		LeaseGrantNoHeaderResponse: *result.LeaseGrant,
+	}, nil
 }
 
 func (ls *leaseSvc) Revoke(ctx context.Context, req api.LeaseRevokeRequest) (*api.LeaseRevokeResponse, error) {
@@ -78,7 +87,10 @@ func (ls *leaseSvc) Revoke(ctx context.Context, req api.LeaseRevokeRequest) (*ap
 		return nil, fmt.Errorf("revoke failed: %w", fsm.ErrNilApplyResult)
 	}
 
-	return result.LeaseRevoke, nil
+	return &api.LeaseRevokeResponse{
+		Header:                      makeHeader(ls.store, ls.me.NodeID),
+		LeaseRevokeNoHeaderResponse: *result.LeaseRevoke,
+	}, nil
 }
 
 func (ls *leaseSvc) KeepAlive(ctx context.Context, req api.LeaseKeepAliveRequest) (*api.LeaseKeepAliveResponse, error) {
@@ -101,10 +113,13 @@ func (ls *leaseSvc) KeepAlive(ctx context.Context, req api.LeaseKeepAliveRequest
 		return nil, fmt.Errorf("keep alive failed: %w", fsm.ErrNilApplyResult)
 	}
 
-	return result.LeaseKeepAlive, nil
+	return &api.LeaseKeepAliveResponse{
+		Header:                         makeHeader(ls.store, ls.me.NodeID),
+		LeaseKeepAliveNoHeaderResponse: *result.LeaseKeepAlive,
+	}, nil
 }
 
-func (ls *leaseSvc) Lookup(ctx context.Context, req api.LeaseLookupRequest) (res *api.LeaseLookupResponse, err error) {
+func (ls *leaseSvc) Lookup(ctx context.Context, req api.LeaseLookupRequest) (*api.LeaseLookupResponse, error) {
 	ls.logger.WithGroup("request").
 		Debug("Recieved Lookup request",
 			"id", req.LeaseID,
@@ -124,5 +139,8 @@ func (ls *leaseSvc) Lookup(ctx context.Context, req api.LeaseLookupRequest) (res
 		return nil, fmt.Errorf("lookup failed: %w", fsm.ErrNilApplyResult)
 	}
 
-	return result.LeaseLookup, nil
+	return &api.LeaseLookupResponse{
+		Header:                      makeHeader(ls.store, ls.me.NodeID),
+		LeaseLookupNoHeaderResponse: *result.LeaseLookup,
+	}, nil
 }
