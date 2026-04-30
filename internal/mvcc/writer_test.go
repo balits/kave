@@ -558,3 +558,83 @@ func Test_Writer_End_NoRaftMetaWhenZero(t *testing.T) {
 		t.Error("raft meta should not be persisted when raftIndex == 0")
 	}
 }
+
+func Test_Writer_Abort_RollsBackIndex(t *testing.T) {
+	t.Parallel()
+	store := newTestKVStore(t)
+
+	// 1. Setup initial state
+	w1 := store.NewWriter()
+	require.NoError(t, w1.Put([]byte("foo"), []byte("v1"), 0))
+	require.NoError(t, w1.End())
+
+	// 2. Start a new transaction that makes a mess
+	w2 := store.NewWriter()
+
+	// Modify existing key
+	require.NoError(t, w2.Put([]byte("foo"), []byte("v2"), 0))
+	// Add new key
+	require.NoError(t, w2.Put([]byte("bar"), []byte("v1"), 0))
+	// Delete the existing key
+	require.NoError(t, w2.DeleteKey([]byte("foo")))
+
+	// 3. Verify Intra-transaction visibility (the writer should see its own changes)
+	barEntry := w2.Get([]byte("bar"), 0)
+	require.NotNil(t, barEntry)
+	require.Equal(t, "v1", string(barEntry.Value))
+
+	fooEntry := w2.Get([]byte("foo"), 0)
+	require.Nil(t, fooEntry, "foo should be tombstoned inside the transaction")
+
+	// 4. ABORT!
+	w2.Abort()
+
+	// 5. Verify Rollback (Global state must be completely untouched)
+	r := store.NewReader()
+
+	// "bar" should be completely gone
+	barRestored := r.Get([]byte("bar"), 0)
+	require.Nil(t, barRestored, "bar should have been rolled back from the tree index")
+
+	// "foo" should be exactly as it was before Txn 2
+	fooRestored := r.Get([]byte("foo"), 0)
+	require.NotNil(t, fooRestored, "foo's tombstone should be rolled back")
+	require.Equal(t, "v1", string(fooRestored.Value), "foo should revert to v1")
+}
+
+func Test_Writer_Abort_MultipleUpdatesToSameKey(t *testing.T) {
+	t.Parallel()
+	store := newTestKVStore(t)
+
+	w := store.NewWriter()
+
+	// Update the exact same key 3 times in one transaction
+	// This tests if the undo loop correctly drops all 3 sub-revisions
+	// without breaking the keyIndex generations
+	require.NoError(t, w.Put([]byte("spam"), []byte("1"), 0))
+	require.NoError(t, w.Put([]byte("spam"), []byte("2"), 0))
+	require.NoError(t, w.Put([]byte("spam"), []byte("3"), 0))
+
+	// Ensure it's there
+	require.NotNil(t, w.Get([]byte("spam"), 0))
+
+	w.Abort()
+
+	// Ensure the keyIndex is completely empty and removed from the B-Tree
+	r := store.NewReader()
+	require.Nil(t, r.Get([]byte("spam"), 0))
+}
+
+func Test_Writer_Abort_ProtectsGlobalRevision(t *testing.T) {
+	t.Parallel()
+	store := newTestKVStore(t)
+
+	startRev, _ := store.Revisions()
+
+	w := store.NewWriter()
+	require.NoError(t, w.Put([]byte("foo"), []byte("bar"), 0))
+	w.Abort()
+
+	endRev, _ := store.Revisions()
+	require.Equal(t, startRev.Main, endRev.Main)
+}

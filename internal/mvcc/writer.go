@@ -1,6 +1,7 @@
 package mvcc
 
 import (
+	"bytes"
 	"fmt"
 	"time"
 
@@ -78,6 +79,19 @@ func (w *writer) UnsafeExpectedChanges() (int64, []*kv.Entry) {
 }
 
 func (w *writer) Get(key []byte, rev int64) *kv.Entry {
+	if rev <= 0 {
+		for i := len(w.changes) - 1; i >= 0; i-- {
+			entry := w.changes[i]
+			if bytes.Equal(entry.Key, key) {
+				// tombstone
+				if entry.Value == nil {
+					return nil
+				}
+				return entry
+			}
+		}
+	}
+
 	entries, _, _, err := w.Range(key, nil, rev, 1)
 	if err != nil {
 		return nil
@@ -94,7 +108,13 @@ func (w *writer) Range(key, end []byte, targetRev int64, limit int64) (entries [
 	defer func() { w.store.metrics.ReadDurationSec.Observe(time.Since(start).Seconds()) }()
 
 	currRev, compactedRev := w.store.Revisions()
-	return doRange(w.store.logger, w.store.kvIndex, w.writeTx, currRev.Main, compactedRev, targetRev, key, end, limit)
+	currentMain := currRev.Main
+	// latest rev should include whatever the writer has
+	if targetRev <= 0 {
+		targetRev = w.startRev.Main + 1
+		currentMain = targetRev
+	}
+	return doRange(w.store.logger, w.store.kvIndex, w.writeTx, currentMain, compactedRev, targetRev, key, end, limit)
 }
 
 // As this is an 'internal', non public facing API, we dont need to track metrics here
@@ -223,6 +243,13 @@ func (w *writer) deleteKey(key []byte) error {
 }
 
 func (w *writer) Abort() {
+	nextRev := w.startRev.Main + 1
+	for i := len(w.changes) - 1; i >= 0; i-- {
+		entry := w.changes[i]
+		rev := kv.Revision{Main: nextRev, Sub: int64(i)}
+		w.store.kvIndex.DropRevision(entry.Key, rev)
+	}
+
 	w.changes = nil
 	w.writeTx.Rollback()
 	w.writeTx.Unlock()        // release db lock
@@ -259,6 +286,15 @@ func (w *writer) End() error {
 
 	info, err := w.writeTx.Commit()
 	if err != nil {
+		if hasChanges {
+			nextRev := w.startRev.Main + 1
+			for i := len(w.changes) - 1; i >= 0; i-- {
+				entry := w.changes[i]
+				rev := kv.Revision{Main: nextRev, Sub: int64(i)}
+				w.store.kvIndex.DropRevision(entry.Key, rev)
+			}
+		}
+
 		msg := "failed to commit write tx"
 		w.store.logger.Error(msg, "error", err)
 		return fmt.Errorf("%s: %w", msg, err)

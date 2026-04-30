@@ -84,6 +84,9 @@ type Index interface {
 
 	// KeyIndex looks up a keyIndex by key. Returns nil if not found.
 	KeyIndex(ki *keyIndex) *keyIndex
+
+	// DropRevision drops the given revision for the key if found
+	DropRevision(key []byte, rev Revision)
 }
 
 type treeIndex struct {
@@ -380,4 +383,17 @@ func (ti *treeIndex) Clear() {
 	ti.mu.Lock()
 	defer ti.mu.Unlock()
 	ti.tree.Clear(false)
+}
+
+func (ti *treeIndex) DropRevision(key []byte, rev Revision) {
+	ti.mu.Lock()
+	defer ti.mu.Unlock()
+
+	ki := &keyIndex{key: key}
+	if got, ok := ti.tree.Get(ki); ok {
+		got.dropRev(rev)
+		if got.isEmpty() {
+			ti.tree.Delete(got)
+		}
+	}
 }

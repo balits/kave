@@ -328,6 +328,41 @@ func (ki *keyIndex) equal(b *keyIndex) bool {
 	return true
 }
 
+func (ki *keyIndex) dropRev(rev Revision) {
+	if len(ki.generations) == 0 {
+		return
+	}
+
+	lastGenIdx := len(ki.generations) - 1
+	g := &ki.generations[lastGenIdx]
+
+	if len(g.revs) == 0 {
+		// if tombstoned, remove empty generation
+		ki.generations = ki.generations[:lastGenIdx]
+		lastGenIdx--
+		if lastGenIdx < 0 {
+			ki.modRev = Revision{}
+			return
+		}
+		g = &ki.generations[lastGenIdx]
+	}
+
+	// pop revs that match
+	if len(g.revs) > 0 && g.revs[len(g.revs)-1] == rev {
+		g.revs = g.revs[:len(g.revs)-1]
+		g.version--
+	}
+
+	var newModRev Revision
+	for i := len(ki.generations) - 1; i >= 0; i-- {
+		if len(ki.generations[i].revs) > 0 {
+			newModRev = ki.generations[i].revs[len(ki.generations[i].revs)-1]
+			break
+		}
+	}
+	ki.modRev = newModRev // get the updated modRev
+}
+
 type generation struct {
 	version int64
 	created Revision
