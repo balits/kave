@@ -21,7 +21,7 @@
 	}
 
 	poll();
-	const interval = setInterval(poll, 2000);
+	const interval = setInterval(poll, 3000);
 	onDestroy(() => clearInterval(interval));
 
 	const currentRev: number = $derived(stats?.revision ?? -1)

@@ -170,10 +170,10 @@ func NewHTTPServer(
 	mux.Handle("POST "+RouteTriggerCompaction, chain(s.adminChain(s.handleCompactionTrigger), s.leaderMiddleware)) // manual compaction trigger, must go through leader
 
 	// health / debug
-	mux.HandleFunc("GET "+RouteStats, s.handleStats)         // stats
-	mux.HandleFunc("GET "+RouteLivez, s.handleLivez)         // k8s /livez
-	mux.HandleFunc("GET "+RouteReadyz, s.handleReadyz)       // k8s /readyz
-	mux.Handle("GET "+RouteMetrics, promhttp.HandlerFor(reg, // prometheus metrics
+	mux.Handle("GET "+RouteStats, chain(http.HandlerFunc(s.handleStats), s.readLimitMiddleware, s.leaderMiddleware)) // stats
+	mux.HandleFunc("GET "+RouteLivez, s.handleLivez)                                                                 // k8s /livez
+	mux.HandleFunc("GET "+RouteReadyz, s.handleReadyz)                                                               // k8s /readyz
+	mux.Handle("GET "+RouteMetrics, promhttp.HandlerFor(reg,                                                         // prometheus metrics
 		promhttp.HandlerOpts{},
 	))
 
