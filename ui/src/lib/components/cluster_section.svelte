@@ -149,10 +149,6 @@
 					<span class="metric-label">compacted rev</span>
 					<span class="metric-val dim">{stats.compacted_revision}</span>
 				</div>
-				<div class="metric">
-					<span class="metric-label">key count</span>
-					<span class="metric-val dim">{stats.key_count}</span>
-				</div>
 			</div>
 
 			<div class="nodes-grid">
